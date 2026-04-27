@@ -47,8 +47,10 @@ export class PlayerExecution implements Execution {
       }
 
       const owner = this.mg!.owner(u.tile());
-      if (!owner?.isPlayer() && u.type() !== UnitType.WaterBomb) {
-        u.delete();
+      if (!owner?.isPlayer()) {
+        if (u.type() !== UnitType.WaterBomb) {
+          u.delete();
+        }
         continue;
       }
       if (owner === this.player) {

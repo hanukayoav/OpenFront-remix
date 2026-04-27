@@ -1,4 +1,4 @@
-import quickChatData from "resources/QuickChat.json";
+import quickChatData from "resources/QuickChat.json" with { type: "json" };
 import { z } from "zod";
 import {
   ColorPaletteSchema,
