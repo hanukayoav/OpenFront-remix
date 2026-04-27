@@ -640,6 +640,9 @@ export class StructureIconsLayer implements Layer {
   }
 
   private handleActiveUnit(unitView: UnitView) {
+    if (unitView.type() === UnitType.WaterBomb && unitView.owner() !== this.game.myPlayer()) {
+      return;
+    }
     if (this.seenUnitIds.has(unitView.id())) {
       const render = this.findRenderByUnit(unitView);
       if (render) {

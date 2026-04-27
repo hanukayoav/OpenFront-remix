@@ -44,6 +44,7 @@ export class UnitDisplay extends LitElement implements Layer {
   private _port = 0;
   private _defensePost = 0;
   private _samLauncher = 0;
+  private _waterBomb = 0;
   private allDisabled = false;
   private _hoveredUnit: PlayerBuildableUnitType | null = null;
 
@@ -104,6 +105,7 @@ export class UnitDisplay extends LitElement implements Layer {
     this._samLauncher = player.totalUnitLevels(UnitType.SAMLauncher);
     this._factories = player.totalUnitLevels(UnitType.Factory);
     this._warships = player.totalUnitLevels(UnitType.Warship);
+    this._waterBomb = player.totalUnitLevels(UnitType.WaterBomb);
     this.requestUpdate();
   }
 
@@ -195,6 +197,13 @@ export class UnitDisplay extends LitElement implements Layer {
             UnitType.MIRV,
             "mirv",
             this.keybinds["buildMIRV"]?.key ?? "0",
+          )}
+          ${this.renderUnitItem(
+            atomBombIcon,
+            this._waterBomb,
+            UnitType.WaterBomb,
+            "water_bomb",
+            this.keybinds["buildWaterBomb"]?.key ?? "G",
           )}
         </div>
       </div>

@@ -316,6 +316,7 @@ export enum UnitType {
   MIRVWarhead = "MIRV Warhead",
   Train = "Train",
   Factory = "Factory",
+  WaterBomb = "Water Bomb",
 }
 
 export enum TrainType {
@@ -345,6 +346,7 @@ export const Structures = unitTypeGroup([
   UnitType.MissileSilo,
   UnitType.Port,
   UnitType.Factory,
+  UnitType.WaterBomb,
 ] as const);
 
 export const BuildMenus = unitTypeGroup([
@@ -421,6 +423,8 @@ export interface UnitParamsMap {
   [UnitType.MIRVWarhead]: {
     targetTile?: number;
   };
+
+  [UnitType.WaterBomb]: Record<string, never>;
 }
 
 // Type helper to get params type for a specific unit type
@@ -439,7 +443,7 @@ export class Nation {
   constructor(
     public readonly spawnCell: Cell | undefined,
     public readonly playerInfo: PlayerInfo,
-  ) {}
+  ) { }
 }
 
 export class Cell {

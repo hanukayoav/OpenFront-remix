@@ -1150,6 +1150,8 @@ export class PlayerImpl implements Player {
         return this.portSpawn(targetTile, validTiles);
       case UnitType.Warship:
         return this.warshipSpawn(targetTile);
+      case UnitType.WaterBomb:
+        return this.waterBombSpawn(targetTile);
       case UnitType.Shell:
       case UnitType.SAMMissile:
         return targetTile;
@@ -1255,6 +1257,16 @@ export class PlayerImpl implements Player {
     );
 
     return bestPort?.tile() ?? false;
+  }
+
+  waterBombSpawn(tile: TileRef): TileRef | false {
+    if (!this.mg.isWater(tile)) {
+      return false;
+    }
+    if (this.unitCount(UnitType.WaterBomb) >= 5) {
+      return false;
+    }
+    return tile;
   }
 
   landBasedUnitSpawn(tile: TileRef): TileRef | false {

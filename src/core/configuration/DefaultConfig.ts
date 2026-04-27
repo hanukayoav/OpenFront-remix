@@ -473,6 +473,12 @@ export class DefaultConfig implements Config {
           cost: () => 0n,
         };
         break;
+      case UnitType.WaterBomb:
+        info = {
+          cost: this.costWrapper(() => 1_000_000, UnitType.WaterBomb),
+          constructionDuration: this.instantBuild() ? 0 : 2 * 10,
+        };
+        break;
       default:
         assertNever(type);
     }

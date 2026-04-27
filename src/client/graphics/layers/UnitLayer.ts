@@ -452,7 +452,17 @@ export class UnitLayer implements Layer {
       case UnitType.MIRV:
         this.handleNuke(unit);
         break;
+      case UnitType.WaterBomb:
+        this.handleWaterBombEvent(unit);
+        break;
     }
+  }
+
+  private handleWaterBombEvent(unit: UnitView) {
+    if (this.game.myPlayer() !== unit.owner()) {
+      return;
+    }
+    this.drawSprite(unit);
   }
 
   private handleWarShipEvent(unit: UnitView) {
