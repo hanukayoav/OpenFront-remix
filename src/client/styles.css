@@ -5,7 +5,7 @@
 
 @theme {
   --default-ring-width: 3px;
-  --default-ring-color: var(text-[#0073b7]);
+  --default-ring-color: #0073b7;
 }
 
 @layer base {

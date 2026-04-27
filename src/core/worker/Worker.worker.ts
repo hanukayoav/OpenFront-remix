@@ -134,7 +134,6 @@ ctx.addEventListener("message", async (e: MessageEvent<MainThreadMessage>) => {
 
   switch (message.type) {
     case "init":
-      gameEnv = message.gameEnv;
       try {
         gameRunner = createGameRunner(
           message.gameStartInfo,
