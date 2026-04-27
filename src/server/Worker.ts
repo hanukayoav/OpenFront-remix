@@ -120,9 +120,12 @@ export async function startWorker() {
       },
     }),
   );
+
+  // Serve resources as root (for dev mode maps etc)
+  app.use(express.static(path.join(__dirname, "../../resources")));
   app.use(
     "/maps",
-    express.static(path.join(__dirname, "../../static/maps"), {
+    express.static(path.join(__dirname, "../../resources/maps"), {
       maxAge: "1y",
       setHeaders: (res, filePath) => {
         if (filePath.endsWith(".webp")) {
