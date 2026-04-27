@@ -1,7 +1,8 @@
-import { Execution, Game, Player, Unit, UnitType } from "../game/Game";
+import { Execution, Game, Unit, UnitType } from "../game/Game";
 
 export class WaterBombExecution implements Execution {
   private active: boolean = true;
+  private game: Game;
 
   constructor(private readonly waterBomb: Unit) {}
 
@@ -13,16 +14,18 @@ export class WaterBombExecution implements Execution {
     return true;
   }
 
-  init(game: Game): void {}
+  init(game: Game, ticks: number): void {
+    this.game = game;
+  }
 
-  tick(ticks: number, game: Game): void {
+  tick(ticks: number): void {
     if (!this.waterBomb.isActive()) {
       this.active = false;
       return;
     }
     
     // Check for enemy ships on this tile
-    const ships = game.nearbyUnits(
+    const ships = this.game.nearbyUnits(
       this.waterBomb.tile(), 
       0, 
       [UnitType.Warship, UnitType.TransportShip, UnitType.TradeShip]
