@@ -1,5 +1,5 @@
 import { NukeMagnitude } from "../configuration/Config";
-import { Game, Player, Structures } from "../game/Game";
+import { Game, Player, PlayerType, Structures, Unit } from "../game/Game";
 import { euclDistFN, GameMap, TileRef } from "../game/GameMap";
 import { GameView } from "../game/GameView";
 
@@ -126,6 +126,39 @@ export function listNukeBreakAlliance(
 
   return playersToBreakAllianceWith;
 }
+
+export function canPlayerInterceptMissile(
+  game: Game,
+  interceptor: Player,
+  missile: Unit,
+): boolean {
+  const targetTile = missile.targetTile();
+  if (targetTile === undefined) {
+    return false;
+  }
+
+  const target = game.owner(targetTile);
+  if (!target.isPlayer()) {
+    return false;
+  }
+
+  if (target.type() === PlayerType.Nation) {
+    // Only the nation itself or its allies/teammates can intercept.
+    if (!(target === interceptor || interceptor.isFriendly(target))) {
+      return false;
+    }
+  } else if (!(target === interceptor || interceptor.isFriendly(target))) {
+    return false;
+  }
+
+  // The missile's owner must NOT be friendly
+  if (interceptor.isFriendly(missile.owner())) {
+    return false;
+  }
+
+  return true;
+}
+
 export function getSpawnTiles(
   gm: GameMap,
   tile: TileRef,

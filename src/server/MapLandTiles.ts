@@ -9,7 +9,7 @@ const log = logger.child({ component: "MapLandTiles" });
 
 // Gets or creates the map loader, uses FetchGameMapLoader pointing to the master server.
 function getMapLoader(): GameMapLoader {
-  mapLoader ??= new FetchGameMapLoader("http://localhost:3000/maps");
+  mapLoader ??= new FetchGameMapLoader("http://localhost:9001/maps");
   return mapLoader;
 }
 

@@ -183,9 +183,9 @@ describe("SAM", () => {
     expect([sam1, sam2].filter((s) => s.isInCooldown())).toHaveLength(1);
   });
 
-  test("SAMs should target close to launch site", async () => {
+  test("third-party SAMs should not target nukes just because they are close to launch site", async () => {
     const targetDistance = 199;
-    // Close SAM: should intercept the nuke
+    // Close SAM: should not intercept because the nuke targets another player.
     const sam = defender.buildUnit(UnitType.SAMLauncher, game.ref(1, 1), {});
     game.addExecution(new SAMLauncherExecution(defender, null, sam));
 
@@ -203,7 +203,7 @@ describe("SAM", () => {
     executeTicks(game, ticksToExecute);
 
     expect(nukeExecution.isActive()).toBeFalsy();
-    expect(sam.isInCooldown()).toBeTruthy();
+    expect(sam.isInCooldown()).toBeFalsy();
   });
 
   test("SAMs should target only nukes aimed at nearby targets if not close to launch site", async () => {
@@ -239,6 +239,96 @@ describe("SAM", () => {
     expect(nukeExecution.isActive()).toBeFalsy();
     expect(sam1.isInCooldown()).toBeFalsy();
     expect(sam2.isInCooldown()).toBeTruthy();
+  });
+
+  test("third-party SAM should not intercept a nuke aimed at another player", async () => {
+    middle_defender.relinquish(game.ref(50, 1));
+    defender.conquer(game.ref(50, 1));
+
+    const sam = middle_defender.buildUnit(
+      UnitType.SAMLauncher,
+      game.ref(51, 1),
+      {},
+    );
+    game.addExecution(new SAMLauncherExecution(middle_defender, null, sam));
+
+    attacker.buildUnit(UnitType.AtomBomb, game.ref(52, 1), {
+      targetTile: game.ref(50, 1),
+      trajectory: [
+        { tile: game.ref(52, 1), targetable: true },
+        { tile: game.ref(51, 1), targetable: true },
+        { tile: game.ref(50, 1), targetable: true },
+      ],
+    });
+
+    executeTicks(game, 3);
+
+    expect(sam.isInCooldown()).toBe(false);
+  });
+
+  test("allied SAM should intercept a nuke aimed at its ally", async () => {
+    defender.createAllianceRequest(middle_defender)?.accept();
+
+    const sam = middle_defender.buildUnit(
+      UnitType.SAMLauncher,
+      game.ref(1, 2),
+      {},
+    );
+    game.addExecution(new SAMLauncherExecution(middle_defender, null, sam));
+
+    const nuke = attacker.buildUnit(UnitType.AtomBomb, game.ref(1, 3), {
+      targetTile: game.ref(1, 1),
+      trajectory: [
+        { tile: game.ref(1, 3), targetable: true },
+        { tile: game.ref(1, 2), targetable: true },
+        { tile: game.ref(1, 1), targetable: true },
+      ],
+    });
+
+    executeTicks(game, 3);
+
+    expect(nuke.isActive()).toBe(false);
+    expect(sam.isInCooldown()).toBe(true);
+  });
+
+  test("third-party SAM should not intercept MIRV warheads aimed at another player", async () => {
+    middle_defender.relinquish(game.ref(50, 1));
+    defender.conquer(game.ref(50, 1));
+
+    const sam = middle_defender.buildUnit(
+      UnitType.SAMLauncher,
+      game.ref(51, 1),
+      {},
+    );
+    game.addExecution(new SAMLauncherExecution(middle_defender, null, sam));
+
+    attacker.buildUnit(UnitType.MIRVWarhead, game.ref(52, 1), {
+      targetTile: game.ref(50, 1),
+    });
+
+    executeTicks(game, 2);
+
+    expect(sam.isInCooldown()).toBe(false);
+  });
+
+  test("allied SAM should intercept MIRV warheads aimed at its ally", async () => {
+    defender.createAllianceRequest(middle_defender)?.accept();
+
+    const sam = middle_defender.buildUnit(
+      UnitType.SAMLauncher,
+      game.ref(1, 2),
+      {},
+    );
+    game.addExecution(new SAMLauncherExecution(middle_defender, null, sam));
+
+    attacker.buildUnit(UnitType.MIRVWarhead, game.ref(1, 3), {
+      targetTile: game.ref(1, 1),
+    });
+
+    executeTicks(game, 2);
+
+    expect(attacker.units(UnitType.MIRVWarhead)).toHaveLength(0);
+    expect(sam.isInCooldown()).toBe(true);
   });
 
   test("SAM should have increased level after upgrade", async () => {

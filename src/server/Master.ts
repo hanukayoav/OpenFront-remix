@@ -1,4 +1,5 @@
 import cluster from "cluster";
+import cors from "cors";
 import crypto from "crypto";
 import express from "express";
 import rateLimit from "express-rate-limit";
@@ -26,16 +27,22 @@ const log = logger.child({ comp: "m" });
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const isDev = config.env() === GameEnv.Dev;
+const staticPath = isDev
+  ? path.join(__dirname, "../../resources")
+  : path.join(__dirname, "../../static");
+const indexPath = isDev
+  ? path.join(__dirname, "../../index.html")
+  : path.join(__dirname, "../../static/index.html");
+
+app.use(cors({ origin: ["http://localhost:5173", "http://localhost:9000"] }));
 app.use(express.json());
 
 // Serve the shared app shell for the root document.
 app.use(async (req, res, next) => {
   if (req.path === "/") {
     try {
-      await renderAppShell(
-        res,
-        path.join(__dirname, "../../static/index.html"),
-      );
+      await renderAppShell(res, indexPath);
     } catch (error) {
       log.error("Error rendering index.html:", error);
       res.status(500).send("Internal Server Error");
@@ -45,8 +52,14 @@ app.use(async (req, res, next) => {
   }
 });
 
+if (isDev) {
+  // In development, serve the project root as well to allow access to source files if needed,
+  // but prioritize the resources directory for static assets.
+  app.use(express.static(path.join(__dirname, "../../")));
+}
+
 app.use(
-  express.static(path.join(__dirname, "../../static"), {
+  express.static(staticPath, {
     maxAge: "1y", // Set max-age to 1 year for all static assets
     setHeaders: (res) => {
       applyStaticAssetCacheControl(
@@ -136,7 +149,7 @@ export async function startMaster() {
     );
   });
 
-  const PORT = 3000;
+  const PORT = 9001;
   server.listen(PORT, () => {
     log.info(`Master HTTP server listening on port ${PORT}`);
   });
@@ -158,10 +171,14 @@ app.get("/api/instance", (_req, res) => {
 });
 
 // SPA fallback route
-app.get("/{*splat}", async function (_req, res) {
+app.get("/{*splat}", async function (req, res) {
+  // Exclude JSON files and /maps/ directory from SPA fallback
+  if (req.path.endsWith(".json") || req.path.includes("/maps/")) {
+    return res.status(404).send("Not Found");
+  }
+
   try {
-    const htmlPath = path.join(__dirname, "../../static/index.html");
-    await renderAppShell(res, htmlPath);
+    await renderAppShell(res, indexPath);
   } catch (error) {
     log.error("Error rendering SPA fallback:", error);
     res.status(500).send("Internal Server Error");

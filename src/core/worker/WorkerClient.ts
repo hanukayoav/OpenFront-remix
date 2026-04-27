@@ -86,6 +86,10 @@ export class WorkerClient {
         id: messageId,
         gameStartInfo: this.gameStartInfo,
         clientID: this.clientID,
+        gameEnv:
+          typeof window !== "undefined"
+            ? window.BOOTSTRAP_CONFIG?.gameEnv
+            : undefined,
       });
 
       // Add timeout for initialization

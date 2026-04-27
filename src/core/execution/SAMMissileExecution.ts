@@ -10,6 +10,7 @@ import { TileRef } from "../game/GameMap";
 import { PathFinding } from "../pathfinding/PathFinder";
 import { PathStatus, SteppingPathFinder } from "../pathfinding/types";
 import { NukeType } from "../StatsSchemas";
+import { canPlayerInterceptMissile } from "./Util";
 
 export class SAMMissileExecution implements Execution {
   private active = true;
@@ -47,6 +48,11 @@ export class SAMMissileExecution implements Execution {
     if (
       !this.target.isActive() ||
       !this.ownerUnit.isActive() ||
+      !canPlayerInterceptMissile(
+        this.mg,
+        this.SAMMissile.owner(),
+        this.target,
+      ) ||
       this.target.owner() === this.SAMMissile.owner() ||
       !nukesWhitelist.includes(this.target.type())
     ) {

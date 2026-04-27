@@ -1,4 +1,5 @@
 import compression from "compression";
+import cors from "cors";
 import express, { NextFunction, Request, Response } from "express";
 import rateLimit from "express-rate-limit";
 import http from "http";
@@ -48,6 +49,7 @@ export async function startWorker() {
   const __dirname = path.dirname(__filename);
 
   const app = express();
+  app.use(cors({ origin: ["http://localhost:5173", "http://localhost:9000"] }));
   app.use(express.json({ limit: "5mb" }));
   const server = http.createServer(app);
   const wss = new WebSocketServer({

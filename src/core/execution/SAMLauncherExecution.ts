@@ -10,6 +10,7 @@ import {
 import { TileRef } from "../game/GameMap";
 import { PseudoRandom } from "../PseudoRandom";
 import { SAMMissileExecution } from "./SAMMissileExecution";
+import { canPlayerInterceptMissile } from "./Util";
 
 type Target = {
   unit: Unit;
@@ -117,16 +118,11 @@ class SAMTargetingSystem {
       [UnitType.AtomBomb, UnitType.HydrogenBomb],
       ({ unit }) => {
         if (!isUnit(unit) || unit.targetedBySAM()) return false;
-        if (unit.owner() === this.sam.owner()) return false;
 
         const samOwner = this.sam.owner();
-        const nukeOwner = unit.owner();
-
-        // After game-over in team games, SAMs also target teammate nukes (aftergame fun)
-        if (samOwner.isFriendly(nukeOwner)) {
-          return (
-            this.mg.getWinner() !== null && samOwner.isOnSameTeam(nukeOwner)
-          );
+        if (unit.owner() === samOwner) return false;
+        if (!canPlayerInterceptMissile(this.mg, samOwner, unit)) {
+          return false;
         }
 
         return true;
@@ -279,16 +275,8 @@ export class SAMLauncherExecution implements Execution {
       ({ unit }) => {
         if (!isUnit(unit)) return false;
         if (unit.owner() === this.player) return false;
-
-        // After game-over in team games, SAMs also target teammate MIRVs (aftergame fun)
-        const nukeOwner = unit.owner();
-        if (this.player.isFriendly(nukeOwner)) {
-          if (
-            this.mg.getWinner() === null ||
-            !this.player.isOnSameTeam(nukeOwner)
-          ) {
-            return false;
-          }
+        if (!canPlayerInterceptMissile(this.mg, this.player, unit)) {
+          return false;
         }
 
         const dst = unit.targetTile();

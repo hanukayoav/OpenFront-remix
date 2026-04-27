@@ -440,7 +440,11 @@ export class GameServer {
               }
               case "update_game_config": {
                 // Only lobby creator can update config
-                if (client.clientID !== this.lobbyCreatorID) {
+                const isCreator =
+                  client.clientID === this.lobbyCreatorID ||
+                  client.persistentID === this.creatorPersistentID;
+
+                if (!isCreator) {
                   this.log.warn(`Only lobby creator can update game config`, {
                     clientID: client.clientID,
                     creatorID: this.lobbyCreatorID,
