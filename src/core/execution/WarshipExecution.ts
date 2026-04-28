@@ -21,6 +21,8 @@ export class WarshipExecution implements Execution {
   private lastShellAttack = 0;
   private alreadySentShell = new Set<Unit>();
 
+  private escortTarget?: Unit;
+
   constructor(
     private input: (UnitParams<UnitType.Warship> & OwnerComp) | Unit,
   ) {}
@@ -47,6 +49,24 @@ export class WarshipExecution implements Execution {
         spawn,
         this.input,
       );
+
+      // Check if we spawned next to a transport ship to escort
+      const nearbyTransportShips = this.mg.nearbyUnits(
+        spawn,
+        9, // very close
+        [UnitType.TransportShip],
+      );
+      for (const { unit } of nearbyTransportShips) {
+        if (
+          unit.owner() === this.warship.owner() &&
+          unit.troops() >= 100000 &&
+          unit.targetTile() !== undefined
+        ) {
+          this.escortTarget = unit;
+          this.warship.setTargetTile(unit.targetTile());
+          break;
+        }
+      }
     }
   }
 
@@ -59,6 +79,20 @@ export class WarshipExecution implements Execution {
     const hasPort = this.warship.owner().unitCount(UnitType.Port) > 0;
     if (hasPort) {
       this.warship.modifyHealth(1);
+    }
+
+    if (this.escortTarget) {
+      if (!this.escortTarget.isActive() || this.escortTarget.health() <= 0) {
+        this.escortTarget = undefined;
+      } else {
+        const targetTile = this.escortTarget.targetTile();
+        if (
+          targetTile !== undefined &&
+          this.warship.targetTile() !== targetTile
+        ) {
+          this.warship.setTargetTile(targetTile);
+        }
+      }
     }
 
     this.warship.setTargetUnit(this.findTargetUnit());

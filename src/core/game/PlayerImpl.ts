@@ -1246,6 +1246,25 @@ export class PlayerImpl implements Player {
     }
 
     const tileComponent = this.mg.getWaterComponent(tile);
+
+    // Check if we are escorting a transport ship (troops >= 100,000)
+    const nearbyTransportShips = this.mg.nearbyUnits(
+      tile,
+      36, // ~6 tiles search radius squared
+      [UnitType.TransportShip],
+    );
+    for (const { unit } of nearbyTransportShips) {
+      if (
+        unit.owner() === this &&
+        unit.troops() >= 100000 &&
+        tileComponent !== null &&
+        this.mg.hasWaterComponent(unit.tile(), tileComponent)
+      ) {
+        // Spawn right at the transport ship's tile!
+        return unit.tile();
+      }
+    }
+
     const bestPort = findClosestBy(
       this.units(UnitType.Port),
       (port) => this.mg.manhattanDist(port.tile(), tile),
