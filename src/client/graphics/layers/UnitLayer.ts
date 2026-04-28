@@ -487,7 +487,7 @@ export class UnitLayer implements Layer {
     trail.push(unit.lastTile());
     this.drawTrail(trail.slice(-1), unit.owner().territoryColor(), rel);
 
-    this.drawSprite(unit);
+    this.drawJetSprite(unit);
 
     if (!unit.isActive()) {
       this.clearTrail(unit);
@@ -762,5 +762,49 @@ export class UnitLayer implements Layer {
         this.context.restore();
       }
     }
+  }
+
+  private drawJetSprite(unit: UnitView) {
+    const age = this.game.ticks() - unit.createdAt();
+    const x = this.game.x(unit.tile());
+    const y = this.game.y(unit.tile());
+
+    // Scale animation for take-off (first 10 ticks)
+    let scale = 1.0;
+    if (age < 10) {
+      scale = 0.5 + (age / 10) * 0.5;
+    }
+
+    const sprite = getColoredSprite(unit, this.theme);
+
+    // Rotation logic based on movement direction
+    const lastTile = unit.lastTile();
+    const currentTile = unit.tile();
+
+    let rotation = 0;
+    if (lastTile !== currentTile) {
+      const dx = this.game.x(currentTile) - this.game.x(lastTile);
+      const dy = this.game.y(currentTile) - this.game.y(lastTile);
+      rotation = Math.atan2(dy, dx) + Math.PI / 2; // +90 deg because sprite faces north
+    }
+
+    const drawWidth = sprite.width * scale;
+    const drawHeight = sprite.height * scale;
+
+    this.context.save();
+    this.context.translate(x, y);
+    this.context.rotate(rotation);
+
+    if (unit.isActive()) {
+      this.context.drawImage(
+        sprite,
+        Math.round(-drawWidth / 2),
+        Math.round(-drawHeight / 2),
+        drawWidth,
+        drawHeight,
+      );
+    }
+
+    this.context.restore();
   }
 }

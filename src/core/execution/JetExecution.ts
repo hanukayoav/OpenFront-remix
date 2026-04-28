@@ -17,6 +17,7 @@ export class JetExecution implements Execution {
   private survivedRoll: boolean = false;
   private rollCompleted: boolean = false;
   private pathFinder!: SteppingPathFinder<TileRef>;
+  private startTick: number = -1;
 
   constructor(input: UnitParamsMap[UnitType.Jet] & OwnerComp) {
     this.input = input;
@@ -25,6 +26,7 @@ export class JetExecution implements Execution {
   init(mg: Game, ticks: number): void {
     this.mg = mg;
     this.pathFinder = PathFinding.Air(mg);
+    this.startTick = ticks;
 
     // Get a friendly runway to spawn at
     const runways = this.input.owner.units(UnitType.Runway);
@@ -42,6 +44,7 @@ export class JetExecution implements Execution {
     console.log("SEAD Launch: Cost deducted");
 
     this.jet = this.input.owner.buildUnit(UnitType.Jet, spawnTile, this.input);
+    this.jet.setTargetable(false);
   }
 
   tick(ticks: number): void {
@@ -74,11 +77,20 @@ export class JetExecution implements Execution {
       }
 
       // Execute strike!
-      const sams = this.mg.units(UnitType.SAMLauncher);
-      const targetSam = sams.find((u) => u.tile() === target);
-      if (targetSam) {
-        console.log(`SEAD Target Destroyed: SAM_ID_${targetSam.id()}`);
-        targetSam.delete();
+      const targetUnits = this.mg.nearbyUnits(target, 0, [
+        UnitType.SAMLauncher,
+        UnitType.City,
+        UnitType.Factory,
+        UnitType.Port,
+        UnitType.DefensePost,
+        UnitType.MissileSilo,
+        UnitType.Runway,
+      ]);
+      for (const u of targetUnits) {
+        if (u.unit.tile() === target) {
+          console.log(`SEAD Target Destroyed: ID_${u.unit.id()}`);
+          u.unit.delete();
+        }
       }
 
       this.jet.delete();
@@ -86,9 +98,11 @@ export class JetExecution implements Execution {
     }
 
     // Move jet towards target. It travels fast.
-    // Wait, AtomBomb has trajectory, jets could just step towards target tile linearly.
-    // For simplicity, let's move it 3 tiles per tick towards the target.
-    for (let i = 0; i < 3; i++) {
+    // Speed ramps up from 1 to 4 to simulate take-off.
+    const flightTicks = ticks - this.startTick;
+    const speed = flightTicks < 10 ? 1 : 4;
+
+    for (let i = 0; i < speed; i++) {
       const result = this.pathFinder.next(this.jet.tile(), target);
       if (result.status === PathStatus.COMPLETE) {
         break;

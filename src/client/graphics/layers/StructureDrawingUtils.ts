@@ -14,6 +14,7 @@ const factoryIcon = assetUrl("images/FactoryUnit.png");
 const missileSiloIcon = assetUrl("images/MissileSiloUnit.png");
 const SAMMissileIcon = assetUrl("images/SamLauncherUnit.png");
 const shieldIcon = assetUrl("images/ShieldIcon.png");
+const runwayIcon = assetUrl("images/RunwayUnit.png");
 
 export const STRUCTURE_SHAPES: Partial<Record<UnitType, ShapeType>> = {
   [UnitType.City]: "circle",
@@ -69,6 +70,7 @@ export class SpriteFactory {
     [UnitType.Port, { iconPath: anchorIcon, image: null }],
     [UnitType.MissileSilo, { iconPath: missileSiloIcon, image: null }],
     [UnitType.SAMLauncher, { iconPath: SAMMissileIcon, image: null }],
+    [UnitType.Runway, { iconPath: runwayIcon, image: null }],
   ]);
   constructor(
     theme: Theme,
@@ -428,14 +430,16 @@ export class SpriteFactory {
         cross: [0, 0],
       };
       const [offsetX, offsetY] = SHAPE_OFFSETS[shape] || [0, 0];
-      context.drawImage(
-        this.getImageColored(
-          structureInfo.image,
-          owner.structureColors().dark.toRgbString(),
-        ),
-        offsetX,
-        offsetY,
-      );
+
+      const imgToDraw =
+        structureType === UnitType.Runway
+          ? structureInfo.image
+          : this.getImageColored(
+              structureInfo.image,
+              owner.structureColors().dark.toRgbString(),
+            );
+
+      context.drawImage(imgToDraw, offsetX, offsetY);
     }
 
     if (isMarkedForDeletion) {

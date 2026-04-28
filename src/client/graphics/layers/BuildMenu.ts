@@ -70,6 +70,13 @@ export const buildTable: BuildItemDisplay[][] = [
       countable: false,
     },
     {
+      unitType: UnitType.Jet,
+      icon: assetUrl("sprites/jet.png"),
+      description: "SEAD Strike Mission",
+      key: "Jet",
+      countable: false,
+    },
+    {
       unitType: UnitType.Warship,
       icon: warshipIcon,
       description: "build_menu.desc.warship",
@@ -116,6 +123,13 @@ export const buildTable: BuildItemDisplay[][] = [
       icon: factoryIcon,
       description: "build_menu.desc.factory",
       key: "unit_type.factory",
+      countable: true,
+    },
+    {
+      unitType: UnitType.Runway,
+      icon: assetUrl("images/RunwayUnit.png"),
+      description: "Airbase for launching SEAD missions",
+      key: "Runway",
       countable: true,
     },
   ],
