@@ -30,7 +30,8 @@ const log = logger.child({ comp: "m" });
 proxy.on("error", (err, _req, res) => {
   log.error("Proxy error:", err);
   if (res instanceof http.ServerResponse) {
-    res.status(502).send("Bad Gateway");
+    res.writeHead(502);
+    res.end("Bad Gateway");
   }
 });
 
@@ -97,7 +98,7 @@ app.use(
 );
 
 // Proxy worker requests (both HTTP and WebSocket upgrades)
-app.all("/w:workerId*", (req, res) => {
+app.all("/w:workerId(\\d+)*", (req, res) => {
   const workerId = parseInt(req.params.workerId);
   if (isNaN(workerId) || workerId < 0 || workerId >= config.numWorkers()) {
     return res.status(404).send("Worker not found");
