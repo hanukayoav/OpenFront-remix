@@ -21,7 +21,6 @@ export interface GameMap {
   magnitude(ref: TileRef): number;
   terrainByte(ref: TileRef): number;
   // Terrain setters
-  setLand(ref: TileRef): void;
   setWater(ref: TileRef): void;
   setShorelineBit(ref: TileRef): void;
   clearShorelineBit(ref: TileRef): void;
@@ -203,12 +202,6 @@ export class GameMapImpl implements GameMap {
 
   terrainByte(ref: TileRef): number {
     return this.terrain[ref];
-  }
-
-  setLand(ref: TileRef): void {
-    if (this.isLand(ref)) return;
-    this.terrain[ref] = (1 << GameMapImpl.IS_LAND_BIT) | 5; // Plains
-    this.numLandTiles_++;
   }
 
   setWater(ref: TileRef): void {

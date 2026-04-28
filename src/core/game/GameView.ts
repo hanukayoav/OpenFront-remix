@@ -1273,9 +1273,6 @@ export class GameView implements GameMap {
   terrainByte(ref: TileRef): number {
     return this._map.terrainByte(ref);
   }
-  setLand(ref: TileRef): void {
-    this._map.setLand(ref);
-  }
   setWater(ref: TileRef): void {
     this._map.setWater(ref);
   }

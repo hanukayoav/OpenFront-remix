@@ -316,9 +316,9 @@ export class NukeExecution implements Execution {
       }
 
       // Queue land tiles for batched water conversion
-      if (mg.isLand(tile)) {
-        mg.queueWaterConversion(tile);
-      }
+      // if (mg.isLand(tile)) {
+      //   mg.queueWaterConversion(tile);
+      // }
     }
 
     // Then compute the explosion effect on each player

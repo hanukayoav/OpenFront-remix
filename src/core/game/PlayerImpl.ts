@@ -1428,7 +1428,7 @@ export class PlayerImpl implements Player {
       return false;
     }
 
-    if (!this.mg.isLand(tile) && !this.mg.map().hasFallout(tile)) {
+    if (!this.mg.isLand(tile)) {
       return false;
     }
     if (this.mg.hasOwner(tile)) {
@@ -1437,7 +1437,7 @@ export class PlayerImpl implements Player {
       for (const t of this.mg.bfs(
         tile,
         andFN(
-          (gm, t) => !gm.hasOwner(t) && (gm.isLand(t) || gm.hasFallout(t)),
+          (gm, t) => !gm.hasOwner(t) && gm.isLand(t),
           manhattanDistFN(tile, 200),
         ),
       )) {

@@ -283,10 +283,7 @@ export class AttackExecution implements Execution {
       if (this.mg.owner(tileToConquer) !== this.target || !onBorder) {
         continue;
       }
-      if (
-        !this.mg.isLand(tileToConquer) &&
-        !this.mg.hasFallout(tileToConquer)
-      ) {
+      if (!this.mg.isLand(tileToConquer)) {
         continue;
       }
       this.addNeighbors(tileToConquer);
@@ -328,7 +325,7 @@ export class AttackExecution implements Execution {
 
     for (const neighbor of this.mg.neighbors(tile)) {
       if (
-        (this.mg.isWater(neighbor) && !this.mg.hasFallout(neighbor)) ||
+        this.mg.isWater(neighbor) ||
         this.mg.owner(neighbor) !== this.target
       ) {
         continue;

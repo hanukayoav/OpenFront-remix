@@ -267,17 +267,11 @@ export class GameImpl implements Game {
     if (this.hasOwner(tile)) {
       throw Error(`cannot set water, tile ${tile} has owner`);
     }
-    // DO NOT clear fallout - we use it to mark nuked water so it can be reclaimed
-    // if (this._map.hasFallout(tile)) {
-    //   this._map.setFallout(tile, false);
-    // }
+    // Clear fallout if present (water tiles shouldn't have fallout)
+    if (this._map.hasFallout(tile)) {
+      this._map.setFallout(tile, false);
+    }
     this._map.setWater(tile);
-    this.recordTileUpdate(tile);
-  }
-
-  setLand(tile: TileRef): void {
-    if (this.isLand(tile)) return;
-    this._map.setLand(tile);
     this.recordTileUpdate(tile);
   }
 
@@ -286,8 +280,8 @@ export class GameImpl implements Game {
     if (this.hasOwner(tile)) {
       throw Error(`cannot queue water conversion, tile ${tile} has owner`);
     }
-    this.setFallout(tile, true);
     if (!this._config.waterNukes()) {
+      this.setFallout(tile, true);
       return;
     }
     this._waterManager.queueTile(tile);
@@ -678,12 +672,8 @@ export class GameImpl implements Game {
   }
 
   conquer(owner: PlayerImpl, tile: TileRef): void {
-    const isNukedWater = !this.isLand(tile) && this._map.hasFallout(tile);
-    if (!this.isLand(tile) && !isNukedWater) {
+    if (!this.isLand(tile)) {
       throw Error(`cannot conquer water`);
-    }
-    if (isNukedWater) {
-      this.setLand(tile);
     }
     const previousOwner = this.owner(tile) as TerraNullius | PlayerImpl;
     if (previousOwner.isPlayer()) {
