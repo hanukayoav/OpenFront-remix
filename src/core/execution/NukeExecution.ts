@@ -316,7 +316,7 @@ export class NukeExecution implements Execution {
       }
 
       // Queue land tiles for batched water conversion
-      if (mg.isLand(tile) && config.waterNukes()) {
+      if (mg.isLand(tile)) {
         mg.queueWaterConversion(tile);
       }
     }

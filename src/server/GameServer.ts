@@ -185,13 +185,7 @@ export class GameServer {
     this.gameConfig.hostCheats = gameConfig.hostCheats;
 
     // Broadcast update to all clients in lobby
-    this.broadcast(
-      JSON.stringify({
-        type: "lobby_info",
-        lobby: this.gameInfo(),
-        myClientID: "",
-      }),
-    );
+    this.broadcastLobbyInfo();
   }
 
   private isKicked(clientID: ClientID): boolean {

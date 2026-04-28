@@ -55,6 +55,7 @@ function makeClient(
   const client = new Client(
     clientID,
     persistentID,
+    persistentID,
     null,
     role ?? null,
     undefined,
