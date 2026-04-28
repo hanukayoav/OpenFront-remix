@@ -228,13 +228,18 @@ export function getPersistentID(): string {
 
 // WARNING: DO NOT EXPOSE THIS ID
 function getPersistentIDFromLocalStorage(): string {
-  // Try to get existing localStorage
-  const value = localStorage.getItem(PERSISTENT_ID_KEY);
+  // Try to get existing ID
+  const isLocalhost =
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1";
+  const storage = isLocalhost ? sessionStorage : localStorage;
+
+  const value = storage.getItem(PERSISTENT_ID_KEY);
   if (value) return value;
 
-  // If no localStorage exists, create new ID and set localStorage
+  // If no ID exists, create new ID and set storage
   const newID = generateCryptoRandomUUID();
-  localStorage.setItem(PERSISTENT_ID_KEY, newID);
+  storage.setItem(PERSISTENT_ID_KEY, newID);
 
   return newID;
 }
