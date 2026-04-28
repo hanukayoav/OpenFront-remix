@@ -28,7 +28,7 @@ jobs:
       - run: npm run build-prod
       - uses: actions/upload-artifact@v7
         with:
-          path: out/index.html
+          path: static/index.html
           retention-days: 1
   test:
     name: 🔬 Test
