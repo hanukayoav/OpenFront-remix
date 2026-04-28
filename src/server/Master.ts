@@ -98,8 +98,8 @@ app.use(
 );
 
 // Proxy worker requests (both HTTP and WebSocket upgrades)
-app.all("/w:workerId(\\d+)*", (req, res) => {
-  const workerId = parseInt(req.params.workerId);
+app.all(/^\/w(\d+)(.*)/, (req, res) => {
+  const workerId = parseInt(req.params[0]);
   if (isNaN(workerId) || workerId < 0 || workerId >= config.numWorkers()) {
     return res.status(404).send("Worker not found");
   }
