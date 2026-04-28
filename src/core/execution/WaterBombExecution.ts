@@ -24,8 +24,8 @@ export class WaterBombExecution implements Execution {
       return;
     }
 
-    // Check for enemy ships within radius (15 euclidean distance squared, approx 3.8 tiles)
-    const ships = this.game.nearbyUnits(this.waterBomb.tile(), 15, [
+    // Check for enemy ships within radius (36 euclidean distance squared, approx 6 tiles)
+    const ships = this.game.nearbyUnits(this.waterBomb.tile(), 36, [
       UnitType.Warship,
       UnitType.TransportShip,
       UnitType.TradeShip,

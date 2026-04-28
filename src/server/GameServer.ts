@@ -115,6 +115,11 @@ export class GameServer {
   }
 
   public updateGameConfig(gameConfig: Partial<GameConfig>): void {
+    this.log.info(`Updating game config`, {
+      gameID: this.id,
+      bots: gameConfig.bots,
+      nations: gameConfig.nations,
+    });
     if (gameConfig.gameMap !== undefined) {
       this.gameConfig.gameMap = gameConfig.gameMap;
     }
@@ -178,6 +183,15 @@ export class GameServer {
       this.gameConfig.waterNukes = gameConfig.waterNukes ?? undefined;
     }
     this.gameConfig.hostCheats = gameConfig.hostCheats;
+
+    // Broadcast update to all clients in lobby
+    this.broadcast(
+      JSON.stringify({
+        type: "lobby_info",
+        lobby: this.gameInfo(),
+        myClientID: "",
+      }),
+    );
   }
 
   private isKicked(clientID: ClientID): boolean {
@@ -442,7 +456,8 @@ export class GameServer {
                 // Only lobby creator can update config
                 const isCreator =
                   client.clientID === this.lobbyCreatorID ||
-                  client.persistentID === this.creatorPersistentID;
+                  client.persistentID === this.creatorPersistentID ||
+                  client.originalPersistentID === this.creatorPersistentID;
 
                 if (!isCreator) {
                   this.log.warn(`Only lobby creator can update game config`, {
@@ -703,6 +718,11 @@ export class GameServer {
     }
     this._hasStarted = true;
     this._startTime = Date.now();
+    this.log.info(`Starting game`, {
+      gameID: this.id,
+      bots: this.gameConfig.bots,
+      nations: this.gameConfig.nations,
+    });
     // Set last ping to start so we don't immediately stop the game
     // if no client connects/pings.
     this.lastPingUpdate = Date.now();

@@ -93,6 +93,8 @@ export class GameRunner {
   ) {}
 
   init() {
+    console.log(`INIT BOTS: ${this.game.config().bots()}`);
+    console.log(`INIT NATIONS: ${this.game.config().spawnNations()}`);
     if (this.game.config().isRandomSpawn()) {
       this.game.addExecution(...this.execManager.spawnPlayers());
     }

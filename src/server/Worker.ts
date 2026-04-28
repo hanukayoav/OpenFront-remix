@@ -360,6 +360,7 @@ export async function startWorker() {
           return;
         }
         let persistentId = result.persistentId;
+        const originalPersistentId = persistentId;
         const claims = result.claims;
         if (config.env() === GameEnv.Dev) {
           persistentId = Math.random().toString(36).substring(2, 15);
@@ -489,6 +490,7 @@ export async function startWorker() {
         const client = new Client(
           generateID(),
           persistentId,
+          originalPersistentId,
           claims,
           claims?.role ?? null,
           flares,
