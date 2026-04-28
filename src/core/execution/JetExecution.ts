@@ -1,5 +1,14 @@
-import { Game, OwnerComp, Unit, UnitParamsMap, UnitType } from "../game/Game";
-import { Execution } from "./Execution";
+import {
+  Execution,
+  Game,
+  OwnerComp,
+  Unit,
+  UnitParamsMap,
+  UnitType,
+} from "../game/Game";
+import { TileRef } from "../game/GameMap";
+import { PathFinding } from "../pathfinding/PathFinder";
+import { PathStatus, SteppingPathFinder } from "../pathfinding/types";
 
 export class JetExecution implements Execution {
   private mg!: Game;
@@ -7,6 +16,7 @@ export class JetExecution implements Execution {
   private input: UnitParamsMap[UnitType.Jet] & OwnerComp;
   private survivedRoll: boolean = false;
   private rollCompleted: boolean = false;
+  private pathFinder!: SteppingPathFinder<TileRef>;
 
   constructor(input: UnitParamsMap[UnitType.Jet] & OwnerComp) {
     this.input = input;
@@ -14,6 +24,7 @@ export class JetExecution implements Execution {
 
   init(mg: Game, ticks: number): void {
     this.mg = mg;
+    this.pathFinder = PathFinding.Air(mg);
 
     // Get a friendly runway to spawn at
     const runways = this.input.owner.units(UnitType.Runway);
@@ -78,9 +89,20 @@ export class JetExecution implements Execution {
     // Wait, AtomBomb has trajectory, jets could just step towards target tile linearly.
     // For simplicity, let's move it 3 tiles per tick towards the target.
     for (let i = 0; i < 3; i++) {
-      if (this.jet.tile() === target) break;
-      const nextTile = this.mg.step(this.jet.tile(), target);
-      this.jet.move(nextTile);
+      const result = this.pathFinder.next(this.jet.tile(), target);
+      if (result.status === PathStatus.COMPLETE) {
+        break;
+      } else if (result.status === PathStatus.NEXT) {
+        this.jet.move(result.node);
+      }
     }
+  }
+
+  isActive(): boolean {
+    return this.jet?.isActive() ?? false;
+  }
+
+  activeDuringSpawnPhase(): boolean {
+    return false;
   }
 }

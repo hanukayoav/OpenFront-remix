@@ -468,7 +468,7 @@ export class UnitLayer implements Layer {
     if (myPlayer !== null) {
       if (unit.owner() !== myPlayer) {
         if (targetTile !== undefined && targetTile !== null) {
-          const tileOwner = this.game.cellOwner(targetTile);
+          const tileOwner = this.game.owner(targetTile);
           if (tileOwner !== myPlayer) {
             return; // Not attacker and not defender! Stealth!
           }
