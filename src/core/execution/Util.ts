@@ -153,6 +153,7 @@ export function canPlayerInterceptMissile(
 
   // The missile's owner must NOT be friendly
   if (interceptor.isFriendly(missile.owner())) {
+    console.log("--- TEST: MISSILE IGNORED DUE TO ALLIANCE ---");
     return false;
   }
 

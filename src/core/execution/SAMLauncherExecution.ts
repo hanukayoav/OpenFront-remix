@@ -120,7 +120,7 @@ class SAMTargetingSystem {
         if (!isUnit(unit) || unit.targetedBySAM()) return false;
 
         const samOwner = this.sam.owner();
-        if (unit.owner() === samOwner) return false;
+        if (samOwner.isFriendly(unit.owner())) return false;
         if (!canPlayerInterceptMissile(this.mg, samOwner, unit)) {
           return false;
         }
@@ -274,7 +274,7 @@ export class SAMLauncherExecution implements Execution {
       UnitType.MIRVWarhead,
       ({ unit }) => {
         if (!isUnit(unit)) return false;
-        if (unit.owner() === this.player) return false;
+        if (this.player.isFriendly(unit.owner())) return false;
         if (!canPlayerInterceptMissile(this.mg, this.player, unit)) {
           return false;
         }

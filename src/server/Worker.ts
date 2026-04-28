@@ -362,8 +362,7 @@ export async function startWorker() {
         let persistentId = result.persistentId;
         const claims = result.claims;
         if (config.env() === GameEnv.Dev) {
-          persistentId =
-            (req.headers["sec-websocket-key"] as string) || persistentId;
+          persistentId = Math.random().toString(36).substring(2, 15);
         }
 
         if (claims?.role === "banned") {
