@@ -49,6 +49,7 @@ export interface ServerConfig {
   subdomain(): string;
   stripePublishableKey(): string;
   allowedFlares(): string[] | undefined;
+  masterServerUrl(): string;
 }
 
 export interface NukeMagnitude {

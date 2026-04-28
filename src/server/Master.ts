@@ -4,6 +4,7 @@ import crypto from "crypto";
 import express from "express";
 import rateLimit from "express-rate-limit";
 import http from "http";
+import httpProxy from "http-proxy";
 import path from "path";
 import { fileURLToPath } from "url";
 import { GameEnv } from "../core/configuration/Config";
@@ -21,8 +22,17 @@ let lobbyService: MasterLobbyService;
 
 const app = express();
 const server = http.createServer(app);
+const proxy = httpProxy.createProxyServer({});
 
 const log = logger.child({ comp: "m" });
+
+// Handle proxy errors to prevent master from crashing
+proxy.on("error", (err, _req, res) => {
+  log.error("Proxy error:", err);
+  if (res instanceof http.ServerResponse) {
+    res.status(502).send("Bad Gateway");
+  }
+});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -70,6 +80,14 @@ app.use(
   }),
 );
 
+// Ensure maps are always accessible via relative path, even in production
+app.use(
+  "/maps",
+  express.static(path.join(__dirname, "../../resources/maps"), {
+    maxAge: "1y",
+  }),
+);
+
 app.set("trust proxy", 3);
 app.use(
   rateLimit({
@@ -77,6 +95,32 @@ app.use(
     max: 20, // 20 requests per IP per second
   }),
 );
+
+// Proxy worker requests (both HTTP and WebSocket upgrades)
+app.all("/w:workerId*", (req, res) => {
+  const workerId = parseInt(req.params.workerId);
+  if (isNaN(workerId) || workerId < 0 || workerId >= config.numWorkers()) {
+    return res.status(404).send("Worker not found");
+  }
+  const targetPort = config.workerPortByIndex(workerId);
+  proxy.web(req, res, { target: `http://localhost:${targetPort}` });
+});
+
+// Handle WebSocket upgrades for workers
+server.on("upgrade", (req, socket, head) => {
+  const pathname = req.url ?? "";
+  const match = pathname.match(/^\/w(\d+)/);
+  if (match) {
+    const workerId = parseInt(match[1]);
+    if (!isNaN(workerId) && workerId >= 0 && workerId < config.numWorkers()) {
+      const targetPort = config.workerPortByIndex(workerId);
+      proxy.ws(req, socket, head, { target: `http://localhost:${targetPort}` });
+      return;
+    }
+  }
+  // If no worker match, just destroy the socket
+  socket.destroy();
+});
 
 app.use("/api", (_req, res, next) => {
   setNoStoreHeaders(res);
@@ -149,7 +193,7 @@ export async function startMaster() {
     );
   });
 
-  const PORT = 9001;
+  const PORT = process.env.PORT ?? 9001;
   server.listen(PORT, () => {
     log.info(`Master HTTP server listening on port ${PORT}`);
   });

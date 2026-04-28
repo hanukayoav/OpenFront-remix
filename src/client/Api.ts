@@ -182,6 +182,12 @@ export function getApiBase() {
     return localStorage.getItem("apiHost") ?? "http://localhost:8787";
   }
 
+  // If on Render or similar platform where subdomains are not used for API
+  if (window.location.hostname.endsWith(".onrender.com")) {
+    return `${window.location.origin}/api`;
+  }
+
+  // Original logic for custom domains with api. subdomain
   return `https://api.${domainname}`;
 }
 

@@ -134,6 +134,18 @@ export abstract class DefaultServerConfig implements ServerConfig {
   workerPortByIndex(index: number): number {
     return 9002 + index;
   }
+  masterServerUrl(): string {
+    if (typeof window !== "undefined") {
+      // Client-side: use the current host in production, or localhost:9001 in dev
+      const isProd =
+        (window as any).BOOTSTRAP_CONFIG?.gameEnv === "prod" ||
+        (typeof import.meta !== "undefined" && import.meta.env?.PROD);
+      return isProd ? window.location.origin : "http://localhost:9001";
+    }
+    // Server-side: use localhost and the configured port
+    const port = process.env.PORT ?? 9001;
+    return `http://localhost:${port}`;
+  }
 }
 
 /** SAM launcher construction duration in ticks (non-instant-build). */

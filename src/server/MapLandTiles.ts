@@ -2,6 +2,7 @@ import { FetchGameMapLoader } from "src/core/game/FetchGameMapLoader";
 import { GameMapType } from "src/core/game/Game";
 import { GameMapLoader } from "src/core/game/GameMapLoader";
 import { logger } from "./Logger";
+import { getServerConfigFromServer } from "./Worker";
 
 let mapLoader: GameMapLoader | null = null;
 
@@ -9,7 +10,10 @@ const log = logger.child({ component: "MapLandTiles" });
 
 // Gets or creates the map loader, uses FetchGameMapLoader pointing to the master server.
 function getMapLoader(): GameMapLoader {
-  mapLoader ??= new FetchGameMapLoader("http://localhost:9001/maps");
+  if (!mapLoader) {
+    const config = getServerConfigFromServer();
+    mapLoader = new FetchGameMapLoader(`${config.masterServerUrl()}/maps`);
+  }
   return mapLoader;
 }
 
