@@ -1,8 +1,8 @@
 import { FetchGameMapLoader } from "src/core/game/FetchGameMapLoader";
 import { GameMapType } from "src/core/game/Game";
 import { GameMapLoader } from "src/core/game/GameMapLoader";
+import { getServerConfigFromServer } from "../core/configuration/ConfigLoader";
 import { logger } from "./Logger";
-import { getServerConfigFromServer } from "./Worker";
 
 let mapLoader: GameMapLoader | null = null;
 

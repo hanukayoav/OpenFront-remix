@@ -91,4 +91,7 @@ export class TestServerConfig implements ServerConfig {
   async supportsCompactMapForTeams(): Promise<boolean> {
     throw new Error("Method not implemented.");
   }
+  masterServerUrl(): string {
+    throw new Error("Method not implemented.");
+  }
 }
