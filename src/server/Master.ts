@@ -46,7 +46,11 @@ const indexPath = isDev
   ? path.join(__dirname, "../../index.html")
   : path.join(__dirname, "../../static/index.html");
 
-app.use(cors({ origin: ["http://localhost:5173", "http://localhost:9000"] }));
+app.use(
+  cors({
+    origin: isDev ? "*" : ["http://localhost:5173", "http://localhost:9000"],
+  }),
+);
 app.use(express.json());
 
 // Serve the shared app shell for the root document.

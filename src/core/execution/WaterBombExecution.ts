@@ -24,8 +24,8 @@ export class WaterBombExecution implements Execution {
       return;
     }
 
-    // Check for enemy ships on this tile
-    const ships = this.game.nearbyUnits(this.waterBomb.tile(), 0, [
+    // Check for enemy ships within radius (15 euclidean distance squared, approx 3.8 tiles)
+    const ships = this.game.nearbyUnits(this.waterBomb.tile(), 15, [
       UnitType.Warship,
       UnitType.TransportShip,
       UnitType.TradeShip,
@@ -42,7 +42,8 @@ export class WaterBombExecution implements Execution {
         const damage = Math.max(1, Math.floor(maxHealth * 0.75));
         unit.modifyHealth(-damage, this.waterBomb.owner());
 
-        // destroy the water bomb
+        // destroy the water bomb and trigger explosion visual
+        this.waterBomb.setReachedTarget();
         this.waterBomb.delete(false, unit.owner());
         this.active = false;
         break;

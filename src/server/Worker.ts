@@ -49,7 +49,12 @@ export async function startWorker() {
   const __dirname = path.dirname(__filename);
 
   const app = express();
-  app.use(cors({ origin: ["http://localhost:5173", "http://localhost:9000"] }));
+  const isDev = config.env() === GameEnv.Dev;
+  app.use(
+    cors({
+      origin: isDev ? "*" : ["http://localhost:5173", "http://localhost:9000"],
+    }),
+  );
   app.use(express.json({ limit: "5mb" }));
   const server = http.createServer(app);
   const wss = new WebSocketServer({
@@ -354,7 +359,12 @@ export async function startWorker() {
           ws.close(1002, `Unauthorized: invalid token`);
           return;
         }
-        const { persistentId, claims } = result;
+        let persistentId = result.persistentId;
+        const claims = result.claims;
+        if (config.env() === GameEnv.Dev) {
+          persistentId =
+            (req.headers["sec-websocket-key"] as string) || persistentId;
+        }
 
         if (claims?.role === "banned") {
           ws.close(1002, "Account Banned");
