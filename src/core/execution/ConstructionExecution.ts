@@ -3,6 +3,7 @@ import { TileRef } from "../game/GameMap";
 import { CityExecution } from "./CityExecution";
 import { DefensePostExecution } from "./DefensePostExecution";
 import { FactoryExecution } from "./FactoryExecution";
+import { JetExecution } from "./JetExecution";
 import { MirvExecution } from "./MIRVExecution";
 import { MissileSiloExecution } from "./MissileSiloExecution";
 import { NukeExecution } from "./NukeExecution";
@@ -148,6 +149,14 @@ export class ConstructionExecution implements Execution {
       case UnitType.WaterBomb:
         this.mg.addExecution(new WaterBombExecution(this.structure!));
         break;
+      case UnitType.Runway:
+        // Runways don't need active executions if they just passively unlock jets
+        break;
+      case UnitType.Jet:
+        this.mg.addExecution(
+          new JetExecution({ owner: player, targetTile: this.tile }),
+        );
+        break;
       default:
         console.warn(
           `unit type ${this.constructionType} cannot be constructed`,
@@ -165,6 +174,7 @@ export class ConstructionExecution implements Execution {
       case UnitType.City:
       case UnitType.Factory:
       case UnitType.WaterBomb:
+      case UnitType.Runway:
         return true;
       default:
         return false;

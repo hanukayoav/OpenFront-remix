@@ -932,6 +932,8 @@ export class InputHandler {
       { key: "buildWarship", type: UnitType.Warship },
       { key: "buildMIRV", type: UnitType.MIRV },
       { key: "buildWaterBomb", type: UnitType.WaterBomb },
+      { key: "buildRunway", type: UnitType.Runway },
+      { key: "buildJet", type: UnitType.Jet },
     ];
     for (const { key, type } of buildKeybinds) {
       if (this.buildKeybindMatches(code, shiftKey, this.keybinds[key]))

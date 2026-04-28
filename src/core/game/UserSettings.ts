@@ -20,6 +20,8 @@ export function getDefaultKeybinds(isMac: boolean): Record<string, string> {
     boatAttack: "KeyB",
     groundAttack: "KeyH",
     buildWaterBomb: "KeyG",
+    buildRunway: "KeyH",
+    buildJet: "KeyF",
     requestAlliance: "KeyK",
     breakAlliance: "KeyL",
     swapDirection: "KeyU",

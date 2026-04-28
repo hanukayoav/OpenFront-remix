@@ -455,6 +455,42 @@ export class UnitLayer implements Layer {
       case UnitType.WaterBomb:
         this.handleWaterBombEvent(unit);
         break;
+      case UnitType.Jet:
+        this.handleJetEvent(unit);
+        break;
+    }
+  }
+
+  private handleJetEvent(unit: UnitView) {
+    const myPlayer = this.game.myPlayer();
+    // Stealth rule: Only visible to attacker and defender
+    const targetTile = unit.targetTile();
+    if (myPlayer !== null) {
+      if (unit.owner() !== myPlayer) {
+        if (targetTile !== undefined && targetTile !== null) {
+          const tileOwner = this.game.cellOwner(targetTile);
+          if (tileOwner !== myPlayer) {
+            return; // Not attacker and not defender! Stealth!
+          }
+        } else {
+          return; // No target tile, not attacker, hide it.
+        }
+      }
+    }
+
+    // Draw trail
+    const rel = this.relationship(unit);
+    if (!this.unitToTrail.has(unit)) {
+      this.unitToTrail.set(unit, []);
+    }
+    const trail = this.unitToTrail.get(unit) ?? [];
+    trail.push(unit.lastTile());
+    this.drawTrail(trail.slice(-1), unit.owner().territoryColor(), rel);
+
+    this.drawSprite(unit);
+
+    if (!unit.isActive()) {
+      this.clearTrail(unit);
     }
   }
 

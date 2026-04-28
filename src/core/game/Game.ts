@@ -317,6 +317,8 @@ export enum UnitType {
   Train = "Train",
   Factory = "Factory",
   WaterBomb = "Water Bomb",
+  Runway = "Runway",
+  Jet = "Jet",
 }
 
 export enum TrainType {
@@ -337,6 +339,7 @@ export const BuildableAttacks = unitTypeGroup([
   UnitType.HydrogenBomb,
   UnitType.MIRV,
   UnitType.Warship,
+  UnitType.Jet,
 ] as const);
 
 export const Structures = unitTypeGroup([
@@ -347,6 +350,7 @@ export const Structures = unitTypeGroup([
   UnitType.Port,
   UnitType.Factory,
   UnitType.WaterBomb,
+  UnitType.Runway,
 ] as const);
 
 export const BuildMenus = unitTypeGroup([
@@ -425,6 +429,12 @@ export interface UnitParamsMap {
   };
 
   [UnitType.WaterBomb]: Record<string, never>;
+
+  [UnitType.Runway]: Record<string, never>;
+
+  [UnitType.Jet]: {
+    targetTile: TileRef;
+  };
 }
 
 // Type helper to get params type for a specific unit type
@@ -725,6 +735,8 @@ export interface Player {
     spawnTile: TileRef,
     params: UnitParams<T>,
   ): Unit;
+
+  jetSpawn(targetTile: TileRef): TileRef | false;
 
   // Returns the existing unit that can be upgraded,
   // or false if it cannot be upgraded.

@@ -491,6 +491,18 @@ export class DefaultConfig implements Config {
           constructionDuration: this.instantBuild() ? 0 : 2 * 10,
         };
         break;
+      case UnitType.Runway:
+        info = {
+          cost: this.costWrapper(() => 1_000_000, UnitType.Runway),
+          constructionDuration: this.instantBuild() ? 0 : 5 * 10,
+          upgradable: true,
+        };
+        break;
+      case UnitType.Jet:
+        info = {
+          cost: this.costWrapper(() => 2_000_000, UnitType.Jet),
+        };
+        break;
       default:
         assertNever(type);
     }
