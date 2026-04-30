@@ -1,11 +1,9 @@
 import fs from "fs";
 import path from "path";
-import { fileURLToPath, pathToFileURL } from "url";
+import { pathToFileURL } from "url";
 import type { AssetManifest } from "../core/AssetUrls";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const staticDir = path.join(__dirname, "../../static");
+const staticDir = path.join(process.cwd(), "static");
 const manifestPath = path.join(staticDir, "_assets", "asset-manifest.mjs");
 
 let manifestPromise: Promise<AssetManifest> | null = null;

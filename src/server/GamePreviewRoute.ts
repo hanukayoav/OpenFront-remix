@@ -38,9 +38,8 @@ export function registerGamePreviewRoute(opts: {
   config: ServerConfig;
   workerId: number;
   log: Logger;
-  baseDir: string;
 }) {
-  const { app, gm, config, log, baseDir } = opts;
+  const { app, gm, config, log } = opts;
 
   const gameIDSchema = z.string().regex(GAME_ID_REGEX);
 
@@ -109,8 +108,8 @@ export function registerGamePreviewRoute(opts: {
       );
 
       // Always serve HTML with meta tags for /game/:id route
-      const staticHtml = path.join(baseDir, "../../static/index.html");
-      const rootHtml = path.join(baseDir, "../../index.html");
+      const staticHtml = path.join(process.cwd(), "static/index.html");
+      const rootHtml = path.join(process.cwd(), "index.html");
       let filePath: string | null = null;
 
       try {

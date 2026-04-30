@@ -64,9 +64,12 @@ export abstract class DefaultServerConfig implements ServerConfig {
   abstract jwtAudience(): string;
   jwtIssuer(): string {
     const audience = this.jwtAudience();
-    return audience === "localhost"
-      ? "http://localhost:8787"
-      : `https://api.${audience}`;
+    if (audience === "localhost") {
+      return this.env() === GameEnv.Dev
+        ? "http://localhost:8787"
+        : "https://api.openfront.io";
+    }
+    return `https://api.${audience}`;
   }
   async jwkPublicKey(): Promise<JWK> {
     if (this.publicKey) return this.publicKey;

@@ -5,7 +5,6 @@ import rateLimit from "express-rate-limit";
 import http from "http";
 import ipAnonymize from "ip-anonymize";
 import path from "path";
-import { fileURLToPath } from "url";
 import { WebSocket, WebSocketServer } from "ws";
 import { z } from "zod";
 import { getServerConfigFromServer } from "../core/configuration/ConfigLoader";
@@ -44,9 +43,6 @@ const playlist = new MapPlaylist();
 // Worker setup
 export async function startWorker() {
   log.info(`Worker starting...`);
-
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
 
   const app = express();
   const isDev = config.env() === GameEnv.Dev;
@@ -116,7 +112,7 @@ export async function startWorker() {
   app.use(express.json());
 
   app.use(
-    express.static(path.join(__dirname, "../../out"), {
+    express.static(path.join(process.cwd(), "static"), {
       setHeaders: (res) => {
         applyStaticAssetCacheControl(
           res.setHeader.bind(res),
@@ -127,10 +123,10 @@ export async function startWorker() {
   );
 
   // Serve resources as root (for dev mode maps etc)
-  app.use(express.static(path.join(__dirname, "../../resources")));
+  app.use(express.static(path.join(process.cwd(), "resources")));
   app.use(
     "/maps",
-    express.static(path.join(__dirname, "../../resources/maps"), {
+    express.static(path.join(process.cwd(), "resources/maps"), {
       maxAge: "1y",
       setHeaders: (res, filePath) => {
         if (filePath.endsWith(".webp")) {
@@ -261,7 +257,6 @@ export async function startWorker() {
     config,
     workerId,
     log,
-    baseDir: __dirname,
   });
 
   app.post("/api/archive_singleplayer_game", async (req, res) => {

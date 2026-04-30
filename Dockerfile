@@ -63,8 +63,7 @@ COPY --from=build /usr/src/app/static ./static
 
 COPY resources ./resources
 
-# Remove maps because they are not used by the server.
-RUN rm -rf ./resources/maps
+# Ensure resources/maps are kept
 COPY tsconfig.json ./
 COPY src ./src
 

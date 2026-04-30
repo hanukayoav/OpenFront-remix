@@ -6,7 +6,6 @@ import rateLimit from "express-rate-limit";
 import http from "http";
 import httpProxy from "http-proxy";
 import path from "path";
-import { fileURLToPath } from "url";
 import { GameEnv } from "../core/configuration/Config";
 import { getServerConfigFromServer } from "../core/configuration/ConfigLoader";
 import { logger } from "./Logger";
@@ -35,16 +34,13 @@ proxy.on("error", (err, _req, res) => {
   }
 });
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 const isDev = config.env() === GameEnv.Dev;
 const staticPath = isDev
-  ? path.join(__dirname, "../../resources")
-  : path.join(__dirname, "../../static");
+  ? path.join(process.cwd(), "resources")
+  : path.join(process.cwd(), "static");
 const indexPath = isDev
-  ? path.join(__dirname, "../../index.html")
-  : path.join(__dirname, "../../static/index.html");
+  ? path.join(process.cwd(), "index.html")
+  : path.join(process.cwd(), "static/index.html");
 
 app.use(
   cors({
@@ -70,7 +66,7 @@ app.use(async (req, res, next) => {
 if (isDev) {
   // In development, serve the project root as well to allow access to source files if needed,
   // but prioritize the resources directory for static assets.
-  app.use(express.static(path.join(__dirname, "../../")));
+  app.use(express.static(process.cwd()));
 }
 
 app.use(
@@ -88,7 +84,7 @@ app.use(
 // Ensure maps are always accessible via relative path, even in production
 app.use(
   "/maps",
-  express.static(path.join(__dirname, "../../resources/maps"), {
+  express.static(path.join(process.cwd(), "resources/maps"), {
     maxAge: "1y",
   }),
 );
