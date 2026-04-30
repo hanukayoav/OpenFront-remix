@@ -14,7 +14,6 @@ const factoryIcon = assetUrl("images/FactoryUnit.png");
 const missileSiloIcon = assetUrl("images/MissileSiloUnit.png");
 const SAMMissileIcon = assetUrl("images/SamLauncherUnit.png");
 const shieldIcon = assetUrl("images/ShieldIcon.png");
-const runwayIcon = assetUrl("images/RunwayUnit.png");
 
 export const STRUCTURE_SHAPES: Partial<Record<UnitType, ShapeType>> = {
   [UnitType.City]: "circle",
@@ -28,7 +27,6 @@ export const STRUCTURE_SHAPES: Partial<Record<UnitType, ShapeType>> = {
   [UnitType.HydrogenBomb]: "cross",
   [UnitType.MIRV]: "cross",
   [UnitType.WaterBomb]: "cross",
-  [UnitType.Runway]: "square",
 };
 export const LEVEL_SCALE_FACTOR = 3;
 export const ICON_SCALE_FACTOR_ZOOMED_IN = 3.5;
@@ -70,7 +68,6 @@ export class SpriteFactory {
     [UnitType.Port, { iconPath: anchorIcon, image: null }],
     [UnitType.MissileSilo, { iconPath: missileSiloIcon, image: null }],
     [UnitType.SAMLauncher, { iconPath: SAMMissileIcon, image: null }],
-    [UnitType.Runway, { iconPath: runwayIcon, image: null }],
   ]);
   constructor(
     theme: Theme,
@@ -431,13 +428,10 @@ export class SpriteFactory {
       };
       const [offsetX, offsetY] = SHAPE_OFFSETS[shape] || [0, 0];
 
-      const imgToDraw =
-        structureType === UnitType.Runway
-          ? structureInfo.image
-          : this.getImageColored(
-              structureInfo.image,
-              owner.structureColors().dark.toRgbString(),
-            );
+      const imgToDraw = this.getImageColored(
+        structureInfo.image,
+        owner.structureColors().dark.toRgbString(),
+      );
 
       context.drawImage(imgToDraw, offsetX, offsetY);
     }

@@ -1166,25 +1166,10 @@ export class PlayerImpl implements Player {
       case UnitType.SAMLauncher:
       case UnitType.City:
       case UnitType.Factory:
-      case UnitType.Runway:
         return this.landBasedStructureSpawn(targetTile, validTiles);
-      case UnitType.Jet:
-        return this.jetSpawn(targetTile);
       default:
         assertNever(unitType);
     }
-  }
-
-  jetSpawn(targetTile: TileRef): TileRef | false {
-    // Target must be an enemy (someone we can attack)
-    const owner = this.mg.owner(targetTile);
-    if (!owner.isPlayer() || !this.canAttackPlayer(owner, true)) return false;
-
-    // We must have at least one Runway
-    if (this.unitCount(UnitType.Runway) === 0) return false;
-
-    // The Jet costs 2,000,000, which is handled in JetExecution
-    return targetTile;
   }
 
   nukeSpawn(tile: TileRef, nukeType: UnitType): TileRef | false {

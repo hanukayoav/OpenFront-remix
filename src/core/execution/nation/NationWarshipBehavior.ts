@@ -58,6 +58,67 @@ export class NationWarshipBehavior {
     return false;
   }
 
+  maybeSpawnWaterBomb(): boolean {
+    if (this.player === null) throw new Error("not initialized");
+    if (!this.random.chance(20)) {
+      // Increased frequency
+      return false;
+    }
+    const waterBombs = this.player.units(UnitType.WaterBomb);
+    // Hard limit of 5 water bombs
+    if (
+      waterBombs.length < 5 &&
+      this.player.gold() > this.cost(UnitType.WaterBomb)
+    ) {
+      const warships = this.player.units(UnitType.Warship);
+      const ports = this.player.units(UnitType.Port);
+      const sources = [...warships, ...ports];
+
+      if (sources.length === 0) {
+        return false;
+      }
+
+      const source = this.random.randElement(sources);
+      const targetTile = this.waterBombSpawnTile(source.tile());
+      if (targetTile === null) {
+        return false;
+      }
+      const canBuild = this.player.canBuild(UnitType.WaterBomb, targetTile);
+      if (canBuild === false) {
+        return false;
+      }
+      this.game.addExecution(
+        new ConstructionExecution(this.player, UnitType.WaterBomb, targetTile),
+      );
+      return true;
+    }
+    return false;
+  }
+
+  private waterBombSpawnTile(portTile: TileRef): TileRef | null {
+    const radius = 60; // Place them somewhat near ports but spread out
+    for (let attempts = 0; attempts < 50; attempts++) {
+      const randX = this.random.nextInt(
+        this.game.x(portTile) - radius,
+        this.game.x(portTile) + radius,
+      );
+      const randY = this.random.nextInt(
+        this.game.y(portTile) - radius,
+        this.game.y(portTile) + radius,
+      );
+      if (!this.game.isValidCoord(randX, randY)) {
+        continue;
+      }
+      const tile = this.game.ref(randX, randY);
+      if (!this.game.isWater(tile)) {
+        continue;
+      }
+      // Ensure it's not immediately adjacent to the port to avoid instant self-defusal if logic ever changes
+      return tile;
+    }
+    return null;
+  }
+
   private warshipSpawnTile(portTile: TileRef): TileRef | null {
     const radius = 250;
     for (let attempts = 0; attempts < 50; attempts++) {

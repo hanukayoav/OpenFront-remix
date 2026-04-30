@@ -24,29 +24,21 @@ export class WaterBombExecution implements Execution {
       return;
     }
 
-    // Check for ships within radius (16 euclidean distance squared, approx 4 tiles)
+    // Check for warships within radius (16 euclidean distance squared, approx 4 tiles)
     const ships = this.game.nearbyUnits(this.waterBomb.tile(), 16, [
       UnitType.Warship,
-      UnitType.TransportShip,
-      UnitType.TradeShip,
     ]);
 
     for (const { unit } of ships) {
-      if (!unit.owner().isPlayer()) continue;
-
+      // We only care about warships from players/bots that are not friendly
       const isFriendly =
         unit.owner() === this.waterBomb.owner() ||
         unit.owner().isFriendly(this.waterBomb.owner());
 
-      if (isFriendly) {
-        // Friendly ship safely defuses/erases the bomb
-        this.waterBomb.delete(true, unit.owner());
-        this.active = false;
-        break;
-      } else {
-        // Enemy ship takes 50% of max health as damage
+      if (!isFriendly) {
+        // Enemy warship takes significant damage (e.g., 100% of health to ensure destruction)
         const maxHealth = unit.info().maxHealth ?? 1000;
-        const damage = Math.max(1, Math.floor(maxHealth * 0.5));
+        const damage = maxHealth;
         unit.modifyHealth(-damage, this.waterBomb.owner());
 
         // destroy the water bomb and trigger explosion visual
