@@ -48,7 +48,7 @@ export async function startWorker() {
   log.info(`Worker starting...`);
 
   const app = express();
-  const isDev = config.env() === GameEnv.Dev;
+  const isDev = ServerEnv.env() === GameEnv.Dev;
   app.use(
     cors({
       origin: isDev ? "*" : ["http://localhost:5173", "http://localhost:9000"],
@@ -432,7 +432,7 @@ export async function startWorker() {
         let persistentId = result.persistentId;
         const originalPersistentId = persistentId;
         const claims = result.claims;
-        if (config.env() === GameEnv.Dev) {
+        if (ServerEnv.env() === GameEnv.Dev) {
           persistentId = Math.random().toString(36).substring(2, 15);
         }
 
@@ -666,7 +666,6 @@ export async function startWorker() {
         const client = new Client(
           generateID(),
           persistentId,
-          originalPersistentId,
           claims,
           claims?.role ?? null,
           flares,
@@ -677,6 +676,7 @@ export async function startWorker() {
           cosmeticResult.cosmetics,
           publicId,
           friends,
+          originalPersistentId,
         );
 
         const joinResult = gm.joinClient(client, clientMsg.gameID);

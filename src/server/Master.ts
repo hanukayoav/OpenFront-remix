@@ -33,7 +33,7 @@ proxy.on("error", (err, _req, res) => {
   }
 });
 
-const isDev = config.env() === GameEnv.Dev;
+const isDev = ServerEnv.env() === GameEnv.Dev;
 const staticPath = isDev
   ? path.join(process.cwd(), "resources")
   : path.join(process.cwd(), "static");
@@ -99,10 +99,10 @@ app.use(
 // Proxy worker requests (both HTTP and WebSocket upgrades)
 app.all(/^\/w(\d+)(.*)/, (req, res) => {
   const workerId = parseInt(req.params[0]);
-  if (isNaN(workerId) || workerId < 0 || workerId >= config.numWorkers()) {
+  if (isNaN(workerId) || workerId < 0 || workerId >= ServerEnv.numWorkers()) {
     return res.status(404).send("Worker not found");
   }
-  const targetPort = config.workerPortByIndex(workerId);
+  const targetPort = ServerEnv.workerPortByIndex(workerId);
   proxy.web(req, res, { target: `http://localhost:${targetPort}` });
 });
 
@@ -112,8 +112,8 @@ server.on("upgrade", (req, socket, head) => {
   const match = pathname.match(/^\/w(\d+)/);
   if (match) {
     const workerId = parseInt(match[1]);
-    if (!isNaN(workerId) && workerId >= 0 && workerId < config.numWorkers()) {
-      const targetPort = config.workerPortByIndex(workerId);
+    if (!isNaN(workerId) && workerId >= 0 && workerId < ServerEnv.numWorkers()) {
+      const targetPort = ServerEnv.workerPortByIndex(workerId);
       proxy.ws(req, socket, head, { target: `http://localhost:${targetPort}` });
       return;
     }

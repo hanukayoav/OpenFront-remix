@@ -13,7 +13,6 @@ export class Client {
   constructor(
     public readonly clientID: ClientID,
     public readonly persistentID: string,
-    public readonly originalPersistentID: string,
     public readonly claims: TokenPayload | null,
     public readonly role: string | null,
     public readonly flares: string[] | undefined,
@@ -24,5 +23,6 @@ export class Client {
     public readonly cosmetics: PlayerCosmetics | undefined,
     public readonly publicId: string | undefined,
     public readonly friends: string[],
+    public readonly originalPersistentID: string = persistentID,
   ) {}
 }

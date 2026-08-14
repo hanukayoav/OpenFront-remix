@@ -56,10 +56,9 @@ describe("Inventory navigation", () => {
   });
 
   it("declares only the routed Inventory page in index.html", () => {
-    const source = fs.readFileSync(
-      path.join(process.cwd(), "index.html"),
-      "utf8",
-    );
+    const source = fs
+      .readFileSync(path.join(process.cwd(), "index.html"), "utf8")
+      .replace(/\r\n/g, "\n");
     expect(source).toContain('<inventory-modal\n          id="page-inventory"');
     expect(source).not.toContain("<cosmetics-modal");
     expect(source).not.toContain("<flag-input-modal");

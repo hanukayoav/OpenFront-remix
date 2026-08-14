@@ -132,8 +132,7 @@
     },
     "not_enough_money": "Not enough money",
     "upgrade_amount": "x{amount}",
-    "warship_shift_hint": "Hold Shift and drag to select multiple warships at once",
-    "water_bomb": "Water Bomb"
+    "warship_shift_hint": "Hold Shift and drag to select multiple warships at once"
   },
   "chat": {
     "attack": {
@@ -1352,6 +1351,7 @@
       "silo": "Missile Silo",
       "trade": "Trade Ship",
       "trans": "Transport Ship",
+      "wbmb": "Water Bomb",
       "wshp": "Warship"
     },
     "war": "War",
@@ -1710,7 +1710,8 @@
     "missile_silo": "Missile Silo",
     "port": "Port",
     "sam_launcher": "SAM Launcher",
-    "warship": "Warship"
+    "warship": "Warship",
+    "water_bomb": "Water Bomb"
   },
   "user_setting": {
     "alert_frame_desc": "Toggle the alert frame. When enabled, the frame will be displayed when you are betrayed or attacked over land.",

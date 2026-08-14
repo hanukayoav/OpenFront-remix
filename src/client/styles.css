@@ -36,7 +36,6 @@
   --shadow-lobby-card-hover: 0 0 0 2px #0084d1, 0 0 20px rgba(0, 132, 209, 0.5);
   --shadow-action-card-hover:
     0 0 0 1px #0084d1, 0 0 12px rgba(0, 132, 209, 0.35);
->>>>>>> upstream/main
 }
 
 @layer base {

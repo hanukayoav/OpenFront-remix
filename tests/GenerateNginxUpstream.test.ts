@@ -19,8 +19,13 @@ function generate(numWorkers?: string): string {
   } else {
     env.NUM_WORKERS = numWorkers;
   }
+  const shCmd =
+    process.platform === "win32" &&
+    fs.existsSync("C:\\Program Files\\Git\\bin\\sh.exe")
+      ? "C:\\Program Files\\Git\\bin\\sh.exe"
+      : "sh";
   try {
-    execFileSync("sh", [SCRIPT, out], { env });
+    execFileSync(shCmd, [SCRIPT, out], { env });
     return fs.readFileSync(out, "utf8");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

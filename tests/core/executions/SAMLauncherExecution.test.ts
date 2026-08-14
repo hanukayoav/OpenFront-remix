@@ -338,6 +338,11 @@ describe("SAM", () => {
 
     attacker.buildUnit(UnitType.MIRVWarhead, game.ref(52, 1), {
       targetTile: game.ref(50, 1),
+      trajectory: [
+        { tile: game.ref(52, 1), targetable: true },
+        { tile: game.ref(51, 1), targetable: true },
+        { tile: game.ref(50, 1), targetable: true },
+      ],
     });
 
     executeTicks(game, 2);
@@ -357,6 +362,11 @@ describe("SAM", () => {
 
     attacker.buildUnit(UnitType.MIRVWarhead, game.ref(1, 3), {
       targetTile: game.ref(1, 1),
+      trajectory: [
+        { tile: game.ref(1, 3), targetable: true },
+        { tile: game.ref(1, 2), targetable: true },
+        { tile: game.ref(1, 1), targetable: true },
+      ],
     });
 
     executeTicks(game, 2);
