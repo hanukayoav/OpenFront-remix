@@ -22,5 +22,7 @@ export class Client {
     public clanTag: string | null,
     public ws: WebSocket,
     public readonly cosmetics: PlayerCosmetics | undefined,
+    public readonly publicId: string | undefined,
+    public readonly friends: string[],
   ) {}
 }

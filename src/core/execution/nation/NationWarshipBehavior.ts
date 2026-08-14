@@ -21,6 +21,10 @@ export class NationWarshipBehavior {
   private trackedTransportShips: Set<Unit> = new Set();
   // Track our trade ships we currently own
   private trackedTradeShips: Set<Unit> = new Set();
+  // Track incoming transport ships
+  private trackedIncomingTransportShips: Set<Unit> = new Set();
+  // Track incoming transport ships we have dealt with
+  private dealtWithTransportShip: Set<Unit> = new Set();
 
   constructor(
     private random: PseudoRandom,
@@ -31,6 +35,9 @@ export class NationWarshipBehavior {
 
   maybeSpawnWarship(): boolean {
     if (this.player === null) throw new Error("not initialized");
+    if (this.game.config().isUnitDisabled(UnitType.Warship)) {
+      return false;
+    }
     if (!this.random.chance(50)) {
       return false;
     }
@@ -42,7 +49,7 @@ export class NationWarshipBehavior {
       this.player.gold() > this.cost(UnitType.Warship)
     ) {
       const port = this.random.randElement(ports);
-      const targetTile = this.warshipSpawnTile(port.tile());
+      const targetTile = this.warshipSpawnTile(port.tile(), 250);
       if (targetTile === null) {
         return false;
       }
@@ -119,8 +126,7 @@ export class NationWarshipBehavior {
     return null;
   }
 
-  private warshipSpawnTile(portTile: TileRef): TileRef | null {
-    const radius = 250;
+  private warshipSpawnTile(portTile: TileRef, radius: number): TileRef | null {
     for (let attempts = 0; attempts < 50; attempts++) {
       const randX = this.random.nextInt(
         this.game.x(portTile) - radius,
@@ -146,17 +152,22 @@ export class NationWarshipBehavior {
   trackShipsAndRetaliate(): void {
     this.trackTransportShipsAndRetaliate();
     this.trackTradeShipsAndRetaliate();
+    this.trackIncomingTransportsAndRetaliate();
   }
 
   // Send out a warship if our transport ship got captured
   private trackTransportShipsAndRetaliate(): void {
+    if (this.game.config().isUnitDisabled(UnitType.TransportShip)) {
+      return;
+    }
     // Add any currently owned transport ships to our tracking set
     this.player
       .units(UnitType.TransportShip)
       .forEach((u) => this.trackedTransportShips.add(u));
 
-    // Iterate tracked transport ships; if it got destroyed by an enemy: retaliate
-    for (const ship of Array.from(this.trackedTransportShips)) {
+    // Iterate tracked transport ships; if it got destroyed by an enemy:
+    // retaliate. Deleting the current entry while iterating a Set is safe.
+    for (const ship of this.trackedTransportShips) {
       if (!ship.isActive()) {
         // Distinguish between arrival/retreat and enemy destruction
         if (ship.wasDestroyedByEnemy() && ship.destroyer() !== undefined) {
@@ -178,8 +189,9 @@ export class NationWarshipBehavior {
       .units(UnitType.TradeShip)
       .forEach((u) => this.trackedTradeShips.add(u));
 
-    // Iterate tracked trade ships; if we no longer own it, it was captured: retaliate
-    for (const ship of Array.from(this.trackedTradeShips)) {
+    // Iterate tracked trade ships; if we no longer own it, it was captured:
+    // retaliate. Deleting the current entry while iterating a Set is safe.
+    for (const ship of this.trackedTradeShips) {
       if (!ship.isActive()) {
         this.trackedTradeShips.delete(ship);
         continue;
@@ -188,6 +200,82 @@ export class NationWarshipBehavior {
         // Ship was ours and is now owned by someone else -> captured
         this.maybeRetaliateWithWarship(ship.tile(), ship.owner(), "trade");
         this.trackedTradeShips.delete(ship);
+      }
+    }
+  }
+
+  private trackIncomingTransportsAndRetaliate(): void {
+    // Add any transports which are targeting us to our tracking map
+    for (const p of this.game.units(UnitType.TransportShip)) {
+      const target = p.targetTile();
+      if (
+        target &&
+        p.isActive() &&
+        !p.transportShipState().isRetreating &&
+        this.game.ownerID(target) === this.player?.smallID() &&
+        p.owner().smallID() !== this.player?.smallID()
+      ) {
+        this.trackedIncomingTransportShips.add(p);
+      }
+    }
+
+    // Deleting the current entry while iterating a Set is safe.
+    for (const transport of this.trackedIncomingTransportShips) {
+      const target = transport.targetTile();
+      if (
+        !transport.isActive() ||
+        target === undefined ||
+        transport.transportShipState().isRetreating
+      ) {
+        this.trackedIncomingTransportShips.delete(transport);
+        this.dealtWithTransportShip.delete(transport);
+        continue;
+      }
+      // Transport has already been dealt with
+      if (this.dealtWithTransportShip.has(transport)) {
+        continue;
+      }
+
+      const distanceToTarget = this.game.manhattanDist(
+        transport.tile(),
+        target,
+      );
+      // Too close to deal with
+      if (distanceToTarget < 20) {
+        this.dealtWithTransportShip.add(transport);
+        continue;
+      }
+
+      // Possible dock snipe counter? Too niche?
+      if (!transport.owner().isAlliedWith(this.player)) {
+        if (
+          this.game.hasUnitNearby(
+            target,
+            90,
+            UnitType.Warship,
+            this.player.id(),
+            true,
+          ) ||
+          this.player.units(UnitType.Warship).filter((p) => {
+            const patrolTile = p.warshipState().patrolTile;
+            return (
+              patrolTile !== undefined &&
+              this.game.manhattanDist(target, patrolTile) < 90
+            );
+          }).length > 0
+        ) {
+          this.dealtWithTransportShip.add(transport);
+          continue;
+        }
+        const oceanTiles = this.warshipSpawnTile(target, 30);
+        if (oceanTiles === null) continue;
+        this.maybeRetaliateWithWarship(
+          oceanTiles,
+          transport.owner(),
+          "transport",
+        );
+        this.dealtWithTransportShip.add(transport);
+        break;
       }
     }
   }
@@ -204,6 +292,7 @@ export class NationWarshipBehavior {
 
     // Don't send too many warships
     if (this.player.units(UnitType.Warship).length >= 10) {
+      this.maybeMoveWarship(tile);
       return;
     }
 
@@ -216,6 +305,7 @@ export class NationWarshipBehavior {
     ) {
       const canBuild = this.player.canBuild(UnitType.Warship, tile);
       if (canBuild === false) {
+        this.maybeMoveWarship(tile);
         return;
       }
       this.game.addExecution(
@@ -223,6 +313,32 @@ export class NationWarshipBehavior {
       );
       this.emojiBehavior.maybeSendEmoji(enemy, EMOJI_WARSHIP_RETALIATION);
       this.player.updateRelation(enemy, reason === "trade" ? -7.5 : -15);
+    }
+  }
+
+  private maybeMoveWarship(tile: TileRef): void {
+    // Make sure we are targeting water
+    if (this.game.isWater(tile)) {
+      const warship = this.player
+        .units(UnitType.Warship)
+        .filter((p) => {
+          const patrolTile = p.warshipState().patrolTile;
+          return (
+            patrolTile !== undefined &&
+            // Dont send ships which are already traveling
+            this.game.manhattanDist(p.tile(), patrolTile) < 130
+          );
+        })
+        .sort((a, b) => {
+          // Sort by distance (closest first)
+          const distA = this.game.manhattanDist(a.tile(), tile);
+          const distB = this.game.manhattanDist(b.tile(), tile);
+          return distA - distB;
+        })[0];
+
+      if (warship) {
+        warship.updateWarshipState({ patrolTile: tile });
+      }
     }
   }
 
@@ -246,6 +362,10 @@ export class NationWarshipBehavior {
   }
 
   private shouldCounterWarshipInfestation(): boolean {
+    if (this.game.config().isUnitDisabled(UnitType.Warship)) {
+      return false;
+    }
+
     // Only the smart nations can do this
     const { difficulty } = this.game.config().gameConfig();
     if (
@@ -386,6 +506,7 @@ export class NationWarshipBehavior {
       target.warship.tile(),
     );
     if (canBuild === false) {
+      this.maybeMoveWarship(target.warship.tile());
       return;
     }
 

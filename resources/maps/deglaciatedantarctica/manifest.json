@@ -1,4 +1,6 @@
 {
+  "categories": ["antarctica", "fictional"],
+  "id": "DeglaciatedAntarctica",
   "map": {
     "height": 1840,
     "num_land_tiles": 1079790,
@@ -6,14 +8,15 @@
   },
   "map16x": {
     "height": 460,
-    "num_land_tiles": 62129,
+    "num_land_tiles": 62082,
     "width": 575
   },
   "map4x": {
     "height": 920,
-    "num_land_tiles": 262417,
+    "num_land_tiles": 261659,
     "width": 1150
   },
+  "multiplayer_frequency": 4,
   "name": "Deglaciated Antarctica",
   "nations": [
     {
@@ -61,5 +64,6 @@
       "flag": "fr",
       "name": "French Claim"
     }
-  ]
+  ],
+  "translation_key": "map.deglaciatedantarctica"
 }

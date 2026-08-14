@@ -39,6 +39,20 @@ HOST=$2
 VERSION_TAG=$3
 SUBDOMAIN=$4
 
+# Validate subdomain - it becomes a DNS label in the Traefik Host() rule, a
+# Docker container name, and part of a path on the remote host, so hold it to the
+# RFC 1123 label rules: letters, digits and interior hyphens, 63 octets at most.
+case "$SUBDOMAIN" in
+    "" | *[!a-zA-Z0-9-]* | -* | *-)
+        echo "Error: subdomain must be a valid hostname label - letters, digits and interior hyphens only - got: '$SUBDOMAIN'"
+        exit 1
+        ;;
+esac
+if [ "${#SUBDOMAIN}" -gt 63 ]; then
+    echo "Error: subdomain must be at most 63 characters, got ${#SUBDOMAIN}: '$SUBDOMAIN'"
+    exit 1
+fi
+
 # Set subdomain - use the provided subdomain
 echo "Using subdomain: $SUBDOMAIN"
 
@@ -66,6 +80,11 @@ else
     GHCR_IMAGE="${GHCR_USERNAME}/${GHCR_REPO}:${VERSION_TAG}"
 fi
 
+if [ -z "$DOMAIN" ]; then
+    echo "Error: DOMAIN not defined in .env file or environment"
+    exit 1
+fi
+
 if [ "$HOST" == "staging" ]; then
     print_header "DEPLOYING TO STAGING HOST"
     SERVER_HOST=$SERVER_HOST_STAGING
@@ -90,7 +109,13 @@ fi
 UPDATE_SCRIPT="./update.sh" # Path to your update script
 REMOTE_USER="openfront"
 REMOTE_UPDATE_PATH="/home/$REMOTE_USER"
-REMOTE_UPDATE_SCRIPT="$REMOTE_UPDATE_PATH/update-openfront.sh" # Where to place the script on server
+# Randomize the remote script name so concurrent deployments (different
+# branches share the staging host) don't overwrite each other's copy while
+# one of them is executing it.
+REMOTE_UPDATE_SCRIPT="$REMOTE_UPDATE_PATH/update-openfront-${SUBDOMAIN}-${RANDOM}.sh"
+# Lock serializing the host-side update (container swap, docker prune) across
+# concurrent deployments to the same host.
+REMOTE_LOCK_FILE="$REMOTE_UPDATE_PATH/update-openfront.lock"
 
 # Check if update script exists
 if [ ! -f "$UPDATE_SCRIPT" ]; then
@@ -134,15 +159,19 @@ ENV=$ENV
 HOST=$HOST
 GHCR_IMAGE=$GHCR_IMAGE
 GHCR_TOKEN=$GHCR_TOKEN
-TURNSTILE_SECRET_KEY=$TURNSTILE_SECRET_KEY
 API_KEY=$API_KEY
+ADMIN_BOT_API_KEY=$ADMIN_BOT_API_KEY
 DOMAIN=$DOMAIN
 SUBDOMAIN=$SUBDOMAIN
+CDN_BASE=$CDN_BASE
+NUM_WORKERS=$NUM_WORKERS
+TURNSTILE_SITE_KEY=$TURNSTILE_SITE_KEY
 OTEL_EXPORTER_OTLP_ENDPOINT=$OTEL_EXPORTER_OTLP_ENDPOINT
 OTEL_AUTH_HEADER=$OTEL_AUTH_HEADER
 EOL
 chmod 600 $ENV_FILE && \
-$REMOTE_UPDATE_SCRIPT $ENV_FILE"
+flock -w 900 $REMOTE_LOCK_FILE $REMOTE_UPDATE_SCRIPT $ENV_FILE && \
+rm -f $REMOTE_UPDATE_SCRIPT"
 
 if [ $? -ne 0 ]; then
     echo "❌ Failed to execute update script on server."

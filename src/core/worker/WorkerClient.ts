@@ -1,3 +1,4 @@
+import { getCdnBase } from "../AssetUrls";
 import {
   BuildableUnit,
   Cell,
@@ -13,8 +14,19 @@ import { ClientID, GameStartInfo, Turn } from "../Schemas";
 import { generateID } from "../Util";
 import { WorkerMessage } from "./WorkerMessages";
 
+// Inlined as a same-origin Blob (Vite's `?worker&inline`), sidestepping the
+// cross-origin `new Worker(url)` restriction that would otherwise apply when
+// the worker bundle is served from the CDN. The dynamic import keeps the
+// ~700 KB base64 payload in its own chunk, fetched when a game starts,
+// instead of inside the main bundle.
+async function createGameWorker(): Promise<Worker> {
+  const { default: GameWorker } =
+    await import("./Worker.worker.ts?worker&inline");
+  return new GameWorker();
+}
+
 export class WorkerClient {
-  private worker: Worker;
+  private worker: Worker | null = null;
   private isInitialized = false;
   private messageHandlers: Map<string, (message: WorkerMessage) => void>;
   private gameUpdateCallback?: (
@@ -25,16 +37,7 @@ export class WorkerClient {
     private gameStartInfo: GameStartInfo,
     private clientID: ClientID | undefined,
   ) {
-    this.worker = new Worker(new URL("./Worker.worker.ts", import.meta.url), {
-      type: "module",
-    });
     this.messageHandlers = new Map();
-
-    // Set up global message handler
-    this.worker.addEventListener(
-      "message",
-      this.handleWorkerMessage.bind(this),
-    );
   }
 
   private handleWorkerMessage(event: MessageEvent<WorkerMessage>) {
@@ -70,7 +73,11 @@ export class WorkerClient {
     }
   }
 
-  initialize(): Promise<void> {
+  async initialize(): Promise<void> {
+    const worker = await createGameWorker();
+    this.worker = worker;
+    worker.addEventListener("message", this.handleWorkerMessage.bind(this));
+
     return new Promise((resolve, reject) => {
       const messageId = generateID();
 
@@ -81,24 +88,20 @@ export class WorkerClient {
         }
       });
 
-      this.worker.postMessage({
+      worker.postMessage({
         type: "init",
         id: messageId,
         gameStartInfo: this.gameStartInfo,
         clientID: this.clientID,
-        gameEnv:
-          typeof window !== "undefined"
-            ? window.BOOTSTRAP_CONFIG?.gameEnv
-            : undefined,
+        cdnBase: getCdnBase(),
       });
 
-      // Add timeout for initialization
       setTimeout(() => {
         if (!this.isInitialized) {
           this.messageHandlers.delete(messageId);
           reject(new Error("Worker initialization timeout"));
         }
-      }, 20000); // 20 second timeout
+      }, 60000);
     });
   }
 
@@ -114,7 +117,7 @@ export class WorkerClient {
       throw new Error("Worker not initialized");
     }
 
-    this.worker.postMessage({
+    this.worker!.postMessage({
       type: "turn",
       turn,
     });
@@ -138,7 +141,7 @@ export class WorkerClient {
         }
       });
 
-      this.worker.postMessage({
+      this.worker!.postMessage({
         type: "player_profile",
         id: messageId,
         playerID: playerID,
@@ -164,7 +167,7 @@ export class WorkerClient {
         }
       });
 
-      this.worker.postMessage({
+      this.worker!.postMessage({
         type: "player_border_tiles",
         id: messageId,
         playerID: playerID,
@@ -195,7 +198,7 @@ export class WorkerClient {
         }
       });
 
-      this.worker.postMessage({
+      this.worker!.postMessage({
         type: "player_actions",
         id: messageId,
         playerID,
@@ -229,7 +232,7 @@ export class WorkerClient {
         }
       });
 
-      this.worker.postMessage({
+      this.worker!.postMessage({
         type: "player_buildables",
         id: messageId,
         playerID,
@@ -275,7 +278,7 @@ export class WorkerClient {
         );
       });
 
-      this.worker.postMessage({
+      this.worker!.postMessage({
         type: "attack_clustered_positions",
         id: messageId,
         playerID,
@@ -305,7 +308,7 @@ export class WorkerClient {
         }
       });
 
-      this.worker.postMessage({
+      this.worker!.postMessage({
         type: "transport_ship_spawn",
         id: messageId,
         playerID: playerID,
@@ -315,7 +318,7 @@ export class WorkerClient {
   }
 
   cleanup() {
-    this.worker.terminate();
+    this.worker?.terminate();
     this.messageHandlers.clear();
     this.gameUpdateCallback = undefined;
   }

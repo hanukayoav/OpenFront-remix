@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"image"
+	_ "image/png"
 	"log"
 	"log/slog"
 	"os"
@@ -13,96 +16,45 @@ import (
 	"sync"
 )
 
-// maps defines the registry of available maps to be processed.
-// Each entry contains the folder name and a flag indicating if it's a test map.
-//
-// New maps need to be added here in order to allow the map-generator to process them.
-var maps = []struct {
+// mapEntry identifies one map to process: its folder name and whether it
+// lives in assets/test_maps instead of assets/maps.
+type mapEntry struct {
 	Name   string
 	IsTest bool
-}{
-	{Name: "africa"},
-	{Name: "asia"},
-	{Name: "australia"},
-	{Name: "achiran"},
-	{Name: "alps"},
-	{Name: "baikal"},
-	{Name: "baikalnukewars"},
-	{Name: "betweentwoseas"},
-	{Name: "beringstrait"},
-	{Name: "blacksea"},
-	{Name: "bosphorusstraits"},
-	{Name: "britannia"},
-	{Name: "britanniaclassic"},
-	{Name: "deglaciatedantarctica"},
-	{Name: "eastasia"},
-	{Name: "europe"},
-	{Name: "europeclassic"},
-	{Name: "falklandislands"},
-	{Name: "faroeislands"},
-	{Name: "fourislands"},
-	{Name: "gatewaytotheatlantic"},
-	{Name: "giantworldmap"},
-	{Name: "gulfofstlawrence"},
-	{Name: "halkidiki"},
-	{Name: "iceland"},
-	{Name: "italia"},
-	{Name: "japan"},
-	{Name: "lisbon"},
-	{Name: "manicouagan"},
-    {Name: "straitofmalacca"},
-	{Name: "mars"},
-	{Name: "mena"},
-	{Name: "montreal"},
-	{Name: "newyorkcity"},
-	{Name: "northamerica"},
-	{Name: "oceania"},
-	{Name: "pangaea"},
-	{Name: "passage"},
-	{Name: "pluto"},
-	{Name: "sierpinski"},
-	{Name: "southamerica"},
-	{Name: "straitofgibraltar"},
-	{Name: "straitofhormuz"},
-	{Name: "surrounded"},
-	{Name: "svalmel"},
-	{Name: "world"},
-	{Name: "lemnos"},
-	{Name: "twolakes"},
-	{Name: "tourney1"},
-	{Name: "tourney2"},
-	{Name: "tourney3"},
-	{Name: "tourney4"},
-	{Name: "thebox"},
-	{Name: "didier"},
-	{Name: "didierfrance"},
-	{Name: "amazonriver"},
-	{Name: "yenisei"},
-	{Name: "tradersdream"},
-	{Name: "hawaii"},
-	{Name: "niledelta"},
-	{Name: "arctic"},
-	{Name: "sanfrancisco"},
-	{Name: "aegean"},
-	{Name: "milkyway"},
-	{Name: "mediterranean"},
-	{Name: "greatlakes"},
-    {Name: "dyslexdria"},
-    {Name: "luna"},
-    {Name: "conakry"},
-    {Name: "caucasus"},
-    {Name: "beringsea"},
-    {Name: "antarctica"},
-	{Name: "big_plains", IsTest: true},
-	{Name: "half_land_half_ocean", IsTest: true},
-	{Name: "ocean_and_land", IsTest: true},
-	{Name: "plains", IsTest: true},
-	{Name: "giantworldmap", IsTest: true},
-	{Name: "world", IsTest: true},
+}
+
+// maps holds the registry of maps to process, discovered from the assets
+// directories by discoverMaps() at startup.
+var maps []mapEntry
+
+// discoverMaps builds the map registry from the filesystem: every folder in
+// assets/maps, plus every folder in assets/test_maps as a test map. Adding a
+// map is just adding a folder with image.png and info.json.
+func discoverMaps() ([]mapEntry, error) {
+	var result []mapEntry
+	for _, isTest := range []bool{false, true} {
+		dir, err := inputMapDir(isTest)
+		if err != nil {
+			return nil, err
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read maps directory %s: %w", dir, err)
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				result = append(result, mapEntry{Name: entry.Name(), IsTest: isTest})
+			}
+		}
+	}
+	return result, nil
 }
 
 // mapsFlag holds the comma-separated list of map names passed via the --maps command-line argument.
 var mapsFlag string
+
+// workersFlag controls how many maps are processed concurrently, bounding peak memory usage.
+var workersFlag int
 
 // logFlags holds all the flags related to configuring the map-generator logging
 var logFlags LogFlags
@@ -209,6 +161,45 @@ func processMap(ctx context.Context, name string, isTest bool) error {
 		return fmt.Errorf("failed to write thumbnail for %s: %w", name, err)
 	}
 
+	// Copy layer PNGs and validate them.
+	if layersRaw, ok := manifest["layers"]; ok {
+		if layersArr, ok := layersRaw.([]interface{}); ok {
+			for _, layerRaw := range layersArr {
+				layer, ok := layerRaw.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				layerID, _ := layer["id"].(string)
+				if layerID == "" {
+					continue
+				}
+				// Validate placement.
+				placement, _ := layer["placement"].(string)
+				if placement != "land" && placement != "water" {
+					return fmt.Errorf("map %s: layer %q has invalid placement %q (must be \"land\" or \"water\")", name, layerID, placement)
+				}
+				// Copy the layer PNG.
+				srcPng := filepath.Join(inputMapDir, name, layerID+".png")
+				dstPng := filepath.Join(mapDir, layerID+".png")
+				pngData, err := os.ReadFile(srcPng)
+				if err != nil {
+					return fmt.Errorf("map %s: layer %q PNG not found at %s: %w", name, layerID, srcPng, err)
+				}
+				// Validate dimensions match image.png.
+				img, _, err := image.DecodeConfig(bytes.NewReader(pngData))
+				if err != nil {
+					return fmt.Errorf("map %s: layer %q PNG failed to decode: %w", name, layerID, err)
+				}
+				if img.Width != result.Map.Width || img.Height != result.Map.Height {
+					return fmt.Errorf("map %s: layer %q PNG dimensions (%dx%d) do not match map (%dx%d)", name, layerID, img.Width, img.Height, result.Map.Width, result.Map.Height)
+				}
+				if err := os.WriteFile(dstPng, pngData, 0644); err != nil {
+					return fmt.Errorf("failed to write layer PNG for %s/%s: %w", name, layerID, err)
+				}
+			}
+		}
+	}
+
 	// Serialize the updated manifest to JSON
 	updatedManifest, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -245,15 +236,20 @@ func parseMapsFlag() (map[string]bool, error) {
 
 // loadTerrainMaps manages the concurrent generation of all selected maps.
 // It spins up goroutines for each map and aggregates any errors.
+// Concurrency is bounded by --workers to cap peak memory usage.
 func loadTerrainMaps() error {
+	if workersFlag < 1 {
+		return fmt.Errorf("--workers must be >= 1, got %d", workersFlag)
+	}
 	selectedMaps, err := parseMapsFlag()
 	if err != nil {
 		return err
 	}
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(maps))
+	sem := make(chan struct{}, workersFlag)
 
-	// Process maps concurrently
+	// Process maps concurrently, bounded by the semaphore
 	for _, mapItem := range maps {
 		if selectedMaps != nil && !selectedMaps[mapItem.Name] {
 			continue
@@ -262,6 +258,8 @@ func loadTerrainMaps() error {
 		mapItem := mapItem
 		go func() {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			mapLogTag := slog.String("map", mapItem.Name)
 			testLogTag := slog.Bool("isTest", mapItem.IsTest)
 			logger := slog.Default().With(mapLogTag).With(testLogTag)
@@ -290,6 +288,7 @@ func loadTerrainMaps() error {
 // It parses flags and triggers the map generation process.
 func main() {
 	flag.StringVar(&mapsFlag, "maps", "", "optional comma-separated list of maps to process. ex: --maps=world,eastasia,big_plains")
+	flag.IntVar(&workersFlag, "workers", 4, "number of maps to process concurrently. reduce to lower peak memory usage.")
 	flag.StringVar(&logFlags.logLevel, "log-level", "", "Explicitly sets the log level to one of: ALL, DEBUG, INFO (default), WARN, ERROR.")
 	flag.BoolVar(&logFlags.verbose, "verbose", false, "Adds additional logging and prefixes logs with the [mapname].  Alias of log-level=DEBUG.")
 	flag.BoolVar(&logFlags.verbose, "v", false, "-verbose shorthand")
@@ -307,8 +306,25 @@ func main() {
 
 	slog.SetDefault(logger)
 
+	discovered, err := discoverMaps()
+	if err != nil {
+		log.Fatalf("Error discovering maps: %v", err)
+	}
+	maps = discovered
+
 	if err := loadTerrainMaps(); err != nil {
 		log.Fatalf("Error generating terrain maps: %v", err)
+	}
+
+	infos, err := loadMapInfos()
+	if err != nil {
+		log.Fatalf("Error loading map info: %v", err)
+	}
+	if err := generateMapsTS(infos); err != nil {
+		log.Fatalf("Error generating Maps.gen.ts: %v", err)
+	}
+	if err := generateEnJSON(infos); err != nil {
+		log.Fatalf("Error generating en.json map section: %v", err)
 	}
 
 	fmt.Println("Terrain maps generated successfully")

@@ -1,4 +1,6 @@
 {
+  "categories": ["oceania"],
+  "id": "Australia",
   "map": {
     "height": 1500,
     "num_land_tiles": 1319763,
@@ -6,14 +8,15 @@
   },
   "map16x": {
     "height": 375,
-    "num_land_tiles": 81256,
+    "num_land_tiles": 81252,
     "width": 500
   },
   "map4x": {
     "height": 750,
-    "num_land_tiles": 328215,
+    "num_land_tiles": 328153,
     "width": 1000
   },
+  "multiplayer_frequency": 4,
   "name": "Australia",
   "nations": [
     {
@@ -51,5 +54,7 @@
       "flag": "aus_tas",
       "name": "Tasmania"
     }
-  ]
+  ],
+  "themes": ["oceania"],
+  "translation_key": "map.australia"
 }

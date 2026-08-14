@@ -33,6 +33,9 @@ import {
 import { TransportShipExecution } from "../TransportShipExecution";
 import { closestTwoTiles } from "../Util";
 
+// Reusable neighbor buffer for hot loops; the simulation is single-threaded.
+const NEIGHBOR_SCRATCH: TileRef[] = [0, 0, 0, 0];
+
 export class AiAttackBehavior {
   private botAttackTroopsSent: number = 0;
 
@@ -52,20 +55,30 @@ export class AiAttackBehavior {
       throw new Error("not initialized");
     }
 
-    const border = Array.from(this.player.borderTiles())
-      .flatMap((t) => this.game.neighbors(t))
-      .filter(
-        (t) =>
-          this.game.isLand(t) &&
-          this.game.ownerID(t) !== this.player?.smallID(),
-      );
-    const borderingPlayers = [
-      ...new Set(
-        border
-          .map((t) => this.game.playerBySmallID(this.game.ownerID(t)))
-          .filter((o): o is Player => o.isPlayer()),
-      ),
-    ].sort((a, b) => a.troops() - b.troops());
+    // Neighbor visit order matters here: the set's insertion order feeds the
+    // stable troop-count sort below, so ties keep border-discovery order.
+    const borderingPlayerSet = new Set<Player>();
+    let borderHasNonNukedTerraNullius = false;
+    const smallID = this.player.smallID();
+    const visit = (t: number) => {
+      if (!this.game.isLand(t) || this.game.isImpassable(t)) return;
+      if (this.game.ownerID(t) === smallID) return;
+      const owner = this.game.playerBySmallID(this.game.ownerID(t));
+      if (owner.isPlayer()) borderingPlayerSet.add(owner);
+      if (!this.game.hasOwner(t) && !this.game.hasFallout(t)) {
+        borderHasNonNukedTerraNullius = true;
+      }
+    };
+    for (const t of this.player.borderTiles()) {
+      this.game.forEachNeighbor(t, visit);
+    }
+    const playerNeighbors = this.player.nearby();
+    for (const n of playerNeighbors) {
+      if (n.isPlayer()) borderingPlayerSet.add(n);
+    }
+    const borderingPlayers = [...borderingPlayerSet].sort(
+      (a, b) => a.troops() - b.troops(),
+    );
     const borderingFriends = borderingPlayers.filter(
       (o) => this.player?.isFriendly(o) === true,
     );
@@ -73,13 +86,12 @@ export class AiAttackBehavior {
       (o) => this.player?.isFriendly(o) === false,
     );
 
-    // Attack TerraNullius but not nuked territory
-    const hasNonNukedTerraNullius = border.some(
-      (t) => !this.game.hasOwner(t) && !this.game.hasFallout(t),
-    );
+    // Attack TerraNullius but not nuked territory (direct border or across a river)
+    const hasNonNukedTerraNullius =
+      borderHasNonNukedTerraNullius ||
+      playerNeighbors.some((n) => !n.isPlayer());
     if (hasNonNukedTerraNullius) {
-      this.sendAttack(this.game.terraNullius());
-      return;
+      if (this.sendAttack(this.game.terraNullius())) return;
     }
 
     if (borderingEnemies.length === 0) {
@@ -100,6 +112,10 @@ export class AiAttackBehavior {
 
   private attackWithRandomBoat(borderingEnemies: Player[] = []) {
     if (this.player === null) throw new Error("not initialized");
+
+    if (this.game.config().isUnitDisabled(UnitType.TransportShip)) {
+      return;
+    }
 
     // Check if we've already sent out the maximum number of transport ships
     if (
@@ -129,10 +145,19 @@ export class AiAttackBehavior {
       }
     }
 
+    const owner = this.game.owner(dst);
+    const cap = owner.isPlayer() ? this.troopSendCap() : Infinity;
+    const troops = Math.min(this.player.troops() / 5, cap);
+    if (troops < 1) return;
+
+    // Hard & Impossible: don't attack if we'd send less than 20% of target's troops
+    if (owner.isPlayer() && this.isAttackTooWeak(troops, owner)) {
+      return;
+    }
+
     this.game.addExecution(
-      new TransportShipExecution(this.player, dst, this.player.troops() / 5),
+      new TransportShipExecution(this.player, dst, troops),
     );
-    return;
   }
 
   private findRandomBoatTarget(
@@ -154,6 +179,9 @@ export class AiAttackBehavior {
       if (!this.game.isLand(randTile)) {
         continue;
       }
+      if (this.game.isImpassable(randTile)) {
+        continue;
+      }
       const owner = this.game.owner(randTile);
       if (owner === this.player) {
         continue;
@@ -166,12 +194,16 @@ export class AiAttackBehavior {
       if (owner.isPlayer() && borderingEnemies.includes(owner)) {
         continue;
       }
-      // Don't spam boats into players which are stronger than us
-      if (owner.isPlayer() && owner.troops() > this.player.troops()) {
+      // Don't spam boats into players which are stronger than us (FFA only)
+      if (
+        this.isFFA() &&
+        owner.isPlayer() &&
+        owner.troops() > this.player.troops()
+      ) {
         continue;
       }
 
-      let matchesCriteria = false;
+      let matchesCriteria: boolean;
       if (highInterestOnly) {
         // High-interest targeting: prioritize unowned tiles or tiles owned by bots
         matchesCriteria = !owner.isPlayer() || owner.type() === PlayerType.Bot;
@@ -235,8 +267,7 @@ export class AiAttackBehavior {
     const retaliate = (): boolean => {
       const attacker = this.findIncomingAttackPlayer();
       if (attacker) {
-        this.sendAttack(attacker, true);
-        return true;
+        return this.sendAttack(attacker, true);
       }
       return false;
     };
@@ -248,8 +279,7 @@ export class AiAttackBehavior {
     const traitor = (): boolean => {
       const traitor = this.findTraitor(borderingEnemies);
       if (traitor) {
-        this.sendAttack(traitor);
-        return true;
+        return this.sendAttack(traitor);
       }
       return false;
     };
@@ -258,11 +288,11 @@ export class AiAttackBehavior {
       // borderingEnemies is already sorted by troops (ascending), so first match is weakest afk enemy
       const afk = borderingEnemies.find(
         (enemy) =>
-          enemy.isDisconnected() && enemy.troops() < this.player.troops() * 3,
+          enemy.isDisconnected() &&
+          (!this.isFFA() || enemy.troops() < this.player.troops() * 3),
       );
       if (afk) {
-        this.sendAttack(afk);
-        return true;
+        return this.sendAttack(afk);
       }
       return false;
     };
@@ -272,8 +302,7 @@ export class AiAttackBehavior {
 
     const nuked = (): boolean => {
       if (this.isBorderingNukedTerritory()) {
-        this.sendAttack(this.game.terraNullius());
-        return true;
+        return this.sendAttack(this.game.terraNullius());
       }
       return false;
     };
@@ -281,8 +310,7 @@ export class AiAttackBehavior {
     const victim = (): boolean => {
       const victim = this.findVictim(borderingEnemies);
       if (victim) {
-        this.sendAttack(victim);
-        return true;
+        return this.sendAttack(victim);
       }
       return false;
     };
@@ -292,9 +320,8 @@ export class AiAttackBehavior {
         if (relation.relation !== Relation.Hostile) continue;
         const other = relation.player;
         if (this.player.isFriendly(other)) continue;
-        if (other.troops() > this.player.troops() * 3) continue;
-        this.sendAttack(other);
-        return true;
+        if (this.isFFA() && other.troops() > this.player.troops() * 3) continue;
+        return this.sendAttack(other);
       }
       return false;
     };
@@ -302,8 +329,7 @@ export class AiAttackBehavior {
     const veryWeak = (): boolean => {
       const veryWeak = this.findVeryWeakEnemy(borderingEnemies);
       if (veryWeak) {
-        this.sendAttack(veryWeak);
-        return true;
+        return this.sendAttack(veryWeak);
       }
       return false;
     };
@@ -312,10 +338,9 @@ export class AiAttackBehavior {
       if (borderingEnemies.length > 0) {
         // borderingEnemies is already sorted by troops (ascending), so first match is weakest
         const weakest = borderingEnemies[0];
-        // Don't attack if they have more troops than us
-        if (weakest.troops() < this.player.troops()) {
-          this.sendAttack(weakest);
-          return true;
+        // In FFA, don't attack if they have more troops than us
+        if (!this.isFFA() || weakest.troops() < this.player.troops()) {
+          return this.sendAttack(weakest);
         }
       }
       return false;
@@ -325,8 +350,7 @@ export class AiAttackBehavior {
       if (borderingEnemies.length === 0) {
         const enemy = this.findNearestIslandEnemy();
         if (enemy) {
-          this.sendAttack(enemy);
-          return true;
+          return this.sendAttack(enemy);
         }
       }
       return false;
@@ -356,7 +380,7 @@ export class AiAttackBehavior {
 
   private hasNeighboringBotWithStructures(): boolean {
     return this.player
-      .neighbors()
+      .nearby()
       .some(
         (n) =>
           n.isPlayer() &&
@@ -406,7 +430,7 @@ export class AiAttackBehavior {
   // Bots that own structures are prioritized as targets (they might have stolen our structures and they will delete them!)
   private attackBots(): boolean {
     const bots = this.player
-      .neighbors()
+      .nearby()
       .filter(
         (n): n is Player =>
           n.isPlayer() &&
@@ -463,6 +487,8 @@ export class AiAttackBehavior {
   private assistAllies(): boolean {
     if (this.emojiBehavior === undefined) throw new Error("not initialized");
 
+    if (this.game.config().disableAlliances()) return false;
+
     for (const ally of this.player.allies()) {
       if (ally.targets().length === 0) continue;
       if (this.player.relation(ally) < Relation.Friendly) {
@@ -478,9 +504,8 @@ export class AiAttackBehavior {
           this.emojiBehavior.sendEmoji(ally, EMOJI_ASSIST_TARGET_ALLY);
           continue;
         }
-        // All checks passed, assist them
+        if (!this.sendAttack(target)) continue;
         this.player.updateRelation(ally, -20);
-        this.sendAttack(target);
         this.emojiBehavior.sendEmoji(ally, EMOJI_ASSIST_ACCEPT);
         return true;
       }
@@ -490,11 +515,14 @@ export class AiAttackBehavior {
 
   // Find a traitor who isn't significantly stronger than us
   private findTraitor(borderingEnemies: Player[]): Player | null {
+    if (this.game.config().disableAlliances()) return null;
+
     // borderingEnemies is already sorted by troops (ascending), so first match is weakest traitor
     return (
       borderingEnemies.find(
         (enemy) =>
-          enemy.isTraitor() && enemy.troops() < this.player.troops() * 1.2,
+          enemy.isTraitor() &&
+          (!this.isFFA() || enemy.troops() < this.player.troops() * 1.2),
       ) ?? null
     );
   }
@@ -505,6 +533,8 @@ export class AiAttackBehavior {
   ): boolean {
     if (this.allianceBehavior === undefined) throw new Error("not initialized");
 
+    if (this.game.config().disableAlliances()) return false;
+
     if (borderingFriends.length > 0) {
       for (const friend of borderingFriends) {
         if (
@@ -513,8 +543,7 @@ export class AiAttackBehavior {
             borderingFriends.length + borderingEnemies.length,
           )
         ) {
-          this.sendAttack(friend, true);
-          return true;
+          return this.sendAttack(friend, true);
         }
       }
     }
@@ -522,8 +551,17 @@ export class AiAttackBehavior {
   }
 
   private isBorderingNukedTerritory(): boolean {
+    if (this.game.config().isUnitDisabled(UnitType.MissileSilo)) {
+      return false;
+    }
+
+    // Boolean result, so neighbor order doesn't matter; a reused scratch
+    // buffer keeps this allocation-free and allows early exit.
+    const nbuf = NEIGHBOR_SCRATCH;
     for (const tile of this.player.borderTiles()) {
-      for (const neighbor of this.game.neighbors(tile)) {
+      const n = this.game.neighbors4(tile, nbuf);
+      for (let i = 0; i < n; i++) {
+        const neighbor = nbuf[i];
         if (
           this.game.isLand(neighbor) &&
           !this.game.hasOwner(neighbor) &&
@@ -541,7 +579,9 @@ export class AiAttackBehavior {
     // borderingEnemies is already sorted by troops (ascending), so first match is weakest victim
     return (
       borderingEnemies.find((enemy) => {
-        if (enemy.troops() > this.player.troops() * 1.2) return false;
+        if (this.isFFA() && enemy.troops() > this.player.troops() * 1.2) {
+          return false;
+        }
 
         const totalIncomingTroops = enemy
           .incomingAttacks()
@@ -559,7 +599,7 @@ export class AiAttackBehavior {
       const enemyMaxTroops = this.game.config().maxTroops(enemy);
       return (
         enemy.troops() < enemyMaxTroops * 0.15 &&
-        enemy.troops() < this.player.troops() * 1.2
+        (!this.isFFA() || enemy.troops() < this.player.troops() * 1.2)
       );
     });
 
@@ -568,6 +608,10 @@ export class AiAttackBehavior {
   }
 
   private findNearestIslandEnemy(): Player | null {
+    if (this.game.config().isUnitDisabled(UnitType.TransportShip)) {
+      return null;
+    }
+
     // Check if we've already sent out the maximum number of transport ships
     if (
       this.player.unitCount(UnitType.TransportShip) >=
@@ -585,8 +629,8 @@ export class AiAttackBehavior {
     const filteredPlayers = this.game.players().filter((p) => {
       if (p === this.player) return false;
       if (this.player.isFriendly(p)) return false;
-      // Don't spam boats into players with more troops
-      return p.troops() < this.player.troops();
+      // In FFA, don't spam boats into players with more troops
+      return !this.isFFA() || p.troops() < this.player.troops();
     });
 
     if (filteredPlayers.length === 0) return null;
@@ -642,6 +686,13 @@ export class AiAttackBehavior {
     return reachablePlayers[0];
   }
 
+  // In team games, nations should be willing to attack/boat into stronger
+  // enemies - they can rely on teammates to donate. In FFA, going after
+  // someone significantly stronger is usually a losing proposition.
+  private isFFA(): boolean {
+    return this.game.config().gameConfig().gameMode === GameMode.FFA;
+  }
+
   private getPlayerCenter(player: Player) {
     if (player.largestClusterBoundingBox) {
       return boundingBoxCenter(player.largestClusterBoundingBox);
@@ -656,21 +707,19 @@ export class AiAttackBehavior {
     // Retaliate against incoming attacks
     const incomingAttackPlayer = this.findIncomingAttackPlayer();
     if (incomingAttackPlayer) {
-      this.sendAttack(incomingAttackPlayer, true);
-      return;
+      if (this.sendAttack(incomingAttackPlayer, true)) return;
     }
 
     // Select a traitor as an enemy
     const toAttack = this.getNeighborTraitorToAttack();
     if (toAttack !== null) {
       if (this.random.chance(3)) {
-        this.sendAttack(toAttack);
-        return;
+        if (this.sendAttack(toAttack)) return;
       }
     }
 
     // Choose a new enemy randomly
-    const neighbors = this.player.neighbors();
+    const neighbors = this.player.nearby();
     for (const neighbor of this.random.shuffleArray(neighbors)) {
       if (!neighbor.isPlayer()) continue;
       if (this.player.isFriendly(neighbor)) continue;
@@ -682,14 +731,15 @@ export class AiAttackBehavior {
           continue;
         }
       }
-      this.sendAttack(neighbor);
-      return;
+      if (this.sendAttack(neighbor)) return;
     }
   }
 
   getNeighborTraitorToAttack(): Player | null {
+    if (this.game.config().disableAlliances()) return null;
+
     const traitors = this.player
-      .neighbors()
+      .nearby()
       .filter(
         (n): n is Player =>
           n.isPlayer() && this.player.isFriendly(n) === false && n.isTraitor(),
@@ -707,14 +757,93 @@ export class AiAttackBehavior {
     );
   }
 
-  sendAttack(target: Player | TerraNullius, force = false) {
-    if (!force && !this.shouldAttack(target)) return;
+  sendAttack(target: Player | TerraNullius, force = false): boolean {
+    if (!force && !this.shouldAttack(target)) return false;
 
-    if (this.player.sharesBorderWith(target)) {
-      this.sendLandAttack(target);
-    } else if (target.isPlayer()) {
-      this.sendBoatAttack(target);
+    if (target.isPlayer()) {
+      if (this.player.sharesBorderWith(target)) {
+        return this.sendLandAttack(target);
+      } else {
+        return this.sendBoatAttack(target);
+      }
+    } else {
+      // sharesBorderWith(TerraNullius) counts water tiles as TN (ownerID 0 = TN smallID),
+      // so use a land-only adjacency check to decide land vs boat attack.
+      if (this.hasLandBorderWithTerraNullius()) {
+        return this.sendLandAttack(target);
+      } else {
+        return this.sendBoatAttackToNearbyTerraNullius();
+      }
     }
+  }
+
+  private hasLandBorderWithTerraNullius(): boolean {
+    for (const border of this.player.borderTiles()) {
+      for (const neighbor of this.game.neighbors(border)) {
+        if (
+          this.game.isLand(neighbor) &&
+          !this.game.isImpassable(neighbor) &&
+          !this.game.hasOwner(neighbor)
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // Scans shore border tiles (every 10th) for unowned land within 5 water tiles
+  // in each cardinal direction, then sends a transport ship to the first match.
+  private sendBoatAttackToNearbyTerraNullius(): boolean {
+    if (this.game.config().isUnitDisabled(UnitType.TransportShip)) return false;
+    if (
+      this.player.unitCount(UnitType.TransportShip) >=
+      this.game.config().boatMaxNumber()
+    )
+      return false;
+
+    const directions: [number, number][] = [
+      [0, -1],
+      [0, 1],
+      [-1, 0],
+      [1, 0],
+    ];
+    const shores = Array.from(this.player.borderTiles()).filter((t) =>
+      this.game.isShore(t),
+    );
+
+    for (let i = 0; i < shores.length; i += 10) {
+      const border = shores[i];
+
+      const bx = this.game.x(border);
+      const by = this.game.y(border);
+
+      for (const [dx, dy] of directions) {
+        const x1 = bx + dx;
+        const y1 = by + dy;
+        if (!this.game.isValidCoord(x1, y1)) continue;
+        if (!this.game.isWater(this.game.ref(x1, y1))) continue;
+
+        const nx = bx + dx * 5;
+        const ny = by + dy * 5;
+        if (!this.game.isValidCoord(nx, ny)) continue;
+        const tile = this.game.ref(nx, ny);
+        if (!this.game.isLand(tile)) continue;
+        if (this.game.isImpassable(tile)) continue;
+        if (this.game.hasOwner(tile)) continue;
+        if (this.game.hasFallout(tile)) continue;
+        if (!canBuildTransportShip(this.game, this.player, tile)) continue;
+
+        const troops = this.player.troops() / 5;
+        if (troops < 1) return false;
+
+        this.game.addExecution(
+          new TransportShipExecution(this.player, tile, troops),
+        );
+        return true;
+      }
+    }
+    return false;
   }
 
   shouldAttack(other: Player | TerraNullius): boolean {
@@ -732,7 +861,7 @@ export class AiAttackBehavior {
 
     // Prevent attacking of humans on lower difficulties
     const { difficulty } = this.game.config().gameConfig();
-    if (difficulty === Difficulty.Easy && this.random.chance(2)) {
+    if (difficulty === Difficulty.Easy && this.random.nextInt(0, 4) !== 0) {
       return false;
     }
     if (difficulty === Difficulty.Medium && this.random.chance(4)) {
@@ -741,7 +870,88 @@ export class AiAttackBehavior {
     return true;
   }
 
-  private sendLandAttack(target: Player | TerraNullius) {
+  /**
+   * For Hard & Impossible nations in FFA: returns true if `troops` is less
+   * than 20% of the target's troop count, meaning the attack is too weak to
+   * be worthwhile.  Bots and team games are exempt.
+   */
+  private isAttackTooWeak(troops: number, target: Player): boolean {
+    if (this.player.type() === PlayerType.Bot) return false;
+    if (this.game.config().gameConfig().gameMode === GameMode.Team)
+      return false;
+    // Nations under attack may retaliate freely
+    if (this.player.incomingAttacks().length > 0) return false;
+    const { difficulty } = this.game.config().gameConfig();
+    return (
+      (difficulty === Difficulty.Hard ||
+        difficulty === Difficulty.Impossible) &&
+      troops < target.troops() * 0.2
+    );
+  }
+
+  /**
+   * For Hard & Impossible nations in FFA: computes the max troops this nation
+   * can send in an attack without letting its troop count drop below a
+   * fraction of its strongest non-allied neighbor's troop count (Hard: 75%,
+   * Impossible: 90%). Allied players and bot neighbors are not considered
+   * threats. Bots and team games are entirely exempt. Returns Infinity when
+   * no cap applies.
+   *
+   * Nations under attack may retaliate with at least the total incoming
+   * attack troops, even if that exceeds the neighbor-based cap.
+   */
+  private troopSendCap(): number {
+    if (this.player.type() === PlayerType.Bot) return Infinity;
+    if (this.game.config().gameConfig().gameMode === GameMode.Team)
+      return Infinity;
+
+    const { difficulty } = this.game.config().gameConfig();
+    let retainFraction: number;
+    switch (difficulty) {
+      case Difficulty.Hard:
+        retainFraction = 0.75;
+        break;
+      case Difficulty.Impossible:
+        retainFraction = 0.9;
+        break;
+      default:
+        return Infinity;
+    }
+
+    let maxNeighborTroops = 0;
+    for (const n of this.player.nearby()) {
+      if (
+        n.isPlayer() &&
+        !this.player.isFriendly(n) &&
+        n.type() !== PlayerType.Bot &&
+        n.troops() > maxNeighborTroops
+      ) {
+        maxNeighborTroops = n.troops();
+      }
+    }
+
+    let cap: number;
+    if (maxNeighborTroops === 0) {
+      cap = Infinity;
+    } else {
+      const minRetained = Math.ceil(maxNeighborTroops * retainFraction);
+      cap = Math.max(0, this.player.troops() - minRetained);
+    }
+
+    // Nations under attack may retaliate with at least the incoming troops
+    const incoming = this.player.incomingAttacks();
+    if (incoming.length > 0) {
+      const totalIncoming = incoming.reduce((sum, a) => sum + a.troops(), 0);
+      cap = Math.max(cap, totalIncoming);
+    }
+
+    return cap;
+  }
+
+  private calculateAttackTroops(
+    target: Player | TerraNullius,
+    nonBotTroops: (targetTroops: number) => number,
+  ): number | null {
     const maxTroops = this.game.config().maxTroops(this.player);
     const botWithStructures =
       target.isPlayer() &&
@@ -764,16 +974,38 @@ export class AiAttackBehavior {
         this.player.troops() - targetTroops - this.botAttackTroopsSent,
       );
     } else {
-      troops = this.player.troops() - targetTroops;
+      troops = nonBotTroops(targetTroops);
+    }
+
+    // Hard & Impossible: don't drop below neighbor troop threshold (players only)
+    if (target.isPlayer()) {
+      troops = Math.min(troops, this.troopSendCap());
     }
 
     if (troops < 1) {
-      return;
+      return null;
+    }
+
+    // Hard & Impossible: don't attack if we'd send less than 20% of target's troops
+    if (target.isPlayer() && this.isAttackTooWeak(troops, target)) {
+      return null;
     }
 
     if (target.isPlayer() && this.player.type() === PlayerType.Nation) {
       if (this.emojiBehavior === undefined) throw new Error("not initialized");
       this.emojiBehavior.maybeSendAttackEmoji(target);
+    }
+
+    return troops;
+  }
+
+  private sendLandAttack(target: Player | TerraNullius): boolean {
+    const troops = this.calculateAttackTroops(
+      target,
+      (targetTroops) => this.player.troops() - targetTroops,
+    );
+    if (troops === null) {
+      return false;
     }
 
     this.game.addExecution(
@@ -783,41 +1015,39 @@ export class AiAttackBehavior {
         target.isPlayer() ? target.id() : this.game.terraNullius().id(),
       ),
     );
+    return true;
   }
 
-  private sendBoatAttack(target: Player) {
+  private sendBoatAttack(target: Player): boolean {
+    if (this.game.config().isUnitDisabled(UnitType.TransportShip)) {
+      return false;
+    }
+
     const closest = closestTwoTiles(
       this.game,
       Array.from(this.player.borderTiles()).filter((t) => this.game.isShore(t)),
       Array.from(target.borderTiles()).filter((t) => this.game.isShore(t)),
     );
     if (closest === null) {
-      return;
+      return false;
     }
 
     if (!canBuildTransportShip(this.game, this.player, closest.y)) {
-      return;
+      return false;
     }
 
-    let troops;
-    if (target.type() === PlayerType.Bot) {
-      troops = this.calculateBotAttackTroops(target, this.player.troops() / 5);
-    } else {
-      troops = this.player.troops() / 5;
-    }
-
-    if (troops < 1) {
-      return;
-    }
-
-    if (target.isPlayer() && this.player.type() === PlayerType.Nation) {
-      if (this.emojiBehavior === undefined) throw new Error("not initialized");
-      this.emojiBehavior.maybeSendAttackEmoji(target);
+    const troops = this.calculateAttackTroops(
+      target,
+      () => this.player.troops() / 5,
+    );
+    if (troops === null) {
+      return false;
     }
 
     this.game.addExecution(
       new TransportShipExecution(this.player, closest.y, troops),
     );
+    return true;
   }
 
   private calculateBotAttackTroops(target: Player, maxTroops: number): number {

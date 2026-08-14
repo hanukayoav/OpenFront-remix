@@ -1,6 +1,5 @@
 import { createHash } from "crypto";
 import fs from "fs";
-import { globSync } from "glob";
 import path from "path";
 import {
   type AssetManifest,
@@ -11,6 +10,7 @@ import {
 const HASHED_PUBLIC_ASSET_GLOBS = [
   "changelog.md",
   "manifest.json",
+  "atlases/**/*",
   "cosmetics/**/*",
   "flags/**/*",
   "fonts/**/*",
@@ -33,6 +33,9 @@ const ROOT_PUBLIC_FILES = new Set([
 
 const manifestCache = new Map<string, AssetManifest>();
 
+// Bump this to force-invalidate all CDN-cached assets (e.g. after a bad deploy with wrong cache headers).
+const CACHE_BUST_VERSION = "3";
+
 type DerivedPublicAssetRenderContext = {
   resourcesDir: string;
   relativePath: string;
@@ -48,13 +51,30 @@ function toPosixPath(filePath: string): string {
   return filePath.split(path.sep).join(path.posix.sep);
 }
 
+function toRelativePosixPath(
+  rootDir: string,
+  dirent: { parentPath: string; name: string },
+): string {
+  // when cwd is used in globSync, dirent.parentPath is "."
+  const absolutePath = path.join(dirent.parentPath, dirent.name);
+  return toPosixPath(path.relative(rootDir, absolutePath));
+}
+
 function createContentHash(filePath: string): string {
   const content = fs.readFileSync(filePath);
-  return createHash("sha256").update(content).digest("hex").slice(0, 12);
+  return createHash("sha256")
+    .update(CACHE_BUST_VERSION)
+    .update(content)
+    .digest("hex")
+    .slice(0, 12);
 }
 
 function createStringHash(content: string): string {
-  return createHash("sha256").update(content).digest("hex").slice(0, 12);
+  return createHash("sha256")
+    .update(CACHE_BUST_VERSION)
+    .update(content)
+    .digest("hex")
+    .slice(0, 12);
 }
 
 function createHashedAssetUrl(relativePath: string, hash: string): string {
@@ -260,16 +280,16 @@ export function shouldKeepRootPublicFile(relativePath: string): boolean {
 
 export function listHashedPublicAssetPaths(sourceDirs: string[]): string[] {
   const files = new Set<string>();
-  for (const dir of sourceDirs) {
-    if (!fs.existsSync(dir)) continue;
+  for (const sourceDir of sourceDirs) {
+    if (!fs.existsSync(sourceDir)) continue;
     for (const pattern of HASHED_PUBLIC_ASSET_GLOBS) {
-      for (const file of globSync(pattern, {
-        cwd: dir,
-        nodir: true,
-        dot: false,
-        posix: true,
+      for (const dirent of fs.globSync(pattern, {
+        cwd: sourceDir,
+        withFileTypes: true, // return dirent to exclude directories (like nodir: true)
+        exclude: ["**/.*", ".*"], // .gitignore etc (like dot: false)
       })) {
-        files.add(normalizeAssetPath(file));
+        if (dirent.isDirectory()) continue;
+        files.add(normalizeAssetPath(toRelativePosixPath(sourceDir, dirent))); // convert dirent (like posix:true)
       }
     }
   }
@@ -277,13 +297,16 @@ export function listHashedPublicAssetPaths(sourceDirs: string[]): string[] {
 }
 
 export function listRootPublicFiles(resourcesDir: string): string[] {
-  return globSync("**/*", {
-    cwd: resourcesDir,
-    nodir: true,
-    dot: false,
-    posix: true,
-  })
-    .map((file) => normalizeAssetPath(file))
+  return fs
+    .globSync("**/*", {
+      cwd: resourcesDir,
+      withFileTypes: true,
+      exclude: ["**/.*", ".*"],
+    })
+    .filter((dirent) => !dirent.isDirectory())
+    .map((dirent) =>
+      normalizeAssetPath(toRelativePosixPath(resourcesDir, dirent)),
+    )
     .filter((file) => shouldKeepRootPublicFile(file))
     .sort();
 }
@@ -371,15 +394,11 @@ export function copyRootPublicFiles(
   }
 }
 
-export function writePublicAssetManifestModule(
+export function writePublicAssetManifest(
   outDir: string,
   assetManifest: AssetManifest,
 ): void {
-  const manifestPath = path.join(outDir, "_assets", "asset-manifest.mjs");
+  const manifestPath = path.join(outDir, "asset-manifest.json");
   fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
-  const serializedManifest = JSON.stringify(assetManifest, null, 2);
-  fs.writeFileSync(
-    manifestPath,
-    `const assetManifest = ${serializedManifest};\nexport { assetManifest };\nexport default assetManifest;\n`,
-  );
+  fs.writeFileSync(manifestPath, `${JSON.stringify(assetManifest, null, 2)}\n`);
 }

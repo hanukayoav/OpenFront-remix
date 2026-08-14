@@ -1,4 +1,7 @@
 {
+  "categories": ["arcade"],
+  "display_name": "Didier (France)",
+  "id": "DidierFrance",
   "map": {
     "height": 2248,
     "num_land_tiles": 2303633,
@@ -6,15 +9,16 @@
   },
   "map16x": {
     "height": 562,
-    "num_land_tiles": 141151,
+    "num_land_tiles": 141149,
     "width": 525
   },
   "map4x": {
     "height": 1124,
-    "num_land_tiles": 571943,
+    "num_land_tiles": 571849,
     "width": 1050
   },
-  "name": "Didier (France)",
+  "multiplayer_frequency": 1,
+  "name": "Didier France",
   "nations": [
     {
       "coordinates": [120, 680],
@@ -222,5 +226,6 @@
       "coordinates": [2012, 2198],
       "name": "Arryn"
     }
-  ]
+  ],
+  "translation_key": "map.didierfrance"
 }

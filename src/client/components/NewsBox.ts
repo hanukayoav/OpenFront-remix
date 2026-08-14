@@ -1,8 +1,8 @@
 import { LitElement, html, nothing } from "lit";
-import { resolveMarkdown } from "lit-markdown";
 import { customElement, state } from "lit/decorators.js";
 import type { NewsItem } from "../../core/ApiSchemas";
 import { getNews } from "../Api";
+import { renderMarkdown } from "../Markdown";
 import { translateText } from "../Utils";
 
 export type { NewsItem };
@@ -115,7 +115,7 @@ export class NewsBox extends LitElement {
 
     return html`
       <div
-        class="px-2 py-2 bg-[color-mix(in_oklab,var(--frenchBlue)_75%,black)] border-y border-white/10 lg:border-y-0 lg:rounded-xl lg:p-3"
+        class="px-2 py-2 bg-surface border-y border-white/10 lg:border-y-0 lg:rounded-xl lg:p-3"
       >
         <div class="flex items-center gap-3">
           <span
@@ -140,7 +140,7 @@ export class NewsBox extends LitElement {
                 >`}
             <span
               class="text-xs text-white/50 block [&_a]:text-blue-300 [&_a:hover]:text-blue-200"
-              >${resolveMarkdown(
+              >${renderMarkdown(
                 item.descriptionTranslationKey
                   ? translateText(item.descriptionTranslationKey)
                   : (item.description ?? ""),

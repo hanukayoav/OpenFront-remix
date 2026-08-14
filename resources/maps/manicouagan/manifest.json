@@ -1,4 +1,6 @@
 {
+  "categories": ["north_america"],
+  "id": "Manicouagan",
   "map": {
     "height": 1600,
     "num_land_tiles": 1992029,
@@ -6,14 +8,15 @@
   },
   "map16x": {
     "height": 400,
-    "num_land_tiles": 118925,
+    "num_land_tiles": 118914,
     "width": 400
   },
   "map4x": {
     "height": 800,
-    "num_land_tiles": 490256,
+    "num_land_tiles": 489928,
     "width": 800
   },
+  "multiplayer_frequency": 4,
   "name": "Manicouagan",
   "nations": [
     {
@@ -71,5 +74,7 @@
       "flag": "Quebec",
       "name": "Lamontagne"
     }
-  ]
+  ],
+  "themes": ["north_america"],
+  "translation_key": "map.manicouagan"
 }

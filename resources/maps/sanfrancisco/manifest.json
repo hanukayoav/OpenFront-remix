@@ -1,4 +1,6 @@
 {
+  "categories": ["north_america"],
+  "id": "SanFrancisco",
   "map": {
     "height": 1700,
     "num_land_tiles": 1887961,
@@ -6,15 +8,16 @@
   },
   "map16x": {
     "height": 425,
-    "num_land_tiles": 112964,
+    "num_land_tiles": 112962,
     "width": 500
   },
   "map4x": {
     "height": 850,
-    "num_land_tiles": 465078,
+    "num_land_tiles": 464870,
     "width": 1000
   },
-  "name": "SanFrancisco",
+  "multiplayer_frequency": 3,
+  "name": "San Francisco",
   "nations": [
     {
       "coordinates": [996, 990],
@@ -121,5 +124,7 @@
       "flag": "California",
       "name": "Bodega Bay"
     }
-  ]
+  ],
+  "themes": ["north_america"],
+  "translation_key": "map.sanfrancisco"
 }

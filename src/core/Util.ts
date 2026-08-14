@@ -1,21 +1,21 @@
 import DOMPurify from "dompurify";
 import { customAlphabet } from "nanoid";
-import { Cell, PlayerType, Unit } from "./game/Game";
+import { Cell, GameType, PlayerType, Unit } from "./game/Game";
 import { GameMap, TileRef } from "./game/GameMap";
+import { TileSet } from "./game/TileSet";
 import {
   GameConfig,
   GameID,
   GameRecord,
+  GameStartInfo,
   PartialGameRecord,
   PlayerRecord,
+  Tribe,
   Turn,
   Winner,
 } from "./Schemas";
 
-import {
-  TRIBE_NAME_PREFIXES,
-  TRIBE_NAME_SUFFIXES,
-} from "./execution/utils/TribeNames";
+import { resolveTribeNameData } from "./execution/utils/TribeNames";
 
 export function manhattanDistWrapped(
   c1: Cell,
@@ -127,20 +127,33 @@ export function simpleHash(str: string): number {
 
 export function calculateBoundingBox(
   gm: GameMap,
-  borderTiles: ReadonlySet<TileRef>,
+  borderTiles: Iterable<TileRef>,
 ): { min: Cell; max: Cell } {
   let minX = Infinity,
     minY = Infinity,
     maxX = -Infinity,
     maxY = -Infinity;
 
-  for (const tile of borderTiles) {
+  const visit = (tile: TileRef) => {
     const x = gm.x(tile);
     const y = gm.y(tile);
     minX = Math.min(minX, x);
     minY = Math.min(minY, y);
     maxX = Math.max(maxX, x);
     maxY = Math.max(maxY, y);
+  };
+  // Indexed/forEach paths: for..of over a large Set (player border sets)
+  // allocates an iterator-result object per element.
+  if (Array.isArray(borderTiles)) {
+    for (let i = 0; i < borderTiles.length; i++) {
+      visit(borderTiles[i]);
+    }
+  } else if (borderTiles instanceof Set || borderTiles instanceof TileSet) {
+    borderTiles.forEach(visit);
+  } else {
+    for (const tile of borderTiles) {
+      visit(tile);
+    }
   }
 
   return { min: new Cell(minX, minY), max: new Cell(maxX, maxY) };
@@ -200,7 +213,7 @@ export function getMode<T>(counts: Map<T, number>): T | null {
 
 export function calculateBoundingBoxCenter(
   gm: GameMap,
-  borderTiles: ReadonlySet<TileRef>,
+  borderTiles: Iterable<TileRef>,
 ): Cell {
   const { min, max } = calculateBoundingBox(gm, borderTiles);
   return boundingBoxCenter({ min, max });
@@ -240,6 +253,37 @@ export function onlyImages(html: string) {
   });
 }
 
+// Replays rebuild GameStartInfo from the archived record, which keeps
+// players' real clanTag and friends (analytics reads them). Live clients
+// never simulated with those: the server blanks clanTag when clan tags are
+// disabled, and clanTag + friends when names are anonymized — identically
+// for every client, because both feed deterministic team assignment
+// (TeamAssignment.ts). Mirrors GameServer.start() (wireGameStartInfo) and
+// startInfoFor(); replays must apply the same blanking before simulating,
+// or team games with either setting diverge from the recorded hashes.
+// Singleplayer records were simulated (and archived) with the real values —
+// no server, no blanking — so they replay as-is.
+export function toWireGameStartInfo(info: GameStartInfo): GameStartInfo {
+  const config = info.config;
+  if (config.gameType === GameType.Singleplayer) {
+    return info;
+  }
+  const blankClanTags =
+    (config.disableClanTags ?? false) || (config.anonymizeNames ?? false);
+  const blankFriends = config.anonymizeNames ?? false;
+  if (!blankClanTags && !blankFriends) {
+    return info;
+  }
+  return {
+    ...info,
+    players: info.players.map((p) => ({
+      ...p,
+      clanTag: blankClanTags ? null : p.clanTag,
+      friends: blankFriends ? undefined : p.friends,
+    })),
+  };
+}
+
 export function createPartialGameRecord(
   gameID: GameID,
   config: GameConfig,
@@ -253,6 +297,10 @@ export function createPartialGameRecord(
   lobbyCreatedAt?: number,
   // Time the lobby became visible to players (ms).
   visibleAt?: number,
+  // Purchased bot tribe names in use this game (public games only). Infra
+  // ingest reads them from the record for owner appearance stats, and
+  // replays rebuild GameStartInfo from the record so the same names spawn.
+  tribes?: Tribe[],
 ): PartialGameRecord {
   const duration = Math.floor((end - start) / 1000);
   const num_turns = allTurns.length;
@@ -280,6 +328,7 @@ export function createPartialGameRecord(
       duration,
       num_turns,
       winner,
+      tribes,
     },
     version: "v0.0.2",
     turns,
@@ -352,13 +401,12 @@ export function createRandomName(
 ): string | null {
   let randomName: string | null = null;
   if (playerType === PlayerType.Human) {
+    const { prefixes, suffixes } = resolveTribeNameData();
     const hash = simpleHash(name);
-    const prefixIndex = hash % TRIBE_NAME_PREFIXES.length;
-    const suffixIndex =
-      Math.floor(hash / TRIBE_NAME_PREFIXES.length) %
-      TRIBE_NAME_SUFFIXES.length;
+    const prefixIndex = hash % prefixes.length;
+    const suffixIndex = Math.floor(hash / prefixes.length) % suffixes.length;
 
-    randomName = `👤 ${TRIBE_NAME_PREFIXES[prefixIndex]} ${TRIBE_NAME_SUFFIXES[suffixIndex]}`;
+    randomName = `👤 ${prefixes[prefixIndex]} ${suffixes[suffixIndex]}`;
   }
   return randomName;
 }

@@ -1,15 +1,17 @@
 import {
   AutoUpgradeEvent,
   ConfirmGhostStructureEvent,
+  ContextMenuEvent,
   InputHandler,
+  UnitSelectionEvent,
   WarshipSelectionBoxCancelEvent,
   WarshipSelectionBoxCompleteEvent,
   WarshipSelectionBoxUpdateEvent,
 } from "../src/client/InputHandler";
-import { UIState } from "../src/client/graphics/UIState";
+import { UIState } from "../src/client/UIState";
+import { GameView, PlayerView, UnitView } from "../src/client/view";
 import { EventBus } from "../src/core/EventBus";
 import { UnitType } from "../src/core/game/Game";
-import { GameView } from "../src/core/game/GameView";
 import { KEYBINDS_KEY, UserSettings } from "../src/core/game/UserSettings";
 
 class MockPointerEvent {
@@ -49,7 +51,10 @@ describe("InputHandler AutoUpgrade", () => {
     testSettings = new UserSettings();
     testSettings.removeCached(KEYBINDS_KEY, false);
 
-    mockGameView = { inSpawnPhase: () => false } as GameView;
+    mockGameView = {
+      inSpawnPhase: () => false,
+      myPlayer: () => ({ isAlive: () => true }),
+    } as GameView;
     mockCanvas = document.createElement("canvas");
     mockCanvas.width = 800;
     mockCanvas.height = 600;
@@ -62,8 +67,7 @@ describe("InputHandler AutoUpgrade", () => {
         attackRatio: 20,
         ghostStructure: null,
         rocketDirectionUp: true,
-        overlappingRailroads: [],
-        ghostRailPaths: [],
+        upgradeMultiplier: 1,
       },
       mockCanvas,
       eventBus,
@@ -538,8 +542,6 @@ describe("InputHandler AutoUpgrade", () => {
         attackRatio: 20,
         ghostStructure: null,
         rocketDirectionUp: true,
-        overlappingRailroads: [],
-        ghostRailPaths: [],
       } as UIState;
       inputHandler = new InputHandler(
         mockGameView,
@@ -594,8 +596,6 @@ describe("InputHandler AutoUpgrade", () => {
         attackRatio: 20,
         ghostStructure: null,
         rocketDirectionUp: true,
-        overlappingRailroads: [],
-        ghostRailPaths: [],
       } as UIState;
       inputHandler = new InputHandler(
         mockGameView,
@@ -626,8 +626,75 @@ describe("InputHandler AutoUpgrade", () => {
       );
       expect(inputHandler["uiState"].ghostStructure).toBe(UnitType.MIRV);
     });
+
+    test("does not set ghost structure when the player is dead", () => {
+      mockGameView.myPlayer = () =>
+        ({ isAlive: () => false }) as unknown as PlayerView;
+
+      window.dispatchEvent(
+        new KeyboardEvent("keyup", { code: "Numpad1", key: "1" }),
+      );
+
+      expect(inputHandler["uiState"].ghostStructure).toBeNull();
+    });
   });
 
+  describe("Digit keys still set ghost structure when bound to Numpad", () => {
+    beforeEach(() => {
+      inputHandler.destroy();
+      testSettings.setKeybinds({
+        buildCity: "Numpad1",
+        buildMIRV: "Numpad0",
+      });
+      const uiState: UIState = {
+        attackRatio: 20,
+        ghostStructure: null,
+        rocketDirectionUp: true,
+      } as UIState;
+      inputHandler = new InputHandler(
+        mockGameView,
+        uiState,
+        mockCanvas,
+        eventBus,
+      );
+      inputHandler.initialize();
+    });
+    test("Digit1 sets ghost structure to City when buildCity is Numpad1", () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keyup", { code: "Digit1", key: "1" }),
+      );
+      expect(inputHandler["uiState"].ghostStructure).toBe(UnitType.City);
+    });
+    test("Digit0 sets ghost structrue to MIRV when buildMIRV is Numpad0", () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keyup", { code: "Digit0", key: "0" }),
+      );
+      expect(inputHandler["uiState"].ghostStructure).toBe(UnitType.MIRV);
+    });
+  });
+
+  describe("InputHandler keybind registry", () => {
+    function makeHandler() {
+      return new InputHandler(
+        {} as any, // gameView
+        {} as any, // uiState
+        document.createElement("div"), // canvas
+        {} as any, // eventBus
+      );
+    }
+
+    test("two actions bound to the same key are both kept (no overwrite)", () => {
+      const ih = makeHandler() as any;
+      ih.keybindAndEvent = [];
+      ih.addKeybindAndEvent("KeyX", () => {});
+      ih.addKeybindAndEvent("KeyX", () => {});
+
+      const entries = ih.keybindAndEvent.filter(
+        ([k]: [string, unknown]) => k === "KeyX",
+      );
+      expect(entries.length).toBe(2); // would have been 1 with the old Map
+    });
+  });
   describe("Build keybind two-phase matching (exact code first, then digit/Numpad alias)", () => {
     beforeEach(() => {
       inputHandler.destroy();
@@ -635,8 +702,6 @@ describe("InputHandler AutoUpgrade", () => {
         attackRatio: 20,
         ghostStructure: null,
         rocketDirectionUp: true,
-        overlappingRailroads: [],
-        ghostRailPaths: [],
       } as UIState;
       inputHandler = new InputHandler(
         mockGameView,
@@ -657,8 +722,6 @@ describe("InputHandler AutoUpgrade", () => {
         attackRatio: 20,
         ghostStructure: null,
         rocketDirectionUp: true,
-        overlappingRailroads: [],
-        ghostRailPaths: [],
       } as UIState;
       inputHandler = new InputHandler(
         mockGameView,
@@ -685,8 +748,6 @@ describe("InputHandler AutoUpgrade", () => {
         attackRatio: 20,
         ghostStructure: null,
         rocketDirectionUp: true,
-        overlappingRailroads: [],
-        ghostRailPaths: [],
       } as UIState;
       inputHandler = new InputHandler(
         mockGameView,
@@ -710,8 +771,6 @@ describe("InputHandler AutoUpgrade", () => {
         attackRatio: 20,
         ghostStructure: null,
         rocketDirectionUp: true,
-        overlappingRailroads: [],
-        ghostRailPaths: [],
       } as UIState;
       inputHandler = new InputHandler(
         mockGameView,
@@ -738,8 +797,6 @@ describe("InputHandler AutoUpgrade", () => {
         attackRatio: 20,
         ghostStructure: null,
         rocketDirectionUp: true,
-        overlappingRailroads: [],
-        ghostRailPaths: [],
       } as UIState;
     });
 
@@ -878,8 +935,6 @@ describe("Warship box selection (Shift+drag)", () => {
       attackRatio: 20,
       ghostStructure: null,
       rocketDirectionUp: true,
-      overlappingRailroads: [],
-      ghostRailPaths: [],
     } as UIState;
     inputHandler = new InputHandler(
       mockGameView,
@@ -914,13 +969,10 @@ describe("Warship box selection (Shift+drag)", () => {
 
   test("Shift keydown discards active ghostStructure", () => {
     uiState.ghostStructure = UnitType.Warship;
-    const emitSpy = vi.spyOn(eventBus, "emit");
 
     window.dispatchEvent(new KeyboardEvent("keydown", { code: "ShiftLeft" }));
 
     expect(uiState.ghostStructure).toBeNull();
-    const types = emitSpy.mock.calls.map((c) => c[0].constructor.name);
-    expect(types).toContain("GhostStructureChangedEvent");
   });
 
   test("Shift+drag emits WarshipSelectionBoxUpdateEvent", () => {
@@ -1045,5 +1097,129 @@ describe("Warship box selection (Shift+drag)", () => {
     expect(mockCanvas.style.cursor).toBe("crosshair");
     window.dispatchEvent(new Event("blur"));
     expect(mockCanvas.style.cursor).toBe("");
+  });
+});
+
+describe("InputHandler right-click cancels unit selection (#4692)", () => {
+  let inputHandler: InputHandler;
+  let eventBus: EventBus;
+  let canvas: HTMLCanvasElement;
+
+  beforeEach(() => {
+    new UserSettings().removeCached(KEYBINDS_KEY, false);
+    canvas = document.createElement("canvas");
+    canvas.width = 800;
+    canvas.height = 600;
+    eventBus = new EventBus();
+    inputHandler = new InputHandler(
+      {
+        inSpawnPhase: () => false,
+        myPlayer: () => ({ isAlive: () => true }),
+      } as unknown as GameView,
+      {
+        attackRatio: 20,
+        ghostStructure: null,
+        rocketDirectionUp: true,
+        upgradeMultiplier: 1,
+      },
+      canvas,
+      eventBus,
+    );
+    inputHandler.initialize();
+  });
+
+  afterEach(() => inputHandler.destroy());
+
+  const rightClick = () =>
+    inputHandler["onContextMenu"]({
+      preventDefault: () => {},
+      clientX: 100,
+      clientY: 100,
+    } as unknown as MouseEvent);
+
+  const emittedTypes = (spy: ReturnType<typeof vi.spyOn>) =>
+    spy.mock.calls.map((c: unknown[]) => (c[0] as object).constructor.name);
+
+  it("opens the context menu on right-click when nothing is selected", () => {
+    const emit = vi.spyOn(eventBus, "emit");
+    rightClick();
+    expect(emittedTypes(emit)).toContain("ContextMenuEvent");
+  });
+
+  it("cancels the selection and suppresses the context menu when a warship is selected", () => {
+    // Select a warship (wires unitSelectionActive via the real listener).
+    eventBus.emit(
+      new UnitSelectionEvent({ id: () => 1 } as unknown as UnitView, true),
+    );
+    const emit = vi.spyOn(eventBus, "emit");
+    rightClick();
+    const emitted = emit.mock.calls.map((c: unknown[]) => c[0]);
+    // A deselection specifically (unit === null, isSelected === false) must be
+    // emitted — not just any UnitSelectionEvent.
+    const deselect = emitted.find(
+      (e): e is UnitSelectionEvent => e instanceof UnitSelectionEvent,
+    );
+    expect(deselect).toBeDefined();
+    expect(deselect!.unit).toBeNull();
+    expect(deselect!.isSelected).toBe(false);
+    // ...and the context menu must NOT open.
+    expect(emitted.some((e) => e instanceof ContextMenuEvent)).toBe(false);
+  });
+
+  it("emits UnitSelectionEvent(null, false) on Escape when warships are selected", () => {
+    eventBus.emit(
+      new UnitSelectionEvent({ id: () => 1 } as unknown as UnitView, true),
+    );
+    const emit = vi.spyOn(eventBus, "emit");
+
+    const escEvent = new KeyboardEvent("keydown", { code: "Escape" });
+    window.dispatchEvent(escEvent);
+
+    const emitted = emit.mock.calls.map((c: unknown[]) => c[0]);
+    const deselect = emitted.find(
+      (e): e is UnitSelectionEvent =>
+        e instanceof UnitSelectionEvent && !e.isSelected,
+    );
+    expect(deselect).toBeDefined();
+    expect(deselect!.unit).toBeNull();
+  });
+
+  it("does NOT deselect warships on Escape if ghost structure is active", () => {
+    eventBus.emit(
+      new UnitSelectionEvent({ id: () => 1 } as unknown as UnitView, true),
+    );
+    inputHandler["uiState"].ghostStructure = 1 as any;
+    const emit = vi.spyOn(eventBus, "emit");
+
+    const escEvent = new KeyboardEvent("keydown", { code: "Escape" });
+    window.dispatchEvent(escEvent);
+
+    const emitted = emit.mock.calls.map((c: unknown[]) => c[0]);
+    const deselect = emitted.find(
+      (e): e is UnitSelectionEvent =>
+        e instanceof UnitSelectionEvent && !e.isSelected,
+    );
+    expect(deselect).toBeUndefined();
+  });
+
+  it("does NOT deselect warships on Escape if selectionBoxActive is true", () => {
+    eventBus.emit(
+      new UnitSelectionEvent({ id: () => 1 } as unknown as UnitView, true),
+    );
+    inputHandler["selectionBoxActive"] = true;
+    const emit = vi.spyOn(eventBus, "emit");
+
+    const escEvent = new KeyboardEvent("keydown", { code: "Escape" });
+    window.dispatchEvent(escEvent);
+
+    const emitted = emit.mock.calls.map((c: unknown[]) => c[0]);
+    const deselect = emitted.find(
+      (e): e is UnitSelectionEvent =>
+        e instanceof UnitSelectionEvent && !e.isSelected,
+    );
+    expect(deselect).toBeUndefined();
+    expect(
+      emitted.some((e) => e instanceof WarshipSelectionBoxCancelEvent),
+    ).toBe(true);
   });
 });

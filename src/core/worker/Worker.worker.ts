@@ -1,6 +1,7 @@
-import { createGameRunner, GameRunner } from "../GameRunner";
+import { assetUrl } from "../AssetUrls";
 import { FetchGameMapLoader } from "../game/FetchGameMapLoader";
 import { ErrorUpdate, GameUpdateViewData } from "../game/GameUpdates";
+import { createGameRunner, GameRunner } from "../GameRunner";
 import {
   AttackClusteredPositionsResultMessage,
   InitializedMessage,
@@ -50,7 +51,7 @@ async function drain(): Promise<void> {
 
   draining = true;
   drainRequested = false;
-  let shouldContinue = false;
+  let shouldContinue: boolean;
   try {
     const gr = await gameRunner;
     if (!gr) {
@@ -113,6 +114,15 @@ function sendGameUpdateBatch(gameUpdates: GameUpdateViewData[]): void {
     if (gu.packedMotionPlans) {
       transfers.push(gu.packedMotionPlans.buffer);
     }
+    if (gu.packedPlayerUpdates) {
+      transfers.push(gu.packedPlayerUpdates.buffer);
+    }
+    if (gu.packedAttackUpdates) {
+      transfers.push(gu.packedAttackUpdates.buffer);
+    }
+    if (gu.packedNukeImpacts) {
+      transfers.push(gu.packedNukeImpacts.buffer);
+    }
   }
 
   ctx.postMessage(
@@ -134,6 +144,9 @@ ctx.addEventListener("message", async (e: MessageEvent<MainThreadMessage>) => {
   switch (message.type) {
     case "init":
       try {
+        // Set before createGameRunner so map fetches via mapLoader pick up the
+        // CDN base. Workers have no `window`, so AssetUrls falls back to this.
+        globalThis.__CDN_BASE__ = message.cdnBase;
         gameRunner = createGameRunner(
           message.gameStartInfo,
           message.clientID,

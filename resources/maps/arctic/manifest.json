@@ -1,4 +1,6 @@
 {
+  "categories": ["europe", "north_america", "asia"],
+  "id": "Arctic",
   "map": {
     "height": 1828,
     "num_land_tiles": 1679064,
@@ -6,14 +8,15 @@
   },
   "map16x": {
     "height": 457,
-    "num_land_tiles": 97929,
+    "num_land_tiles": 97905,
     "width": 457
   },
   "map4x": {
     "height": 914,
-    "num_land_tiles": 409868,
+    "num_land_tiles": 409202,
     "width": 914
   },
+  "multiplayer_frequency": 6,
   "name": "Arctic",
   "nations": [
     {
@@ -236,5 +239,7 @@
       "flag": "fr",
       "name": "France"
     }
-  ]
+  ],
+  "themes": ["europe", "asia", "north_america"],
+  "translation_key": "map.arctic"
 }

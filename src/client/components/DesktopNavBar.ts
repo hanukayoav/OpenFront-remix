@@ -53,11 +53,11 @@ export class DesktopNavBar extends LitElement {
         class="hidden lg:flex w-full bg-zinc-900/90 backdrop-blur-md items-center justify-center gap-8 py-4 shrink-0 z-50 relative"
       >
         <div class="flex flex-col items-center justify-center">
-          <div class="h-8 text-[#0073b7]">
+          <div class="h-8">
             <img
+              class="block h-full aspect-[1364/259]"
               src=${assetUrl("images/OpenFrontLogo.svg")}
               alt="OpenFront"
-              class="h-full w-auto"
             />
           </div>
           <div
@@ -68,7 +68,7 @@ export class DesktopNavBar extends LitElement {
         <button
           class="nav-menu-item ${currentPage === "page-play"
             ? "active"
-            : ""} text-white/70 hover:text-[#0073b7]  font-medium tracking-wider uppercase cursor-pointer transition-colors [&.active]:text-[#0073b7] "
+            : ""} text-white/70 hover:text-malibu-blue  font-medium tracking-wider uppercase cursor-pointer transition-colors [&.active]:text-malibu-blue "
           data-page="page-play"
           data-i18n="main.play"
         ></button>
@@ -77,7 +77,7 @@ export class DesktopNavBar extends LitElement {
           <button
             class="nav-menu-item ${currentPage === "page-news"
               ? "active"
-              : ""} text-white/70 hover:text-[#0073b7]  font-medium tracking-wider uppercase cursor-pointer transition-colors [&.active]:text-[#0073b7] "
+              : ""} text-white/70 hover:text-malibu-blue  font-medium tracking-wider uppercase cursor-pointer transition-colors [&.active]:text-malibu-blue "
             data-page="page-news"
             data-i18n="main.news"
             @click=${this._notifications.onNewsClick}
@@ -97,7 +97,7 @@ export class DesktopNavBar extends LitElement {
           <button
             class="nav-menu-item ${currentPage === "page-item-store"
               ? "active"
-              : ""} text-white/70 hover:text-[#0073b7]  font-medium tracking-wider uppercase cursor-pointer transition-colors [&.active]:text-[#0073b7] "
+              : ""} text-white/70 hover:text-malibu-blue  font-medium tracking-wider uppercase cursor-pointer transition-colors [&.active]:text-malibu-blue "
             data-page="page-item-store"
             data-i18n="main.store"
             @click=${this._notifications.onStoreClick}
@@ -114,18 +114,30 @@ export class DesktopNavBar extends LitElement {
             : ""}
         </div>
         <button
-          class="nav-menu-item text-white/70 hover:text-[#0073b7]  font-medium tracking-wider uppercase cursor-pointer transition-colors [&.active]:text-[#0073b7] "
+          class="nav-menu-item ${currentPage === "page-inventory"
+            ? "active"
+            : ""} text-white/70 hover:text-malibu-blue font-medium tracking-wider uppercase cursor-pointer transition-colors [&.active]:text-malibu-blue"
+          data-page="page-inventory"
+          data-i18n="main.inventory"
+        ></button>
+        <button
+          class="nav-menu-item text-white/70 hover:text-malibu-blue  font-medium tracking-wider uppercase cursor-pointer transition-colors [&.active]:text-malibu-blue "
           data-page="page-settings"
           data-i18n="main.settings"
         ></button>
         <button
-          class="nav-menu-item text-white/70 hover:text-[#0073b7]  font-medium tracking-wider uppercase cursor-pointer transition-colors [&.active]:text-[#0073b7] "
+          class="nav-menu-item text-white/70 hover:text-malibu-blue  font-medium tracking-wider uppercase cursor-pointer transition-colors [&.active]:text-malibu-blue "
           data-page="page-leaderboard"
           data-i18n="main.leaderboard"
         ></button>
+        <button
+          class="no-crazygames nav-menu-item text-white/70 hover:text-blue-500 font-medium tracking-wider uppercase cursor-pointer transition-colors [&.active]:text-blue-500"
+          data-page="page-clan"
+          data-i18n="main.clans"
+        ></button>
         <div class="relative">
           <button
-            class="nav-menu-item text-white/70 hover:text-[#0073b7]  font-medium tracking-wider uppercase cursor-pointer transition-colors [&.active]:text-[#0073b7] "
+            class="nav-menu-item text-white/70 hover:text-malibu-blue  font-medium tracking-wider uppercase cursor-pointer transition-colors [&.active]:text-malibu-blue "
             data-page="page-help"
             data-i18n="main.help"
             @click=${this._notifications.onHelpClick}
@@ -143,21 +155,26 @@ export class DesktopNavBar extends LitElement {
         </div>
         <button
           id="nav-account-button"
-          class="no-crazygames nav-menu-item relative h-10 rounded-full overflow-hidden flex items-center justify-center gap-2 px-3 bg-transparent border border-white/20 text-white/80 hover:text-white cursor-pointer transition-colors [&.active]:text-white"
+          class="nav-menu-item relative h-10 rounded-full overflow-hidden flex items-center justify-center gap-2 px-3 bg-transparent border border-white/20 text-white/80 hover:text-white cursor-pointer transition-colors [&.active]:text-white"
           data-page="page-account"
           data-i18n-aria-label="main.account"
           data-i18n-title="main.account"
         >
           <img
             id="nav-account-avatar"
-            class="no-crazygames hidden w-8 h-8 rounded-full object-cover"
+            class="hidden w-8 h-8 rounded-full object-cover"
             alt=""
             data-i18n-alt="main.discord_avatar_alt"
             referrerpolicy="no-referrer"
           />
+          <span
+            id="nav-account-loading-spinner"
+            class="w-4 h-4 border-2 border-white/30 border-t-white/80 rounded-full animate-spin"
+            aria-hidden="true"
+          ></span>
           <svg
             id="nav-account-person-icon"
-            class="w-5 h-5"
+            class="hidden w-5 h-5"
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 24 24"
             fill="none"
@@ -192,7 +209,7 @@ export class DesktopNavBar extends LitElement {
           </span>
           <span
             id="nav-account-signin-text"
-            class="text-xs font-bold tracking-widest"
+            class="hidden text-xs font-bold tracking-widest"
             data-i18n="main.sign_in"
           >
           </span>

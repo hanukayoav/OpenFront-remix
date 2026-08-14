@@ -1,146 +1,43 @@
-import {
-  DataSet,
-  RegExpMatcher,
-  collapseDuplicatesTransformer,
-  englishDataset,
-  pattern,
-  resolveConfusablesTransformer,
-  resolveLeetSpeakTransformer,
-  toAsciiLowerCaseTransformer,
-} from "obscenity";
 import countries from "resources/countries.json";
 
-import { Cosmetics } from "../core/CosmeticSchemas";
+import { Cosmetics, findEffectForSlot } from "../core/CosmeticSchemas";
 import { decodePatternData } from "../core/PatternDecoder";
 import {
   PlayerColor,
   PlayerCosmeticRefs,
   PlayerCosmetics,
+  PlayerCrown,
+  PlayerEffect,
   PlayerPattern,
+  PlayerSkin,
 } from "../core/Schemas";
-import { simpleHash } from "../core/Util";
 
 const countryCodes = countries.filter((c) => !c.restricted).map((c) => c.code);
 
-export const shadowNames = [
-  "UnhuggedToday",
-  "DaddysLilChamp",
-  "BunnyKisses67",
-  "SnugglePuppy",
-  "CuddleMonster67",
-  "DaddysLilStar",
-  "SnuggleMuffin",
-  "PeesALittle",
-  "PleaseFullSendMe",
-  "NanasLilMan",
-  "NoAlliances",
-  "TryingTooHard67",
-  "MommysLilStinker",
-  "NeedHugs",
-  "MommysLilPeanut",
-  "IWillBetrayU",
-  "DaddysLilTater",
-  "PreciousBubbles",
-  "67 Cringelord",
-  "Peace And Love",
-  "AlmostPottyTrained",
-];
-
-function buildDataset(bannedWords: string[], dedup: boolean) {
-  const dataset = new DataSet<{ originalWord: string }>().addAll(
-    englishDataset,
-  );
-  for (const word of bannedWords) {
-    try {
-      const w = dedup ? word.toLowerCase().replace(/(.)\1+/g, "$1") : word;
-      dataset.addPhrase((phrase) =>
-        phrase.setMetadata({ originalWord: word }).addPattern(pattern`${w}`),
-      );
-    } catch (e) {
-      console.error(`Invalid banned word pattern "${word}": ${e}`);
-    }
-  }
-  return dataset.build();
-}
-
-export function createMatcher(bannedWords: string[]): RegExpMatcher {
-  const baseTransformers = [
-    toAsciiLowerCaseTransformer(),
-    resolveConfusablesTransformer(),
-    resolveLeetSpeakTransformer(),
-  ];
-  // substringMatcher: literal patterns, no collapse — catches "niggertesting" as a substring
-  // collapseMatcher: deduped patterns + collapse transformer — catches "niiiigger", "hiiitler"
-  const substringMatcher = new RegExpMatcher({
-    ...buildDataset(bannedWords, false),
-    blacklistMatcherTransformers: baseTransformers,
-  });
-  const collapseMatcher = new RegExpMatcher({
-    ...buildDataset(bannedWords, true),
-    blacklistMatcherTransformers: [
-      ...baseTransformers,
-      collapseDuplicatesTransformer(),
-    ],
-  });
-  return {
-    hasMatch: (input: string) =>
-      input.toLowerCase().includes("kkk") ||
-      substringMatcher.hasMatch(input) ||
-      collapseMatcher.hasMatch(input),
-    getAllMatches: (input: string, sorted?: boolean) => [
-      ...substringMatcher.getAllMatches(input, sorted),
-      ...collapseMatcher.getAllMatches(input, sorted),
-    ],
-  } as unknown as RegExpMatcher;
-}
+export type ClanTagResolution = {
+  tag: string | null;
+  dropped: boolean;
+};
 
 /**
- * Sanitizes and censors profane usernames and clan tags separately.
- * Profane username is overwritten, profane clan tag is removed.
- *
- * Removing bad clan tags won't hurt existing clans nor cause desyncs:
- * - full name including clan tag was overwritten in the past, if any part of name was bad
- * - only each separate local player name with a profane clan tag will remain, no clan team assignment
- *
- * Examples:
- * - username="GoodName", clanTag=null -> { username: "GoodName", clanTag: null }
- * - username="BadName", clanTag=null -> { username: "Censored", clanTag: null }
- * - username="GoodName", clanTag="CLaN" -> { username: "GoodName", clanTag: "CLAN" }
- * - username="GoodName", clanTag="BAD" -> { username: "GoodName", clanTag: null }
- * - username="BadName", clanTag="BAD" -> { username: "Censored", clanTag: null }
+ * The clan-tag ownership rule:
+ *   - member of the clan             -> keep the tag
+ *   - not a member, tag not reserved -> fictional tag, keep it
+ *   - otherwise                      -> drop it (impersonation)
+ * `reservedTags` is every registered tag (uppercase).
  */
-
-function censorWithMatcher(
-  username: string,
-  clanTag: string | null,
-  matcher: RegExpMatcher,
-): { username: string; clanTag: string | null } {
-  const usernameIsProfane = matcher.hasMatch(username);
-  const clanTagIsProfane = clanTag
-    ? matcher.hasMatch(clanTag) || clanTag.toLowerCase() === "ss"
-    : false;
-  // Catch slurs split across clan tag and username (e.g. clanTag="HIT", username="LER")
-  // by looking for a match that spans the clan/name boundary.
-  const combinedSlurAcrossBoundary = clanTag
-    ? matcher.getAllMatches(clanTag + username).some(
-        (match) =>
-          // Match must start in the clan and extend into the name — otherwise
-          // it's already handled by the clan-only or name-only checks above.
-          match.startIndex < clanTag.length && match.endIndex >= clanTag.length,
-      )
-    : false;
-
-  const censoredName =
-    usernameIsProfane || combinedSlurAcrossBoundary
-      ? shadowNames[simpleHash(username) % shadowNames.length]
-      : username;
-
-  const censoredClanTag =
-    clanTag && !clanTagIsProfane && !combinedSlurAcrossBoundary
-      ? clanTag.toUpperCase()
-      : null;
-
-  return { username: censoredName, clanTag: censoredClanTag };
+function decideClanTag(
+  censoredTag: string | null,
+  ownedClanTags: string[],
+  reservedTags: Set<string>,
+): ClanTagResolution {
+  if (censoredTag === null) return { tag: null, dropped: false };
+  const tag = censoredTag.toUpperCase();
+  const isMember = ownedClanTags.some((t) => t.toUpperCase() === tag);
+  if (isMember || !reservedTags.has(tag)) {
+    return { tag: censoredTag, dropped: false };
+  }
+  return { tag: null, dropped: true };
 }
 
 type CosmeticResult =
@@ -149,21 +46,31 @@ type CosmeticResult =
 
 export interface PrivilegeChecker {
   isAllowed(flares: string[], refs: PlayerCosmeticRefs): CosmeticResult;
-  censor(
-    username: string,
+  /**
+   * Decide whether a player may wear the given clan tag. Members keep their
+   * tag; impersonated or unverifiable tags are dropped. `ownedClanTags` are
+   * the tags the player belongs to.
+   */
+  resolveClanTag(
     clanTag: string | null,
-  ): { username: string; clanTag: string | null };
+    ownedClanTags: string[],
+  ): ClanTagResolution;
 }
 
 export class PrivilegeCheckerImpl implements PrivilegeChecker {
-  private matcher: RegExpMatcher;
-
   constructor(
     private cosmetics: Cosmetics,
     private b64urlDecode: (base64: string) => Uint8Array,
-    bannedWords: string[],
-  ) {
-    this.matcher = createMatcher(bannedWords);
+    // Every registered clan tag (uppercase). Polled by PrivilegeRefresher so
+    // ownership is resolved in memory — no per-join existence probe.
+    private reservedClanTags: Set<string> = new Set(),
+  ) {}
+
+  resolveClanTag(
+    censoredTag: string | null,
+    ownedClanTags: string[],
+  ): ClanTagResolution {
+    return decideClanTag(censoredTag, ownedClanTags, this.reservedClanTags);
   }
 
   isAllowed(flares: string[], refs: PlayerCosmeticRefs): CosmeticResult {
@@ -176,25 +83,98 @@ export class PrivilegeCheckerImpl implements PrivilegeChecker {
           refs.patternColorPaletteName ?? null,
         );
       } catch (e) {
-        return { type: "forbidden", reason: "invalid pattern: " + e.message };
+        const message = e instanceof Error ? e.message : String(e);
+        return { type: "forbidden", reason: "invalid pattern: " + message };
       }
     }
     if (refs.color) {
       try {
         cosmetics.color = this.isColorAllowed(flares, refs.color);
       } catch (e) {
-        return { type: "forbidden", reason: "invalid color: " + e.message };
+        const message = e instanceof Error ? e.message : String(e);
+        return { type: "forbidden", reason: "invalid color: " + message };
       }
     }
     if (refs.flag) {
       try {
         cosmetics.flag = this.isFlagAllowed(flares, refs.flag);
       } catch (e) {
-        return { type: "forbidden", reason: "invalid flag: " + e.message };
+        const message = e instanceof Error ? e.message : String(e);
+        return { type: "forbidden", reason: "invalid flag: " + message };
       }
+    }
+    if (refs.skinName) {
+      try {
+        cosmetics.skin = this.isSkinAllowed(flares, refs.skinName);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        return { type: "forbidden", reason: "invalid skin: " + message };
+      }
+    }
+    if (refs.crownName) {
+      try {
+        cosmetics.crown = this.isCrownAllowed(flares, refs.crownName);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        return { type: "forbidden", reason: "invalid crown: " + message };
+      }
+    }
+    if (refs.effects) {
+      for (const [slot, name] of Object.entries(refs.effects)) {
+        try {
+          cosmetics.effects ??= {};
+          cosmetics.effects[slot] = this.isEffectAllowed(flares, slot, name);
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          return { type: "forbidden", reason: "invalid effect: " + message };
+        }
+      }
+    }
+    // Entitlement-blind pass-through: isAllowed has no user identity. The
+    // authoritative check — join name must exactly match the account's
+    // resolved display name — runs at join in Worker.ts using the /users/@me
+    // response (enforceVerifiedBadge below).
+    if (refs.verified === true) {
+      cosmetics.verified = true;
     }
 
     return { type: "allowed", cosmetics };
+  }
+
+  // slot = effectType (trails) or nukeType (nuke explosions); see effectTypeForSlot.
+  isEffectAllowed(flares: string[], slot: string, name: string): PlayerEffect {
+    const found = findEffectForSlot(this.cosmetics, slot, name);
+    if (!found) {
+      throw new Error(`Effect ${name} not found for slot ${slot}`);
+    }
+    if (
+      flares.includes("effect:*") ||
+      flares.includes(`effect:${found.name}`)
+    ) {
+      return {
+        name: found.name,
+        effectType: found.effectType,
+      };
+    }
+    throw new Error(`No flares for effect ${name}`);
+  }
+
+  isSkinAllowed(flares: string[], name: string): PlayerSkin {
+    const found = this.cosmetics.skins?.[name];
+    if (!found) throw new Error(`Skin ${name} not found`);
+    if (flares.includes("skin:*") || flares.includes(`skin:${found.name}`)) {
+      return { name: found.name, url: found.url };
+    }
+    throw new Error(`No flares for skin ${name}`);
+  }
+
+  isCrownAllowed(flares: string[], name: string): PlayerCrown {
+    const found = this.cosmetics.crowns?.[name];
+    if (!found) throw new Error(`Crown ${name} not found`);
+    if (flares.includes("crown:*") || flares.includes(`crown:${found.name}`)) {
+      return { name: found.name, url: found.url };
+    }
+    throw new Error(`No flares for crown ${name}`);
   }
 
   isPatternAllowed(
@@ -209,6 +189,8 @@ export class PrivilegeCheckerImpl implements PrivilegeChecker {
     try {
       decodePatternData(found.pattern, this.b64urlDecode);
     } catch (e) {
+      // can be enabled once we can use {cause: error} in Error constructor starting with ES2022
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(`Invalid pattern ${name}`);
     }
 
@@ -269,30 +251,57 @@ export class PrivilegeCheckerImpl implements PrivilegeChecker {
     }
     return { color };
   }
-
-  censor(
-    username: string,
-    clanTag: string | null,
-  ): { username: string; clanTag: string | null } {
-    return censorWithMatcher(username, clanTag, this.matcher);
-  }
 }
-
-// Words the englishDataset misses or only catches as standalone tokens.
-// These are always enforced even when the remote banned-words list is unavailable.
-const baselineBannedWords = ["nigger", "nigga", "chink", "spic", "kike"];
-
-const defaultMatcher = createMatcher(baselineBannedWords);
 
 export class FailOpenPrivilegeChecker implements PrivilegeChecker {
   isAllowed(flares: string[], refs: PlayerCosmeticRefs): CosmeticResult {
-    return { type: "allowed", cosmetics: {} };
+    // Catalog cosmetics can't be resolved without the cosmetics data, but the
+    // verified claim isn't a catalog item — pass it through; the Worker's
+    // enforceVerifiedBadge still validates it against the account at join.
+    return {
+      type: "allowed",
+      cosmetics: refs.verified === true ? { verified: true } : {},
+    };
   }
 
-  censor(
-    username: string,
-    clanTag: string | null,
-  ): { username: string; clanTag: string | null } {
-    return censorWithMatcher(username, clanTag, defaultMatcher);
+  // No reserved-tag list while cosmetics infra is unavailable (e.g. during
+  // development), so ownership can't be verified. Fail open and keep the tag
+  // rather than blocking everyone whenever the API service is down.
+  resolveClanTag(
+    censoredTag: string | null,
+    ownedClanTags: string[],
+  ): ClanTagResolution {
+    return { tag: censoredTag, dropped: false };
   }
+}
+
+/**
+ * Enforce the client-claimed verified badge on resolved cosmetics. The claim
+ * is kept only when the account vouches for it: an entitled bare-name status
+ * (premium/indefinite) AND a join name EXACTLY matching the account's
+ * server-resolved display name — the client locks the input to that form, so
+ * any drift (a rename race, a censor rewrite, a hand-crafted join message)
+ * drops the badge. Strips, never rejects.
+ *
+ * `account` is the /users/@me player the Worker already fetches for flares;
+ * null means an anonymous persistent-ID join — those only exist in Dev, where
+ * the claim is kept so the badge stays locally testable.
+ *
+ * Returns true when an unvouched claim was stripped (for logging).
+ */
+export function enforceVerifiedBadge(
+  cosmetics: PlayerCosmetics,
+  joinUsername: string,
+  account: { username?: string | null; usernameStatus?: string } | null,
+): boolean {
+  if (cosmetics.verified !== true) return false;
+  const vouched =
+    account === null ||
+    ((account.usernameStatus === "premium" ||
+      account.usernameStatus === "indefinite") &&
+      typeof account.username === "string" &&
+      account.username === joinUsername);
+  if (vouched) return false;
+  delete cosmetics.verified;
+  return true;
 }

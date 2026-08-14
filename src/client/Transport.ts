@@ -1,3 +1,4 @@
+import { ClientEnv } from "src/client/ClientEnv";
 import { z } from "zod";
 import { EventBus, GameEvent } from "../core/EventBus";
 import {
@@ -9,7 +10,6 @@ import {
   UnitType,
 } from "../core/game/Game";
 import { TileRef } from "../core/game/GameMap";
-import { PlayerView } from "../core/game/GameView";
 import {
   AllPlayersStats,
   ClientHashMessage,
@@ -18,9 +18,11 @@ import {
   ClientMessage,
   ClientPingMessage,
   ClientRejoinMessage,
+  ClientSendLiveStatsMessage,
   ClientSendWinnerMessage,
   GameConfig,
   Intent,
+  LiveStats,
   ServerMessage,
   ServerMessageSchema,
   Winner,
@@ -28,7 +30,10 @@ import {
 import { replacer } from "../core/Util";
 import { getPlayToken } from "./Auth";
 import { LobbyConfig } from "./ClientGameRunner";
+import { showInGameAlert } from "./InGameModal";
 import { LocalServer } from "./LocalServer";
+import { translateText } from "./Utils";
+import { PlayerView } from "./view";
 
 export class PauseGameIntentEvent implements GameEvent {
   constructor(public readonly paused: boolean) {}
@@ -52,6 +57,7 @@ export class SendUpgradeStructureIntentEvent implements GameEvent {
   constructor(
     public readonly unitId: number,
     public readonly unitType: UnitType,
+    public readonly amount: number = 1,
   ) {}
 }
 
@@ -86,6 +92,7 @@ export class BuildUnitIntentEvent implements GameEvent {
     public readonly unit: UnitType,
     public readonly tile: TileRef,
     public readonly rocketDirectionUp?: boolean,
+    public readonly amount?: number,
   ) {}
 }
 
@@ -151,11 +158,20 @@ export class SendWinnerEvent implements GameEvent {
     public readonly allPlayersStats: AllPlayersStats,
   ) {}
 }
+export class SendLiveStatsEvent implements GameEvent {
+  constructor(public readonly stats: LiveStats) {}
+}
 export class SendHashEvent implements GameEvent {
   constructor(
     public readonly tick: Tick,
     public readonly hash: number,
   ) {}
+}
+
+// Emitted when the server tells us the host started a successor lobby, carrying
+// the new game id to move the group to.
+export class NewLobbyEvent implements GameEvent {
+  constructor(public readonly gameID: string) {}
 }
 
 export class MoveWarshipIntentEvent implements GameEvent {
@@ -171,6 +187,10 @@ export class SendKickPlayerIntentEvent implements GameEvent {
 
 export class SendUpdateGameConfigIntentEvent implements GameEvent {
   constructor(public readonly config: Partial<GameConfig>) {}
+}
+
+export class SendToggleGameStartTimer implements GameEvent {
+  constructor() {}
 }
 
 export class Transport {
@@ -239,6 +259,7 @@ export class Transport {
 
     this.eventBus.on(PauseGameIntentEvent, (e) => this.onPauseGameIntent(e));
     this.eventBus.on(SendWinnerEvent, (e) => this.onSendWinnerEvent(e));
+    this.eventBus.on(SendLiveStatsEvent, (e) => this.onSendLiveStatsEvent(e));
     this.eventBus.on(SendHashEvent, (e) => this.onSendHashEvent(e));
     this.eventBus.on(CancelAttackIntentEvent, (e) =>
       this.onCancelAttackIntentEvent(e),
@@ -261,6 +282,10 @@ export class Transport {
 
     this.eventBus.on(SendUpdateGameConfigIntentEvent, (e) =>
       this.onSendUpdateGameConfigIntent(e),
+    );
+
+    this.eventBus.on(SendToggleGameStartTimer, (e) =>
+      this.onSendToggleGameStartTimer(e),
     );
   }
 
@@ -324,13 +349,10 @@ export class Transport {
   ) {
     this.startPing();
     this.killExistingSocket();
-    const isProd = import.meta.env.PROD;
-    const wsHost = isProd ? window.location.host : "localhost:9001";
-    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const workerPath = this.lobbyConfig.serverConfig.workerPath(
-      this.lobbyConfig.gameID,
-    );
-    this.socket = new WebSocket(`${wsProtocol}//${wsHost}/${workerPath}`);
+    // WS origin comes from ClientEnv (same-origin on web, audience-derived on
+    // the desktop app://openfront origin), not window.location.host.
+    const workerPath = ClientEnv.workerPath(this.lobbyConfig.gameID);
+    this.socket = new WebSocket(`${ClientEnv.serverWsBase()}/${workerPath}`);
     this.onconnect = onconnect;
     this.onmessage = onmessage;
     this.socket.onopen = () => {
@@ -375,8 +397,11 @@ export class Transport {
         `WebSocket closed. Code: ${event.code}, Reason: ${event.reason}`,
       );
       if (event.code === 1002) {
-        // TODO: make this a modal
-        alert(`connection refused: ${event.reason}`);
+        showInGameAlert(
+          translateText("error_modal.connection_refused", {
+            reason: event.reason,
+          }),
+        );
       } else if (event.code !== 1000) {
         console.log(`received error code ${event.code}, reconnecting`);
         this.reconnect();
@@ -495,6 +520,7 @@ export class Transport {
       type: "upgrade_structure",
       unit: event.unitType,
       unitId: event.unitId,
+      amount: event.amount,
     });
   }
 
@@ -560,6 +586,7 @@ export class Transport {
       unit: event.unit,
       tile: event.tile,
       rocketDirectionUp: event.rocketDirectionUp,
+      amount: event.amount,
     });
   }
 
@@ -583,6 +610,15 @@ export class Transport {
         this.socket?.readyState,
       );
       console.log("attempting reconnect");
+    }
+  }
+
+  private onSendLiveStatsEvent(event: SendLiveStatsEvent) {
+    if (this.isLocal || this.socket?.readyState === WebSocket.OPEN) {
+      this.sendMsg({
+        type: "live_stats",
+        stats: event.stats,
+      } satisfies ClientSendLiveStatsMessage);
     }
   }
 
@@ -634,7 +670,7 @@ export class Transport {
   private onSendKickPlayerIntent(event: SendKickPlayerIntentEvent) {
     this.sendIntent({
       type: "kick_player",
-      target: event.target,
+      targetClientID: event.target,
     });
   }
 
@@ -643,6 +679,10 @@ export class Transport {
       type: "update_game_config",
       config: event.config,
     });
+  }
+
+  private onSendToggleGameStartTimer(event: SendToggleGameStartTimer) {
+    this.sendIntent({ type: "toggle_game_start_timer" });
   }
 
   private sendIntent(intent: Intent) {

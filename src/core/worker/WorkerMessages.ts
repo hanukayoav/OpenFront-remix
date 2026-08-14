@@ -41,7 +41,7 @@ export interface InitMessage extends BaseWorkerMessage {
   type: "init";
   gameStartInfo: GameStartInfo;
   clientID: ClientID | undefined;
-  gameEnv?: string;
+  cdnBase: string;
 }
 
 export interface TurnMessage extends BaseWorkerMessage {
@@ -121,8 +121,7 @@ export interface AttackClusteredPositionsMessage extends BaseWorkerMessage {
   attackID?: string;
 }
 
-export interface AttackClusteredPositionsResultMessage
-  extends BaseWorkerMessage {
+export interface AttackClusteredPositionsResultMessage extends BaseWorkerMessage {
   type: "attack_clustered_positions_result";
   attacks: { id: string; positions: { x: number; y: number }[] }[];
 }

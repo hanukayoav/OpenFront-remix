@@ -86,6 +86,11 @@ Ernie Wright (USRA) ORCID logo.
 Scientist
 Noah Petro (NASA/GSFC) ORCID logo.
 
+### Titan Map
+
+[NASA/JPL-Caltech/ASI/USGS](https://science.nasa.gov/photojournal/titans-north/)
+[Public Domain](https://www.nasa.gov/nasa-brand-center/images-and-media/)
+
 ### Antarctica Map
 
 Polar Geospatial Center, 2018, "PGC Map Catalog", https://doi.org/10.7910/DVN/6R8F7U, Harvard Dataverse, V1, [2364], [Apr-02-2026].
@@ -94,6 +99,11 @@ Polar Geospatial Center, 2018, "PGC Map Catalog", https://doi.org/10.7910/DVN/6R
 [U.S. Geological Survey](https://earthexplorer.usgs.gov/metadata/4980/GT30ANTARCPS/)
 [Public Domain](https://www.doi.gov/copyright)
 
+### Los Angeles Map
+
+© [OpenStreetMap contributors](https://www.openstreetmap.org/copyright)  
+Licensed under ODbL
+
 ## Icons
 
 ### [The Noun Project](https://thenounproject.com/)
@@ -101,6 +111,7 @@ Polar Geospatial Center, 2018, "PGC Map Catalog", https://doi.org/10.7910/DVN/6R
 Stats icon by [Meko](https://thenounproject.com/mekoda/) – https://thenounproject.com/icon/stats-4942475/
 Pay Per Click icon by [Fauzan Adiima](https://thenounproject.com/creator/fauzan94/) – https://thenounproject.com/icon/pay-per-click-2586454/
 Medal icon by [Snow](https://thenounproject.com/snowdoll/) – https://thenounproject.com/icon/medal-4567887/
+Guild icon by Trimanggolo Mulyo – https://thenounproject.com/icon/guild-8266144/
 
 ### Flags
 

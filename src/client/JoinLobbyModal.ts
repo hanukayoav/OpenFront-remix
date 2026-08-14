@@ -1,5 +1,6 @@
 import { html, TemplateResult } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
+import { ClientEnv } from "src/client/ClientEnv";
 import {
   calculateServerTimeOffset,
   getMapName,
@@ -19,7 +20,6 @@ import {
   LobbyInfoEvent,
   PublicGameInfo,
 } from "../core/Schemas";
-import { getRuntimeClientServerConfig } from "../core/configuration/ConfigLoader";
 import {
   Difficulty,
   GameMapSize,
@@ -29,9 +29,11 @@ import {
 } from "../core/game/Game";
 import { getApiBase } from "./Api";
 import { crazyGamesSDK } from "./CrazyGamesSDK";
+import { PublicLobbySocket } from "./LobbySocket";
 import { JoinLobbyEvent } from "./Main";
 import { terrainMapFileLoader } from "./TerrainMapFileLoader";
 import { normaliseMapKey } from "./Utils";
+import { isReplayShellHost, versionedReplayUrl } from "./VersionedReplay";
 import { BaseModal } from "./components/BaseModal";
 import "./components/CopyButton";
 import "./components/LobbyConfigItem";
@@ -55,10 +57,19 @@ export class JoinLobbyModal extends BaseModal {
   @state() private serverTimeOffset: number = 0;
   @state() private isConnecting: boolean = true;
   @state() private lobbyCreatorClientID: string | null = null;
+  // Subscriber-hosted private lobbies listed in the public browser, shown on
+  // the pre-join form.
+  @state() private hostedLobbies: PublicGameInfo[] = [];
+  @state() private hostedLobbiesLoaded = false;
 
   private leaveLobbyOnClose = true;
   private countdownTimerId: number | null = null;
   private handledJoinTimeout = false;
+
+  private readonly hostedLobbySocket = new PublicLobbySocket((lobbies) => {
+    this.hostedLobbies = lobbies.games?.hosted ?? [];
+    this.hostedLobbiesLoaded = true;
+  });
 
   private isPrivateLobby(): boolean {
     return this.gameConfig?.gameType === GameType.Private;
@@ -77,7 +88,26 @@ export class JoinLobbyModal extends BaseModal {
     });
   };
 
-  render() {
+  protected renderHeaderSlot() {
+    if (!this.currentLobbyId) {
+      return modalHeader({
+        title: translateText("private_lobby.title"),
+        onBack: () => this.closeAndLeave(),
+        ariaLabel: translateText("common.close"),
+      });
+    }
+    return modalHeader({
+      title: translateText("public_lobby.title"),
+      onBack: () => this.closeAndLeave(),
+      ariaLabel: translateText("common.close"),
+      rightContent:
+        this.currentLobbyId && this.isPrivateLobby()
+          ? html`<copy-button .lobbyId=${this.currentLobbyId}></copy-button>`
+          : undefined,
+    });
+  }
+
+  protected renderBody() {
     // Pre-join state: show lobby ID input form
     if (!this.currentLobbyId) {
       return this.renderJoinForm();
@@ -93,7 +123,9 @@ export class JoinLobbyModal extends BaseModal {
         : null;
     const statusLabel =
       secondsRemaining === null
-        ? translateText("public_lobby.waiting_for_players")
+        ? this.isPrivateLobby()
+          ? translateText("private_lobby.joined_waiting")
+          : translateText("public_lobby.waiting_for_players")
         : secondsRemaining > 0
           ? translateText("public_lobby.starting_in", {
               time: renderDuration(secondsRemaining),
@@ -104,20 +136,9 @@ export class JoinLobbyModal extends BaseModal {
     const hostClientID = this.isPrivateLobby()
       ? (this.lobbyCreatorClientID ?? "")
       : "";
-    const content = html`
-      <div class="${this.modalContainerClass}">
-        ${modalHeader({
-          title: translateText("public_lobby.title"),
-          onBack: () => this.closeAndLeave(),
-          ariaLabel: translateText("common.close"),
-          rightContent:
-            this.currentLobbyId && this.isPrivateLobby()
-              ? html`
-                  <copy-button .lobbyId=${this.currentLobbyId}></copy-button>
-                `
-              : undefined,
-        })}
-        <div class="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-4 mr-1">
+    return html`
+      <div class="flex flex-col h-full">
+        <div class="flex-1 custom-scrollbar p-6 space-y-4 mr-1">
           ${this.isConnecting
             ? html`
                 <div
@@ -154,83 +175,49 @@ export class JoinLobbyModal extends BaseModal {
               `}
         </div>
 
-        ${this.isPrivateLobby()
-          ? html`
-              <div
-                class="p-6 lg:p-6 border-t border-white/10 bg-black/20 shrink-0"
-              >
-                <button
-                  class="w-full py-4 text-sm font-bold text-white uppercase tracking-widest bg-[#0073b7] hover:bg-sky-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition-all shadow-lg shadow-sky-900/20 hover:shadow-sky-900/40 hover:-translate-y-0.5 active:translate-y-0 disabled:transform-none"
-                  disabled
+        ${html`
+          <div
+            class="p-6 lg:p-6 border-t border-white/10 bg-black/60 backdrop-blur-md shrink-0 sticky bottom-0 z-10"
+          >
+            <div
+              class="w-full px-4 py-3 rounded-xl border border-white/10 bg-white/5 flex items-center justify-between gap-3"
+            >
+              <div class="flex flex-col">
+                <span
+                  class="text-[10px] font-bold uppercase tracking-widest text-white/40"
+                  >${translateText("public_lobby.status")}</span
                 >
-                  ${translateText("private_lobby.joined_waiting")}
-                </button>
+                <span class="text-sm font-bold text-white">${statusLabel}</span>
               </div>
-            `
-          : html`
-              <div
-                class="p-6 lg:p-6 border-t border-white/10 bg-black/20 shrink-0"
-              >
-                <div
-                  class="w-full px-4 py-3 rounded-xl border border-white/10 bg-white/5 flex items-center justify-between gap-3"
-                >
-                  <div class="flex flex-col">
-                    <span
-                      class="text-[10px] font-bold uppercase tracking-widest text-white/40"
-                      >${translateText("public_lobby.status")}</span
+              ${maxPlayers > 0
+                ? html`
+                    <div
+                      class="flex items-center gap-2 text-white/80 text-xs font-bold uppercase tracking-widest"
                     >
-                    <span class="text-sm font-bold text-white"
-                      >${statusLabel}</span
-                    >
-                  </div>
-                  ${maxPlayers > 0
-                    ? html`
-                        <div
-                          class="flex items-center gap-2 text-white/80 text-xs font-bold uppercase tracking-widest"
-                        >
-                          <span>${playerCount}/${maxPlayers}</span>
-                          <svg
-                            class="w-4 h-4 text-white"
-                            fill="currentColor"
-                            viewBox="0 0 20 20"
-                          >
-                            <path
-                              d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.972 0 004 15v3H1v-3a3 3 0 013.75-2.906z"
-                            ></path>
-                          </svg>
-                        </div>
-                      `
-                    : html``}
-                </div>
-              </div>
-            `}
+                      <span>${playerCount}/${maxPlayers}</span>
+                      <svg
+                        class="w-4 h-4 text-white"
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
+                        <path
+                          d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.972 0 004 15v3H1v-3a3 3 0 013.75-2.906z"
+                        ></path>
+                      </svg>
+                    </div>
+                  `
+                : html``}
+            </div>
+          </div>
+        `}
       </div>
-    `;
-
-    if (this.inline) {
-      return content;
-    }
-
-    return html`
-      <o-modal
-        ?hideHeader=${true}
-        ?hideCloseButton=${true}
-        ?inline=${this.inline}
-      >
-        ${content}
-      </o-modal>
     `;
   }
 
   private renderJoinForm() {
-    const content = html`
-      <div class="${this.modalContainerClass}">
-        ${modalHeader({
-          title: translateText("private_lobby.title"),
-          onBack: () => this.closeAndLeave(),
-          ariaLabel: translateText("common.close"),
-        })}
-        <form @submit=${this.joinLobbyFromInput} class="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-4 mr-1">
+    return html`
+      <div class="custom-scrollbar p-6 space-y-4 mr-1">
+        <form @submit=${this.joinLobbyFromInput}>
           <div class="flex flex-col gap-3">
             <div class="flex gap-2">
               <input
@@ -240,13 +227,12 @@ export class JoinLobbyModal extends BaseModal {
                 @keyup=${this.handleChange}
                 class="flex-1 px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all font-mono text-sm tracking-wider"
               />
-              <button
-                @click=${this.pasteFromClipboard}
-                class="px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 rounded-xl transition-all group"
-                title=${translateText("common.paste")}
-              >
-                <svg
-                  class="text-white/60 group-hover:text-white transition-colors"
+              <o-button
+                variant="ghost"
+                size="md"
+                iconPosition="only"
+                .title=${translateText("common.paste")}
+                .icon=${html`<svg
                   stroke="currentColor"
                   fill="currentColor"
                   stroke-width="0"
@@ -258,36 +244,145 @@ export class JoinLobbyModal extends BaseModal {
                   <path
                     d="M 15 3 C 13.742188 3 12.847656 3.890625 12.40625 5 L 5 5 L 5 28 L 13 28 L 13 30 L 27 30 L 27 14 L 25 14 L 25 5 L 17.59375 5 C 17.152344 3.890625 16.257813 3 15 3 Z M 15 5 C 15.554688 5 16 5.445313 16 6 L 16 7 L 19 7 L 19 9 L 11 9 L 11 7 L 14 7 L 14 6 C 14 5.445313 14.445313 5 15 5 Z M 7 7 L 9 7 L 9 11 L 21 11 L 21 7 L 23 7 L 23 14 L 13 14 L 13 26 L 7 26 Z M 15 16 L 25 16 L 25 28 L 15 28 Z"
                   ></path>
-                </svg>
-              </button>
+                </svg>`}
+                @click=${this.pasteFromClipboard}
+              ></o-button>
             </div>
             <o-button
               title=${translateText("private_lobby.join_lobby")}
-              block
+              width="block"
               submit
             ></o-button>
           </div>
-        </div>
+        </form>
+        ${this.renderHostedLobbies()}
       </div>
-    `;
-
-    if (this.inline) {
-      return content;
-    }
-
-    return html`
-      <o-modal
-        ?hideHeader=${true}
-        ?hideCloseButton=${true}
-        ?inline=${this.inline}
-      >
-        ${content}
-      </o-modal>
     `;
   }
 
-  public open(lobbyId: string = "", lobbyInfo?: GameInfo | PublicGameInfo) {
-    super.open();
+  private renderHostedLobbies() {
+    let content: TemplateResult;
+    if (!this.hostedLobbiesLoaded) {
+      content = html`<div class="flex justify-center py-3">
+        <div
+          class="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin"
+        ></div>
+      </div>`;
+    } else if (this.hostedLobbies.length === 0) {
+      content = html`<p class="text-sm text-white/50">
+        ${translateText("private_lobby.no_open_lobbies")}
+      </p>`;
+    } else {
+      content = html`<div class="flex flex-col gap-2">
+        ${this.hostedLobbies.map((lobby) => this.renderHostedLobbyRow(lobby))}
+      </div>`;
+    }
+    return html`
+      <div class="pt-2">
+        <div
+          class="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-2"
+        >
+          ${translateText("private_lobby.open_lobbies")}
+        </div>
+        ${content}
+      </div>
+    `;
+  }
+
+  private renderHostedLobbyRow(lobby: PublicGameInfo) {
+    const c = lobby.gameConfig;
+    const mapName = c ? (getMapName(c.gameMap) ?? c.gameMap) : "";
+    const thumbnailUrl = c
+      ? assetUrl(
+          `maps/${encodeURIComponent(normaliseMapKey(c.gameMap))}/thumbnail.webp`,
+        )
+      : "";
+    // Nation count for this map isn't loaded pre-join, so the numeric-nations
+    // default comparison is skipped in the row chips.
+    const settings = c ? this.notableSettings(c, null) : [];
+    const disabledUnitCount = c?.disabledUnits?.length ?? 0;
+    const enabled = translateText("common.enabled");
+    return html`
+      <button
+        type="button"
+        @click=${() => this.joinHostedLobby(lobby)}
+        class="w-full px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 active:bg-white/15 transition-all flex items-center gap-3 text-left"
+      >
+        <img
+          src=${thumbnailUrl}
+          alt=${mapName}
+          class="w-12 h-12 rounded-lg object-cover border border-white/10 shrink-0"
+          @error=${(e: Event) => {
+            (e.target as HTMLImageElement).style.display = "none";
+          }}
+        />
+        <div class="flex flex-col flex-1 min-w-0">
+          <span class="text-sm font-bold text-white truncate">${mapName}</span>
+          <span class="text-xs text-white/60"
+            >${c ? this.modeSubtitle(c) : ""}</span
+          >
+          ${settings.length > 0 || disabledUnitCount > 0
+            ? html`<div class="flex flex-wrap gap-1 mt-1">
+                ${settings.map((s) => {
+                  // Some labels (e.g. host_modal.bots) already end with ": ".
+                  const label = s.label.replace(/[:\s]+$/, "");
+                  return html`<span
+                    class="px-1.5 py-0.5 bg-white/10 text-white/70 text-[10px] rounded font-bold"
+                    >${s.value === enabled
+                      ? label
+                      : `${label}: ${s.value}`}</span
+                  >`;
+                })}
+                ${disabledUnitCount > 0
+                  ? html`<span
+                      class="px-1.5 py-0.5 bg-red-500/20 text-red-200 text-[10px] rounded font-bold border border-red-500/30"
+                      >${translateText("private_lobby.disabled_units")}:
+                      ${disabledUnitCount}</span
+                    >`
+                  : ""}
+              </div>`
+            : ""}
+        </div>
+        <div
+          class="flex items-center gap-1 text-white/80 text-xs font-bold shrink-0"
+        >
+          ${lobby.numClients}${c?.maxPlayers ? `/${c.maxPlayers}` : ""}
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+            <path
+              d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.972 0 004 15v3H1v-3a3 3 0 013.75-2.906z"
+            ></path>
+          </svg>
+        </div>
+      </button>
+    `;
+  }
+
+  private async joinHostedLobby(lobby: PublicGameInfo) {
+    const lobbyId = lobby.gameID;
+    this.startTrackingLobby(lobbyId, lobby);
+    try {
+      const gameExists = await this.checkActiveLobby(lobbyId);
+      if (!gameExists) {
+        // The lobby vanished between the broadcast and the click.
+        this.resetTrackingState();
+        this.showMessage(translateText("private_lobby.not_found"), "red");
+      }
+    } catch (error) {
+      console.error("Error joining hosted lobby:", error);
+      this.resetTrackingState();
+      this.showMessage(translateText("private_lobby.error"), "red");
+    }
+  }
+
+  protected onOpen(args?: Record<string, unknown>): void {
+    // Re-armed here (not in onClose's reset) so that once
+    // disarmLeaveOnClose() runs, no close cascade can re-arm it and
+    // disconnect the player mid game-start.
+    this.leaveLobbyOnClose = true;
+    this.hostedLobbiesLoaded = false;
+    void this.hostedLobbySocket.start();
+    const lobbyId = typeof args?.lobbyId === "string" ? args.lobbyId : "";
+    const lobbyInfo = args?.lobbyInfo as GameInfo | PublicGameInfo | undefined;
     if (lobbyId) {
       this.startTrackingLobby(lobbyId, lobbyInfo);
       // If opened with lobbyId but no lobbyInfo (URL join case), auto-join the lobby
@@ -305,6 +400,9 @@ export class JoinLobbyModal extends BaseModal {
       // Active lobby not found, check if it's an archived game
       switch (await this.checkArchivedGame(lobbyId)) {
         case "success":
+          return;
+        case "redirected":
+          // Navigating to the versioned replay shell; leave state as-is.
           return;
         case "not_found":
           this.resetTrackingState();
@@ -374,12 +472,15 @@ export class JoinLobbyModal extends BaseModal {
     );
   }
 
-  public confirmBeforeClose(): boolean {
+  public confirmBeforeClose(): boolean | Promise<boolean> {
     if (!this.currentLobbyId) return true;
-    return confirm(translateText("host_modal.leave_confirmation"));
+    return this.confirmClose(translateText("host_modal.leave_confirmation"));
   }
 
   protected onClose(): void {
+    this.hostedLobbySocket.stop();
+    this.hostedLobbies = [];
+    this.hostedLobbiesLoaded = false;
     this.clearCountdownTimer();
     this.stopLobbyUpdates();
 
@@ -398,10 +499,10 @@ export class JoinLobbyModal extends BaseModal {
     this.serverTimeOffset = 0;
     this.lobbyCreatorClientID = null;
     this.isConnecting = true;
-    this.leaveLobbyOnClose = true;
   }
 
   disconnectedCallback() {
+    this.hostedLobbySocket.stop();
     this.clearCountdownTimer();
     this.stopLobbyUpdates();
     super.disconnectedCallback();
@@ -418,8 +519,17 @@ export class JoinLobbyModal extends BaseModal {
     this.close();
   }
 
-  public closeWithoutLeaving() {
+  // Closing this modal is part of the game-start transition, not the player
+  // leaving. Kept separate from closeWithoutLeaving because closing ANY
+  // page-modal navigates via showPage, which force-closes the currently
+  // visible page — so all lobby modals must be disarmed before any of them
+  // is closed.
+  public disarmLeaveOnClose() {
     this.leaveLobbyOnClose = false;
+  }
+
+  public closeWithoutLeaving() {
+    this.disarmLeaveOnClose();
     this.close();
   }
 
@@ -431,6 +541,168 @@ export class JoinLobbyModal extends BaseModal {
 
   // --- Game config rendering ---
 
+  private modeSubtitle(c: GameConfig): string {
+    if (c.gameMode !== GameMode.Team) {
+      return translateText("game_mode.ffa");
+    }
+    if (c.playerTeams === HumansVsNations) {
+      return translateText("host_modal.teams_Humans Vs Nations");
+    }
+    if (typeof c.playerTeams === "string") {
+      return translateText("host_modal.teams_" + c.playerTeams);
+    }
+    if (typeof c.playerTeams === "number") {
+      return translateText("public_lobby.teams", {
+        num: c.playerTeams,
+      });
+    }
+    return translateText("game_mode.ffa");
+  }
+
+  // Non-default settings worth surfacing, shared by the post-join config view
+  // and the open-lobby rows. Pass null nationCount to skip the numeric-nations
+  // default comparison (it needs the map manifest, loaded only post-join).
+  private notableSettings(
+    c: GameConfig,
+    nationCount: number | null,
+  ): { label: string; value: string }[] {
+    const isTeam = c.gameMode === GameMode.Team;
+    const enabled = translateText("common.enabled");
+    const disabled = translateText("common.disabled");
+    const pm = c.publicGameModifiers;
+    const items: { label: string; value: string }[] = [];
+    if (pm?.isCrowded)
+      items.push({
+        label: translateText("host_modal.crowded"),
+        value: enabled,
+      });
+    if (
+      pm?.isHardNations ||
+      (c.gameType === GameType.Private && c.difficulty !== Difficulty.Easy)
+    )
+      items.push({
+        label: translateText("difficulty.difficulty"),
+        value: translateText(`difficulty.${c.difficulty.toLowerCase()}`),
+      });
+    if (c.infiniteTroops)
+      items.push({
+        label: translateText("host_modal.infinite_troops"),
+        value: enabled,
+      });
+    if (c.infiniteGold)
+      items.push({
+        label: translateText("host_modal.infinite_gold"),
+        value: enabled,
+      });
+    if (c.instantBuild)
+      items.push({
+        label: translateText("host_modal.instant_build"),
+        value: enabled,
+      });
+    if (c.randomSpawn)
+      items.push({
+        label: translateText("host_modal.random_spawn"),
+        value: enabled,
+      });
+    if (c.maxTimerValue)
+      items.push({
+        label: translateText("private_lobby.game_length"),
+        value: renderDuration(c.maxTimerValue * 60),
+      });
+    if (
+      c.spawnImmunityDuration &&
+      Math.round(c.spawnImmunityDuration / 10) !== 5
+    ) {
+      items.push({
+        label: translateText("private_lobby.pvp_immunity"),
+        value: renderDuration(Math.round(c.spawnImmunityDuration / 10)),
+      });
+    }
+    if (c.startingGold)
+      items.push({
+        label: translateText("private_lobby.starting_gold"),
+        value: `${parseFloat((c.startingGold / 1_000_000).toPrecision(12))}M`,
+      });
+    if (c.goldMultiplier)
+      items.push({
+        label: translateText("host_modal.gold_multiplier"),
+        value: `x${c.goldMultiplier}`,
+      });
+    if (c.customAllianceDuration === 0 || c.disableAlliances)
+      items.push({
+        label: translateText("public_game_modifier.disable_alliances_label"),
+        value: disabled,
+      });
+    else if (
+      typeof c.customAllianceDuration === "number" &&
+      // 5 minutes is the sim fallback (Config.allianceDuration), so an
+      // explicit 5 changes nothing worth surfacing.
+      c.customAllianceDuration !== 5
+    )
+      items.push({
+        label: translateText("public_game_modifier.disable_alliances_label"),
+        value: renderDuration(c.customAllianceDuration * 60),
+      });
+    if (c.waterNukes)
+      items.push({
+        label: translateText("public_game_modifier.water_nukes_label"),
+        value: enabled,
+      });
+    if (c.doomsdayClock?.enabled)
+      items.push({
+        label: translateText("public_game_modifier.doomsday_clock_label"),
+        value: translateText(
+          `doomsday_clock_speed.${c.doomsdayClock.speed ?? "normal"}`,
+        ),
+      });
+    if (c.anonymizeNames)
+      items.push({
+        label: translateText("host_modal.anonymous_players"),
+        value: enabled,
+      });
+    if ((isTeam && !c.donateGold) || (!isTeam && c.donateGold))
+      items.push({
+        label: translateText("host_modal.donate_gold"),
+        value: c.donateGold ? enabled : disabled,
+      });
+    if ((isTeam && !c.donateTroops) || (!isTeam && c.donateTroops))
+      items.push({
+        label: translateText("host_modal.donate_troops"),
+        value: c.donateTroops ? enabled : disabled,
+      });
+    const isCompact =
+      c.gameMapSize === GameMapSize.Compact || c.publicGameModifiers?.isCompact;
+    if (isCompact)
+      items.push({
+        label: translateText("host_modal.compact_map"),
+        value: enabled,
+      });
+    {
+      const defaultBots = isCompact ? 100 : 400;
+      if (c.bots !== defaultBots)
+        items.push({
+          label: translateText("host_modal.bots"),
+          value: String(c.bots),
+        });
+    }
+    if (nationCount !== null) {
+      const defaultNations = isCompact
+        ? Math.max(0, Math.floor(nationCount * 0.25))
+        : nationCount;
+      if (typeof c.nations === "number" && c.nations !== defaultNations)
+        items.push({
+          label: translateText("host_modal.nations"),
+          value: String(c.nations),
+        });
+    }
+    if (c.nations === "disabled" && !(c.gameType === GameType.Public && isTeam))
+      items.push({
+        label: translateText("host_modal.nations"),
+        value: disabled,
+      });
+    return items;
+  }
+
   private renderGameConfig(): TemplateResult {
     if (!this.gameConfig) return html``;
 
@@ -440,181 +712,15 @@ export class JoinLobbyModal extends BaseModal {
     const thumbnailUrl = assetUrl(
       `maps/${encodeURIComponent(normalizedMap)}/thumbnail.webp`,
     );
-    const isTeam = c.gameMode === GameMode.Team;
+    const modeSubtitle = this.modeSubtitle(c);
 
-    let modeSubtitle: string;
-    if (!isTeam) {
-      modeSubtitle = translateText("game_mode.ffa");
-    } else if (c.playerTeams === HumansVsNations) {
-      modeSubtitle = translateText("host_modal.teams_Humans Vs Nations");
-    } else if (typeof c.playerTeams === "string") {
-      modeSubtitle = translateText("host_modal.teams_" + c.playerTeams);
-    } else if (typeof c.playerTeams === "number") {
-      modeSubtitle = translateText("public_lobby.teams", {
-        num: c.playerTeams,
-      });
-    } else {
-      modeSubtitle = translateText("game_mode.ffa");
-    }
-
-    const pm = c.publicGameModifiers;
-    const cards: TemplateResult[] = [];
-    if (pm?.isCrowded)
-      cards.push(
+    const cards = this.notableSettings(c, this.nationCount).map(
+      (s) =>
         html`<lobby-config-item
-          .label=${translateText("host_modal.crowded")}
-          .value=${translateText("common.enabled")}
+          .label=${s.label}
+          .value=${s.value}
         ></lobby-config-item>`,
-      );
-    if (
-      pm?.isHardNations ||
-      (c.gameType === GameType.Private && c.difficulty !== Difficulty.Easy)
-    )
-      cards.push(
-        html`<lobby-config-item
-          .label=${translateText("difficulty.difficulty")}
-          .value=${translateText(`difficulty.${c.difficulty.toLowerCase()}`)}
-        ></lobby-config-item>`,
-      );
-    if (c.infiniteTroops)
-      cards.push(
-        html`<lobby-config-item
-          .label=${translateText("host_modal.infinite_troops")}
-          .value=${translateText("common.enabled")}
-        ></lobby-config-item>`,
-      );
-    if (c.infiniteGold)
-      cards.push(
-        html`<lobby-config-item
-          .label=${translateText("host_modal.infinite_gold")}
-          .value=${translateText("common.enabled")}
-        ></lobby-config-item>`,
-      );
-    if (c.instantBuild)
-      cards.push(
-        html`<lobby-config-item
-          .label=${translateText("host_modal.instant_build")}
-          .value=${translateText("common.enabled")}
-        ></lobby-config-item>`,
-      );
-    if (c.randomSpawn)
-      cards.push(
-        html`<lobby-config-item
-          .label=${translateText("host_modal.random_spawn")}
-          .value=${translateText("common.enabled")}
-        ></lobby-config-item>`,
-      );
-    if (c.maxTimerValue)
-      cards.push(
-        html`<lobby-config-item
-          .label=${translateText("private_lobby.game_length")}
-          .value=${`${c.maxTimerValue} min`}
-        ></lobby-config-item>`,
-      );
-    if (
-      c.spawnImmunityDuration &&
-      Math.round(c.spawnImmunityDuration / 10) !== 5
-    ) {
-      const totalSeconds = Math.round(c.spawnImmunityDuration / 10);
-      const immunityValue =
-        totalSeconds < 60
-          ? `${totalSeconds}s`
-          : totalSeconds % 60 > 0
-            ? `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`
-            : `${Math.floor(totalSeconds / 60)} min`;
-      cards.push(
-        html`<lobby-config-item
-          .label=${translateText("private_lobby.pvp_immunity")}
-          .value=${immunityValue}
-        ></lobby-config-item>`,
-      );
-    }
-    if (c.startingGold)
-      cards.push(
-        html`<lobby-config-item
-          .label=${translateText("private_lobby.starting_gold")}
-          .value=${`${parseFloat((c.startingGold / 1_000_000).toPrecision(12))}M`}
-        ></lobby-config-item>`,
-      );
-    if (c.goldMultiplier)
-      cards.push(
-        html`<lobby-config-item
-          .label=${translateText("host_modal.gold_multiplier")}
-          .value=${`x${c.goldMultiplier}`}
-        ></lobby-config-item>`,
-      );
-    if (c.disableAlliances)
-      cards.push(
-        html`<lobby-config-item
-          .label=${translateText(
-            "public_game_modifier.disable_alliances_label",
-          )}
-          .value=${translateText("common.disabled")}
-        ></lobby-config-item>`,
-      );
-    if (c.waterNukes)
-      cards.push(
-        html`<lobby-config-item
-          .label=${translateText("public_game_modifier.water_nukes_label")}
-          .value=${translateText("common.enabled")}
-        ></lobby-config-item>`,
-      );
-    if ((isTeam && !c.donateGold) || (!isTeam && c.donateGold))
-      cards.push(
-        html`<lobby-config-item
-          .label=${translateText("host_modal.donate_gold")}
-          .value=${translateText(
-            c.donateGold ? "common.enabled" : "common.disabled",
-          )}
-        ></lobby-config-item>`,
-      );
-    if ((isTeam && !c.donateTroops) || (!isTeam && c.donateTroops))
-      cards.push(
-        html`<lobby-config-item
-          .label=${translateText("host_modal.donate_troops")}
-          .value=${translateText(
-            c.donateTroops ? "common.enabled" : "common.disabled",
-          )}
-        ></lobby-config-item>`,
-      );
-    const isCompact =
-      c.gameMapSize === GameMapSize.Compact || c.publicGameModifiers?.isCompact;
-    if (isCompact)
-      cards.push(
-        html`<lobby-config-item
-          .label=${translateText("host_modal.compact_map")}
-          .value=${translateText("common.enabled")}
-        ></lobby-config-item>`,
-      );
-    {
-      const defaultBots = isCompact ? 100 : 400;
-      if (c.bots !== defaultBots)
-        cards.push(
-          html`<lobby-config-item
-            .label=${translateText("host_modal.bots")}
-            .value=${String(c.bots)}
-          ></lobby-config-item>`,
-        );
-    }
-    {
-      const defaultNations = isCompact
-        ? Math.max(0, Math.floor(this.nationCount * 0.25))
-        : this.nationCount;
-      if (typeof c.nations === "number" && c.nations !== defaultNations)
-        cards.push(
-          html`<lobby-config-item
-            .label=${translateText("host_modal.nations")}
-            .value=${String(c.nations)}
-          ></lobby-config-item>`,
-        );
-    }
-    if (c.nations === "disabled" && !(c.gameType === GameType.Public && isTeam))
-      cards.push(
-        html`<lobby-config-item
-          .label=${translateText("host_modal.nations")}
-          .value=${translateText("common.disabled")}
-        ></lobby-config-item>`,
-      );
+    );
 
     return html`
       <div class="flex items-center gap-3 mb-6">
@@ -935,6 +1041,9 @@ export class JoinLobbyModal extends BaseModal {
       switch (await this.checkArchivedGame(lobbyId)) {
         case "success":
           return;
+        case "redirected":
+          // Navigating to the versioned replay shell; leave state as-is.
+          return;
         case "not_found":
           this.resetTrackingState();
           this.showMessage(translateText("private_lobby.not_found"), "red");
@@ -967,8 +1076,7 @@ export class JoinLobbyModal extends BaseModal {
   }
 
   private async checkActiveLobby(lobbyId: string): Promise<boolean> {
-    const config = await getRuntimeClientServerConfig();
-    const url = `/${config.workerPath(lobbyId)}/api/game/${lobbyId}/exists`;
+    const url = `/${ClientEnv.workerPath(lobbyId)}/api/game/${lobbyId}/exists`;
 
     const response = await fetch(url, {
       method: "GET",
@@ -1016,7 +1124,9 @@ export class JoinLobbyModal extends BaseModal {
 
   private async checkArchivedGame(
     lobbyId: string,
-  ): Promise<"success" | "not_found" | "version_mismatch" | "error"> {
+  ): Promise<
+    "success" | "redirected" | "not_found" | "version_mismatch" | "error"
+  > {
     const archiveResponse = await fetch(`${getApiBase()}/game/${lobbyId}`, {
       method: "GET",
       headers: {
@@ -1037,15 +1147,16 @@ export class JoinLobbyModal extends BaseModal {
       return "version_mismatch";
     }
 
-    if (
-      window.GIT_COMMIT !== "DEV" &&
-      parsed.data.gitCommit !== window.GIT_COMMIT
-    ) {
+    const gitCommit = ClientEnv.gitCommit();
+    if (gitCommit !== "DEV" && parsed.data.gitCommit !== gitCommit) {
       const safeLobbyId = this.sanitizeForLog(lobbyId);
       console.warn(
         `Git commit hash mismatch for game ${safeLobbyId}`,
         archiveData.details,
       );
+      if (await this.redirectToVersionedShell(lobbyId)) {
+        return "redirected";
+      }
       return "version_mismatch";
     }
 
@@ -1064,5 +1175,34 @@ export class JoinLobbyModal extends BaseModal {
       }),
     );
     return "success";
+  }
+
+  // The record was produced by a different build. replay.<domain>/<gameId>
+  // serves the matching versioned shell (uploaded by update.sh on every
+  // deploy); if it exists, navigate there and let that build replay the game
+  // (#4934). The probe requires text/html so a misrouted host that answers
+  // 200 with something else can't strand the player on a broken page.
+  private async redirectToVersionedShell(lobbyId: string): Promise<boolean> {
+    if (isReplayShellHost(window.location.hostname)) {
+      return false;
+    }
+    const url = versionedReplayUrl(ClientEnv.jwtAudience(), lobbyId);
+    if (url === null) {
+      return false;
+    }
+    try {
+      const probe = await fetch(url, { method: "HEAD" });
+      if (!probe.ok) {
+        return false;
+      }
+      const contentType = probe.headers.get("content-type") ?? "";
+      if (!contentType.includes("text/html")) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+    window.location.href = url;
+    return true;
   }
 }
