@@ -523,4 +523,40 @@ describe("NukeExecution", () => {
     const tiles = nukes.map((n) => n.tile());
     expect(new Set(tiles).size).toBe(6);
   });
+
+  test("missile impact wipes infrastructure and makes land unclaimed without fallout", () => {
+    // Player conquers territory around (50, 50)
+    for (let x = 40; x <= 60; x++) {
+      for (let y = 40; y <= 60; y++) {
+        player.conquer(game.ref(x, y));
+      }
+    }
+    const target = game.ref(50, 50);
+    player.buildUnit(UnitType.City, target, {});
+    player.buildUnit(UnitType.Factory, game.ref(48, 48), {});
+    expect(player.units(UnitType.City)).toHaveLength(1);
+    expect(player.units(UnitType.Factory)).toHaveLength(1);
+    expect(game.hasOwner(target)).toBe(true);
+
+    otherPlayer.conquer(game.ref(1, 2));
+    otherPlayer.buildUnit(UnitType.MissileSilo, game.ref(1, 2), {});
+
+    const nukeExec = new NukeExecution(
+      UnitType.AtomBomb,
+      otherPlayer,
+      target,
+      game.ref(1, 2),
+    );
+    game.addExecution(nukeExec);
+    executeTicks(game, 50);
+
+    // Infrastructure in impact zone is wiped
+    expect(player.units(UnitType.City)).toHaveLength(0);
+    expect(player.units(UnitType.Factory)).toHaveLength(0);
+
+    // Impact zone land is unclaimed, remains land, and has no fallout (like at start of game)
+    expect(game.hasOwner(target)).toBe(false);
+    expect(game.isLand(target)).toBe(true);
+    expect(game.hasFallout(target)).toBe(false);
+  });
 });

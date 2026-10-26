@@ -32,6 +32,9 @@ import type {
 import type { SpawnCenter } from "./passes/SpawnOverlayPass";
 import type { AttackTroopLabel } from "./passes/WorldTextPass";
 import { GPURenderer } from "./Renderer";
+import { TacticalOverlayMode } from "./passes/TacticalOverlayPass";
+
+export { TacticalOverlayMode };
 import type { RenderSettings } from "./RenderSettings";
 
 export class MapRenderer {
@@ -344,6 +347,14 @@ export class MapRenderer {
   setMouseWorldPos(x: number, y: number): void {
     this.renderer?.setMouseWorldPos(x, y);
   }
+  setTacticalOverlayMode(mode: TacticalOverlayMode): void {
+    this.renderer?.setTacticalOverlayMode(mode);
+  }
+
+  getTacticalOverlayMode(): TacticalOverlayMode {
+    return this.renderer?.getTacticalOverlayMode() ?? TacticalOverlayMode.Off;
+  }
+
   setHighlightStructureTypes(unitTypes: string[] | null): void {
     this.renderer?.setHighlightStructureTypes(unitTypes);
   }
@@ -358,6 +369,7 @@ export class MapRenderer {
     this.resizeObs = null;
     this.onContextRestored = null;
     this.renderer?.dispose();
+    this.renderer = null;
     this.canvas.removeEventListener("webglcontextlost", this.handleContextLost);
     this.canvas.removeEventListener(
       "webglcontextrestored",

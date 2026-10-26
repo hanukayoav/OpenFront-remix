@@ -14,6 +14,8 @@ import {
   UT_HYDROGEN_BOMB,
   UT_MIRV_WARHEAD,
   UT_SHELL,
+  UT_TANK,
+  UT_TANK_SHELL,
   UT_TRAIN,
   UT_WARSHIP,
 } from "../../../types";
@@ -373,7 +375,12 @@ export class FxSpritePass {
       return;
     }
 
-    if (typeName === UT_SHELL && unit.reachedTarget) {
+    if (typeName === UT_TANK) {
+      this.pushFx(x, y, FX_UNIT_EXPLOSION, now);
+      return;
+    }
+
+    if ((typeName === UT_SHELL || typeName === UT_TANK_SHELL) && unit.reachedTarget) {
       this.pushFx(x, y, FX_MINI_EXPLOSION, now);
       return;
     }

@@ -39,7 +39,10 @@ import { GameView } from "../view";
 
 /** True for nuke types (AtomBomb, HydrogenBomb): ghost is preserved after placement so user can place multiple or keep selection (Enter/key confirm). */
 export function shouldPreserveGhostAfterBuild(unitType: UnitType): boolean {
-  return unitType === UnitType.AtomBomb || unitType === UnitType.HydrogenBomb;
+  return (
+    unitType === UnitType.AtomBomb ||
+    unitType === UnitType.HydrogenBomb
+  );
 }
 
 // tSamIntercept value used to flag an untargetable (impassable) destination:
@@ -49,24 +52,47 @@ const T_BLOCKED_DST = 0.9999;
 
 /**
  * Whether a SAM belongs in the nuke trajectory preview's threat set.
- * Mirrors SAMLauncherExecution: a SAM ignores a nuke whose owner it's
- * friendly with (same team OR allied).
- * Teammates are excluded unconditionally — a strike can break an alliance
- * but never a team relationship, so a teammate's SAM never engages.
- * Allied SAMs are excluded unless the strike would betray that ally — the
- * alliance breaks at launch, so their SAMs will engage the nuke.
- * (Own SAMs never threaten; the caller filters those out first.)
+ * Mirrors SAMLauncherExecution & canPlayerInterceptMissile:
+ * 1. A SAM ignores a nuke whose owner it's friendly with (same team OR unbetrayed ally).
+ * 2. In addition, only the targeted country, its allies/teammates, or allies betrayed by
+ *    this strike can intercept. Third-party countries whose airspace the missile merely passes
+ *    over will not intercept and therefore do not threaten the trajectory.
  */
 export function samThreatensNukePreview(
   samOwnerSmallId: number,
   teammateSmallIds: ReadonlySet<number>,
   allySmallIds: ReadonlySet<number>,
   betrayedSmallIds: ReadonlySet<number>,
+  targetSmallId?: number | null,
+  targetFriendlySmallIds?: ReadonlySet<number>,
 ): boolean {
   if (teammateSmallIds.has(samOwnerSmallId)) return false;
-  return (
-    !allySmallIds.has(samOwnerSmallId) || betrayedSmallIds.has(samOwnerSmallId)
-  );
+  if (
+    allySmallIds.has(samOwnerSmallId) &&
+    !betrayedSmallIds.has(samOwnerSmallId)
+  ) {
+    return false;
+  }
+
+  // If a player is targeted, only the target player, their allies/teammates, or betrayed allies can intercept.
+  if (
+    targetSmallId !== undefined &&
+    targetSmallId !== null &&
+    targetSmallId > 0
+  ) {
+    return (
+      samOwnerSmallId === targetSmallId ||
+      (targetFriendlySmallIds?.has(samOwnerSmallId) ?? false) ||
+      betrayedSmallIds.has(samOwnerSmallId)
+    );
+  }
+
+  // If target is unowned (terra nullius), only betrayed allies can intercept.
+  if (targetSmallId === null || targetSmallId === 0) {
+    return betrayedSmallIds.has(samOwnerSmallId);
+  }
+
+  return true;
 }
 
 export class BuildPreviewController implements Controller {
@@ -232,7 +258,8 @@ export class BuildPreviewController implements Controller {
     if (
       tileRef &&
       myPlayer &&
-      (nukeType === UnitType.AtomBomb || nukeType === UnitType.HydrogenBomb)
+      (nukeType === UnitType.AtomBomb ||
+        nukeType === UnitType.HydrogenBomb)
     ) {
       this.connectedAllySmallIds.clear();
       const allies = myPlayer.allies();
@@ -327,7 +354,10 @@ export class BuildPreviewController implements Controller {
       return;
     }
     const type = this.ghostUnit.buildableUnit.type;
-    if (type !== UnitType.AtomBomb && type !== UnitType.HydrogenBomb) {
+    if (
+      type !== UnitType.AtomBomb &&
+      type !== UnitType.HydrogenBomb
+    ) {
       this.clearNukeTrajectory();
       return;
     }
@@ -387,6 +417,19 @@ export class BuildPreviewController implements Controller {
             threshold: this.game.config().nukeAllianceBreakThreshold(),
           })
         : new Set();
+    const targetOwner = this.game.owner(tileRef);
+    const targetSmallId =
+      targetOwner && targetOwner.isPlayer() ? targetOwner.smallID() : null;
+    const targetFriendlySmallIds = new Set<number>();
+    if (targetOwner && targetOwner.isPlayer()) {
+      targetFriendlySmallIds.add(targetOwner.smallID());
+      for (const p of this.game.players()) {
+        if (p.isFriendly(targetOwner)) {
+          targetFriendlySmallIds.add(p.smallID());
+        }
+      }
+    }
+
     const sams: SAMInfo[] = [];
     for (const s of this.game.units(UnitType.SAMLauncher)) {
       if (!s.isActive()) continue;
@@ -398,6 +441,8 @@ export class BuildPreviewController implements Controller {
           teammateIds,
           allyIds,
           betrayedIds,
+          targetSmallId,
+          targetFriendlySmallIds,
         )
       ) {
         continue;
@@ -460,6 +505,9 @@ export class BuildPreviewController implements Controller {
         break;
       case UnitType.DefensePost:
         rangeRadius = this.game.config().defensePostRange();
+        break;
+      case UnitType.TankFactory:
+        rangeRadius = this.game.config().tankFiringRange();
         break;
     }
     let radiusTileX = this.game.x(tileRef);
@@ -544,7 +592,8 @@ export class BuildPreviewController implements Controller {
       const unitType = this.ghostUnit.buildableUnit.type;
       const isNuke = unitType === UnitType.AtomBomb;
       const rocketDirectionUp =
-        unitType === UnitType.AtomBomb || unitType === UnitType.HydrogenBomb
+        unitType === UnitType.AtomBomb ||
+        unitType === UnitType.HydrogenBomb
           ? this.uiState.rocketDirectionUp
           : undefined;
       this.eventBus.emit(

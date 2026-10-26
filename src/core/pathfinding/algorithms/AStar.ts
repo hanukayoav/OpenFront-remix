@@ -63,12 +63,19 @@ export class AStar implements PathFinder<number> {
     const buffer = this.neighborBuffer;
 
     queue.clear();
-    const starts = Array.isArray(start) ? start : [start];
-    for (const s of starts) {
-      gScore[s] = 0;
-      gScoreStamp[s] = stamp;
-      cameFrom[s] = -1;
-      queue.push(s, adapter.heuristic(s, goal));
+    if (typeof start === "number") {
+      gScore[start] = 0;
+      gScoreStamp[start] = stamp;
+      cameFrom[start] = -1;
+      queue.push(start, adapter.heuristic(start, goal));
+    } else {
+      for (let i = 0; i < start.length; i++) {
+        const s = start[i];
+        gScore[s] = 0;
+        gScoreStamp[s] = stamp;
+        cameFrom[s] = -1;
+        queue.push(s, adapter.heuristic(s, goal));
+      }
     }
 
     let iterations = this.maxIterations;

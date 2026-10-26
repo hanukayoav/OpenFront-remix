@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="#ffffff" width="32" height="32">
+  <!-- Armor-Piercing Ballistic Tank Shell with Tracer Tail -->
+  <path d="M26 16l-8-5v3H6v4h12v3z" fill="#f59e0b"/>
+  <polygon points="26,16 18,11 18,21" fill="#ef4444"/>
+  <rect x="6" y="14.5" width="12" height="3" fill="#fbbf24"/>
+  <!-- Kinetic Core Tip -->
+  <polygon points="28,16 24,14 24,18" fill="#ffffff"/>
+  <!-- Tracer exhaust glow -->
+  <polygon points="6,14 2,16 6,18" fill="#f97316" opacity="0.8"/>
+</svg>

@@ -128,8 +128,6 @@ export class GameImpl implements Game {
     private _stats: Stats,
     teamGameSpawnAreas?: TeamGameSpawnAreas,
   ) {
-    const constructorStart = performance.now();
-
     this._teamGameSpawnAreas = teamGameSpawnAreas;
     this._terraNullius = new TerraNulliusImpl();
     this._width = _map.width();
@@ -146,10 +144,6 @@ export class GameImpl implements Game {
       this.populateTeams();
     }
     this.addPlayers();
-
-    console.log(
-      `[GameImpl] Constructor total: ${(performance.now() - constructorStart).toFixed(0)}ms`,
-    );
   }
 
   private populateTeams() {
@@ -544,10 +538,7 @@ export class GameImpl implements Game {
 
   drainPackedTileUpdates(): Uint32Array {
     const pairs = this.tileUpdatePairs;
-    const packed = new Uint32Array(pairs.length);
-    for (let i = 0; i < pairs.length; i++) {
-      packed[i] = pairs[i];
-    }
+    const packed = Uint32Array.from(pairs);
     pairs.length = 0;
     return packed;
   }

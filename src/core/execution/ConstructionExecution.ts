@@ -8,6 +8,7 @@ import { MissileSiloExecution } from "./MissileSiloExecution";
 import { NukeExecution } from "./NukeExecution";
 import { PortExecution } from "./PortExecution";
 import { SAMLauncherExecution } from "./SAMLauncherExecution";
+import { TankFactoryExecution } from "./TankFactoryExecution";
 import { WarshipExecution } from "./WarshipExecution";
 import { WaterBombExecution } from "./WaterBombExecution";
 
@@ -154,6 +155,9 @@ export class ConstructionExecution implements Execution {
       case UnitType.WaterBomb:
         this.mg.addExecution(new WaterBombExecution(this.structure!));
         break;
+      case UnitType.TankFactory:
+        this.mg.addExecution(new TankFactoryExecution(this.structure!));
+        break;
       default:
         console.warn(
           `unit type ${this.constructionType} cannot be constructed`,
@@ -171,6 +175,7 @@ export class ConstructionExecution implements Execution {
       case UnitType.City:
       case UnitType.Factory:
       case UnitType.WaterBomb:
+      case UnitType.TankFactory:
         return true;
       default:
         return false;

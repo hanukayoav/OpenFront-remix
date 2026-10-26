@@ -429,12 +429,9 @@ export async function startWorker() {
           ws.close(1002, `Unauthorized: invalid token`);
           return;
         }
-        let persistentId = result.persistentId;
+        const persistentId = result.persistentId;
         const originalPersistentId = persistentId;
         const claims = result.claims;
-        if (ServerEnv.env() === GameEnv.Dev) {
-          persistentId = Math.random().toString(36).substring(2, 15);
-        }
 
         if (claims?.role === "banned") {
           ws.close(1002, "Account Banned");
@@ -768,6 +765,7 @@ const MatchmakingAssignmentSchema = z.object({
 });
 
 function startMatchmakingLoop(gm: GameManager, mode: "1v1" | "2v2") {
+  let hasLoggedOffline = false;
   startPolling(
     async () => {
       try {
@@ -780,23 +778,31 @@ function startMatchmakingLoop(gm: GameManager, mode: "1v1" | "2v2") {
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 20000);
-        const response = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": ServerEnv.apiKey(),
-          },
-          body: JSON.stringify({
-            id: workerId,
-            gameId: gameId,
-            ccu: gm.activeClients(),
-            instanceId: process.env.INSTANCE_ID,
-            mode,
-          }),
-          signal: controller.signal,
-        });
+        let response: globalThis.Response;
+        try {
+          response = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": ServerEnv.apiKey(),
+            },
+            body: JSON.stringify({
+              id: workerId,
+              gameId: gameId,
+              ccu: gm.activeClients(),
+              instanceId: process.env.INSTANCE_ID,
+              mode,
+            }),
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
 
-        clearTimeout(timeoutId);
+        if (hasLoggedOffline) {
+          log.info(`Matchmaking service back online for ${mode}`);
+          hasLoggedOffline = false;
+        }
 
         if (!response.ok) {
           log.warn(
@@ -842,6 +848,30 @@ function startMatchmakingLoop(gm: GameManager, mode: "1v1" | "2v2") {
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
           // Abort is expected if no game is scheduled on this worker.
+          return;
+        }
+        const err = error as {
+          code?: string;
+          cause?: { code?: string };
+          message?: string;
+        };
+        const isConnectionRefused =
+          err.code === "ECONNREFUSED" ||
+          err.cause?.code === "ECONNREFUSED" ||
+          err.code === "ENOTFOUND" ||
+          err.cause?.code === "ENOTFOUND" ||
+          (typeof err.message === "string" &&
+            (err.message.includes("ECONNREFUSED") ||
+              (err.message.includes("fetch failed") &&
+                (err.cause?.code === "ECONNREFUSED" || !err.cause))));
+
+        if (isConnectionRefused) {
+          if (!hasLoggedOffline) {
+            log.warn(
+              `Matchmaking service offline (${mode} checkin connection refused); skipping poll`,
+            );
+            hasLoggedOffline = true;
+          }
           return;
         }
         log.error(`Error polling ${mode} lobby:`, error);

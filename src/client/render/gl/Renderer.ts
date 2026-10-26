@@ -58,6 +58,10 @@ import { SpawnOverlayPass } from "./passes/SpawnOverlayPass";
 import { SpiralRibbonPass } from "./passes/SpiralRibbonPass";
 import { StructureLevelPass } from "./passes/StructureLevelPass";
 import { StructurePass } from "./passes/StructurePass";
+import {
+  TacticalOverlayMode,
+  TacticalOverlayPass,
+} from "./passes/TacticalOverlayPass";
 import { TerrainPass } from "./passes/TerrainPass";
 import { TerritoryPass } from "./passes/TerritoryPass";
 import { TrailPass } from "./passes/TrailPass";
@@ -133,6 +137,7 @@ export class GPURenderer {
   private unitPass: UnitPass;
   private namePass: NamePass;
   private fxPass: FxPass;
+  private tacticalOverlayPass: TacticalOverlayPass;
   private rangeCirclePass: RangeCirclePass;
   private samRadiusPass: SAMRadiusPass;
   private crosshairPass: CrosshairPass;
@@ -584,6 +589,15 @@ export class GPURenderer {
       config,
     );
     this.fxPass = new FxPass(gl, header, this.settings, config);
+    this.fxPass.setTerrainBytes(terrainBytes);
+    this.tacticalOverlayPass = new TacticalOverlayPass(
+      gl,
+      mapW,
+      mapH,
+      this.res.tileTex,
+      this.terrainBytesTex,
+      this.settings,
+    );
     this.barPass = new BarPass(gl, header, this.settings, config);
     this.worldTextPass = new WorldTextPass(gl, this.settings, config);
     this.worldTextPass.setMapWidth(this.mapW);
@@ -692,6 +706,8 @@ export class GPURenderer {
   ): void {
     this.territoryPass.setLiveRef(tileState);
     this.trailPass.setLiveRef(trailState);
+    // Just stores the ref unless the TroopDensity overlay is visible.
+    this.tacticalOverlayPass.updateDensityFromTiles(tileState);
   }
 
   uploadLiveDelta(
@@ -699,6 +715,9 @@ export class GPURenderer {
     changedTiles: readonly number[],
   ): void {
     this.territoryPass.applyLiveDelta(tileState, changedTiles);
+    // Patches only the changed neighbourhood, and only while the overlay is
+    // visible. This used to rescan the whole map every tick.
+    this.tacticalOverlayPass.updateDensityFromDelta(tileState, changedTiles);
   }
 
   uploadLiveTrailDelta(
@@ -882,6 +901,7 @@ export class GPURenderer {
     this.unitPass.updateUnits(units, gameTick);
     this.barPass.updateBars(units, this.lastStructures, gameTick);
     this.pointLightPass.updateLights(units);
+    this.tacticalOverlayPass.notifyUnitsTick(units);
     this.heatManager.decayHeat();
   }
 
@@ -905,6 +925,7 @@ export class GPURenderer {
       }
       this.samRadiusPass.setAllies(friendly);
       this.unitPass.setAllies(friendly);
+      this.tacticalOverlayPass.setAllies(friendly);
     }
   }
 
@@ -924,6 +945,7 @@ export class GPURenderer {
     this.structureLevelPass.updateStructures(units);
     this.samRadiusPass.updateStructures(units);
     this.unitPass.setStructures(units);
+    this.tacticalOverlayPass.updateStructuresAndUnits(units);
     const posts: { x: number; y: number; ownerID: number }[] = [];
     const w = this.mapW;
     for (const u of units.values()) {
@@ -1120,6 +1142,15 @@ export class GPURenderer {
     this.affiliationPalette.setLocalPlayer(id);
     this.unitPass.setLocalPlayer(id);
     this.railroadPass.setLocalPlayer(id);
+    this.tacticalOverlayPass.setLocalPlayer(id);
+  }
+
+  setTacticalOverlayMode(mode: TacticalOverlayMode): void {
+    this.tacticalOverlayPass.setMode(mode);
+  }
+
+  getTacticalOverlayMode(): TacticalOverlayMode {
+    return this.tacticalOverlayPass.getMode();
   }
 
   setLocalRailColor(r: number, g: number, b: number): void {
@@ -1339,6 +1370,7 @@ export class GPURenderer {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     this.spawnOverlayPass.draw(cam);
+    this.tacticalOverlayPass.draw(cam);
     if (pe.borderStamp) this.borderStampPass.draw(cam);
     if (pe.railroad) this.railroadPass.draw(cam, zoom);
     if (pe.unit) this.unitPass.drawGround(cam);
@@ -1485,6 +1517,7 @@ export class GPURenderer {
     this.nukeTrajectoryPass.dispose();
     this.nukeTelegraphPass.dispose();
     this.barPass.dispose();
+    this.tacticalOverlayPass.dispose();
     disposeGPUResources(this.gl, this.res);
     this.gl.deleteTexture(this.paletteTex);
     this.gl.deleteTexture(this.effectTex);

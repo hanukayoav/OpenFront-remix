@@ -33,7 +33,7 @@ export class TrainStationExecution implements Execution {
     if (this.mg === undefined) {
       throw new Error("Not initialized");
     }
-    if (!this.isActive() || this.unit === undefined) {
+    if (!this.isActive() || this.unit === undefined || this.unit.isDisabled()) {
       return;
     }
     if (this.station === null) {

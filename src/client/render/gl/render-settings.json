@@ -150,6 +150,10 @@
       "Missile Silo": {
         "scale": 1.55,
         "iconFill": 0.85
+      },
+      "Tank Factory": {
+        "scale": 1.15,
+        "iconFill": 0.85
       }
     },
     "highlightOutlineWidth": 0.04,
@@ -370,6 +374,18 @@
     "Missile Silo": {
       "radius": 10,
       "intensity": 0.9
+    },
+    "Tank Factory": {
+      "radius": 12,
+      "intensity": 1
+    },
+    "Tank": {
+      "radius": 8,
+      "intensity": 2.0
+    },
+    "TankShell": {
+      "radius": 4,
+      "intensity": 2.0
     },
     "Transport": {
       "radius": 6,

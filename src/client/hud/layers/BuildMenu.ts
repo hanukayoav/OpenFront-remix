@@ -37,6 +37,7 @@ const atomBombIcon = assetUrl("images/NukeIconWhite.svg");
 const portIcon = assetUrl("images/PortIcon.svg");
 const samlauncherIcon = assetUrl("images/SamLauncherIconWhite.svg");
 const shieldIcon = assetUrl("images/ShieldIconWhite.svg");
+const tankFactoryIcon = assetUrl("images/TankFactory.svg");
 
 export interface BuildItemDisplay {
   unitType: PlayerBuildableUnitType;
@@ -68,6 +69,13 @@ export const buildTable: BuildItemDisplay[][] = [
       description: "build_menu.desc.hydrogen_bomb",
       key: "unit_type.hydrogen_bomb",
       countable: false,
+    },
+    {
+      unitType: UnitType.TankFactory,
+      icon: tankFactoryIcon,
+      description: "build_menu.desc.tank_factory",
+      key: "unit_type.tank_factory",
+      countable: true,
     },
     {
       unitType: UnitType.Warship,

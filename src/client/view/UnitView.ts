@@ -1,5 +1,6 @@
 import {
   NukeState,
+  TankState,
   Tick,
   TrainType,
   TransportShipState,
@@ -72,6 +73,10 @@ function unitStateFromUpdate(u: UnitUpdate): UnitState {
     trainType: trainTypeToNum(u.trainType),
     loaded: u.loaded ?? null,
     constructionStartTick: null, // GameView fills in createdAt when underConstruction
+    tankState: u.tankState ?? null,
+    tankCooldown: u.tankCooldown ?? 0,
+    tankRallyTile: u.tankRallyTile ?? null,
+    turretAngle: u.turretAngle ?? 0,
   };
 }
 
@@ -101,6 +106,10 @@ function applyUpdateInPlace(target: UnitState, u: UnitUpdate): void {
   target.hasTrainStation = u.hasTrainStation;
   target.trainType = trainTypeToNum(u.trainType);
   target.loaded = u.loaded ?? null;
+  target.tankState = u.tankState ?? null;
+  target.tankCooldown = u.tankCooldown ?? 0;
+  target.tankRallyTile = u.tankRallyTile ?? null;
+  target.turretAngle = u.turretAngle ?? 0;
 }
 
 export class UnitView {
@@ -316,5 +325,17 @@ export class UnitView {
   }
   missileTimerQueue(): number[] {
     return this.state.missileTimerQueue;
+  }
+  tankState(): TankState | null | undefined {
+    return this.state.tankState;
+  }
+  tankCooldown(): number {
+    return this.state.tankCooldown ?? 0;
+  }
+  tankRallyTile(): number | null | undefined {
+    return this.state.tankRallyTile;
+  }
+  turretAngle(): number {
+    return this.state.turretAngle ?? 0;
   }
 }

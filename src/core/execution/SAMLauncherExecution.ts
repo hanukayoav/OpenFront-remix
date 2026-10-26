@@ -179,7 +179,11 @@ class SAMTargetingSystem {
     const nukes = this.mg.nearbyUnits(
       samTile,
       detectionRange,
-      [UnitType.AtomBomb, UnitType.HydrogenBomb, UnitType.MIRVWarhead],
+      [
+        UnitType.AtomBomb,
+        UnitType.HydrogenBomb,
+        UnitType.MIRVWarhead,
+      ],
       ({ unit }) => {
         if (!isUnit(unit) || unit.targetedBySAM()) return false;
 
@@ -289,7 +293,7 @@ export class SAMLauncherExecution implements Execution {
     }
     this.targetingSystem ??= new SAMTargetingSystem(this.mg, this.sam);
 
-    if (this.sam.isUnderConstruction()) {
+    if (this.sam.isUnderConstruction() || this.sam.isDisabled()) {
       return;
     }
 

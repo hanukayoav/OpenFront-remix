@@ -1,4 +1,4 @@
-import { Cell, Game, NameViewData, Player } from "../../core/game/Game";
+import { Game, NameViewData, Player } from "../../core/game/Game";
 import { calculateBoundingBox } from "../../core/Util";
 
 export interface Point {
@@ -74,21 +74,18 @@ export function placeName(game: Game, player: Player): NameViewData {
   largestRectangle.width = largestRectangle.width * scalingFactor;
   largestRectangle.height = largestRectangle.height * scalingFactor;
 
-  let center = new Cell(
-    Math.floor(
-      largestRectangle.x + largestRectangle.width / 2 + boundingBox.min.x,
-    ),
-    Math.floor(
-      largestRectangle.y + largestRectangle.height / 2 + boundingBox.min.y,
-    ),
+  const centerX = Math.floor(
+    largestRectangle.x + largestRectangle.width / 2 + boundingBox.min.x,
+  );
+  const centerY = Math.floor(
+    largestRectangle.y + largestRectangle.height / 2 + boundingBox.min.y,
   );
 
   const fontSize = calculateFontSize(largestRectangle, player.displayName());
-  center = new Cell(center.x, center.y - fontSize / 3);
 
   return {
-    x: Math.ceil(center.x),
-    y: Math.ceil(center.y),
+    x: Math.ceil(centerX),
+    y: Math.ceil(centerY - fontSize / 3),
     size: fontSize,
   };
 }
@@ -112,16 +109,22 @@ export function createGrid(
 
   const width = scaledBoundingBox.max.x - scaledBoundingBox.min.x + 1;
   const height = scaledBoundingBox.max.y - scaledBoundingBox.min.y + 1;
-  const grid: boolean[][] = Array(width)
-    .fill(null)
-    .map(() => Array(height).fill(false));
+  const grid: boolean[][] = new Array(width);
+  for (let i = 0; i < width; i++) {
+    grid[i] = new Array(height).fill(false);
+  }
+
+  const mapW = game.width();
+  const mapH = game.height();
 
   for (let x = scaledBoundingBox.min.x; x <= scaledBoundingBox.max.x; x++) {
+    const cx = x * scalingFactor;
+    const col = grid[x - scaledBoundingBox.min.x];
     for (let y = scaledBoundingBox.min.y; y <= scaledBoundingBox.max.y; y++) {
-      const cell = new Cell(x * scalingFactor, y * scalingFactor);
-      if (game.isOnMap(cell)) {
-        const tile = game.ref(cell.x, cell.y);
-        grid[x - scaledBoundingBox.min.x][y - scaledBoundingBox.min.y] =
+      const cy = y * scalingFactor;
+      if (cx >= 0 && cx < mapW && cy >= 0 && cy < mapH) {
+        const tile = game.ref(cx, cy);
+        col[y - scaledBoundingBox.min.y] =
           game.isShore(tile) ||
           (game.isOcean(tile) && game.magnitude(tile) < 10) ||
           game.owner(tile) === player ||

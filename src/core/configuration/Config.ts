@@ -262,7 +262,7 @@ export class Config {
     );
   }
   waterNukes(): boolean {
-    return this._gameConfig.waterNukes ?? false;
+    return false;
   }
   isRandomSpawn(): boolean {
     return this._gameConfig.randomSpawn;
@@ -492,6 +492,30 @@ export class Config {
         info = {
           cost: this.costWrapper(() => 1_000_000, UnitType.WaterBomb),
           constructionDuration: this.instantBuild() ? 0 : 2 * 10,
+        };
+        break;
+      case UnitType.TankFactory:
+        info = {
+          cost: this.costWrapper(
+            (numUnits: number) =>
+              Math.min(1_500_000, Math.pow(2, numUnits) * 200_000),
+            UnitType.TankFactory,
+          ),
+          constructionDuration: this.instantBuild() ? 0 : 5 * 10,
+          upgradable: true,
+          maxHealth: 1500,
+        };
+        break;
+      case UnitType.Tank:
+        info = {
+          cost: () => 0n,
+          maxHealth: this.tankHealth(),
+        };
+        break;
+      case UnitType.TankShell:
+        info = {
+          cost: () => 0n,
+          damage: this.tankStructureDamage(),
         };
         break;
       default:
@@ -1081,5 +1105,54 @@ export class Config {
 
   allianceExtensionPromptOffset(): number {
     return 300; // 30 seconds before expiration
+  }
+
+  // --- Tank & Armored Vanguard Tunables ---
+  tankFactoryCost(game: Game, player: Player): Gold {
+    return this.unitInfo(UnitType.TankFactory).cost(game, player);
+  }
+
+  tankBuildDurationTicks(): number {
+    return this.instantBuild() ? 0 : 150;
+  }
+
+  tankTroopCost(): number {
+    return 500;
+  }
+
+  tankProductionGoldCost(): Gold {
+    return 20_000n;
+  }
+
+  tankMaxPerFactory(): number {
+    return 5;
+  }
+
+  tankHealth(): number {
+    return 2000;
+  }
+
+  tankFiringRange(): number {
+    return 5;
+  }
+
+  tankReloadTicks(): number {
+    return 60;
+  }
+
+  tankShellSpeed(): number {
+    return 3;
+  }
+
+  tankStructureDamage(): number {
+    return 500;
+  }
+
+  tankVanguardCasualtyReduction(): number {
+    return 0.25;
+  }
+
+  tankMovementSpeedTicks(): number {
+    return 1;
   }
 }

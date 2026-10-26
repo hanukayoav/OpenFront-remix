@@ -72,34 +72,37 @@ export class AStarWater implements PathFinder<number> {
     const goalY = (goal / width) | 0;
 
     queue.clear();
-    const starts = Array.isArray(start) ? start : [start];
-
-    // For cross-product tie-breaker (prefer diagonal paths)
-    const s0 = starts[0];
+    const isSingle = typeof start === "number";
+    const s0 = isSingle ? start : start[0];
     const startX = s0 % width;
     const startY = (s0 / width) | 0;
     const dxGoal = goalX - startX;
     const dyGoal = goalY - startY;
     // Normalization factor to keep tie-breaker small (< COST_SCALE)
     const crossNorm = Math.max(1, Math.abs(dxGoal) + Math.abs(dyGoal));
+    const crossFactor = (COST_SCALE - 1) / (crossNorm * crossNorm);
 
-    // Cross-product tie-breaker: measures deviation from start-goal line
-    const crossTieBreaker = (nx: number, ny: number): number => {
-      const dxN = nx - goalX;
-      const dyN = ny - goalY;
-      const cross = Math.abs(dxGoal * dyN - dyGoal * dxN);
-      return Math.floor((cross * (COST_SCALE - 1)) / crossNorm / crossNorm);
-    };
-
-    for (const s of starts) {
-      gScore[s] = 0;
-      gScoreStamp[s] = stamp;
-      cameFrom[s] = -1;
-      const sx = s % width;
-      const sy = (s / width) | 0;
+    if (isSingle) {
+      gScore[start] = 0;
+      gScoreStamp[start] = stamp;
+      cameFrom[start] = -1;
+      const sx = start % width;
+      const sy = (start / width) | 0;
       const h =
         weight * BASE_COST * (Math.abs(sx - goalX) + Math.abs(sy - goalY));
-      queue.push(s, h);
+      queue.push(start, h);
+    } else {
+      for (let i = 0; i < start.length; i++) {
+        const s = start[i];
+        gScore[s] = 0;
+        gScoreStamp[s] = stamp;
+        cameFrom[s] = -1;
+        const sx = s % width;
+        const sy = (s / width) | 0;
+        const h =
+          weight * BASE_COST * (Math.abs(sx - goalX) + Math.abs(sy - goalY));
+        queue.push(s, h);
+      }
     }
 
     let iterations = this.maxIterations;
@@ -144,7 +147,8 @@ export class AStarWater implements PathFinder<number> {
               weight *
               BASE_COST *
               (Math.abs(currentX - goalX) + Math.abs(ny - goalY));
-            const f = tentativeG + h + crossTieBreaker(currentX, ny);
+            const cross = Math.abs(dxGoal * (ny - goalY) - dyGoal * (currentX - goalX));
+            const f = tentativeG + h + Math.floor(cross * crossFactor);
             queue.push(neighbor, f);
           }
         }
@@ -172,7 +176,8 @@ export class AStarWater implements PathFinder<number> {
               weight *
               BASE_COST *
               (Math.abs(currentX - goalX) + Math.abs(ny - goalY));
-            const f = tentativeG + h + crossTieBreaker(currentX, ny);
+            const cross = Math.abs(dxGoal * (ny - goalY) - dyGoal * (currentX - goalX));
+            const f = tentativeG + h + Math.floor(cross * crossFactor);
             queue.push(neighbor, f);
           }
         }
@@ -200,7 +205,8 @@ export class AStarWater implements PathFinder<number> {
               weight *
               BASE_COST *
               (Math.abs(nx - goalX) + Math.abs(currentY - goalY));
-            const f = tentativeG + h + crossTieBreaker(nx, currentY);
+            const cross = Math.abs(dxGoal * (currentY - goalY) - dyGoal * (nx - goalX));
+            const f = tentativeG + h + Math.floor(cross * crossFactor);
             queue.push(neighbor, f);
           }
         }
@@ -228,7 +234,8 @@ export class AStarWater implements PathFinder<number> {
               weight *
               BASE_COST *
               (Math.abs(nx - goalX) + Math.abs(currentY - goalY));
-            const f = tentativeG + h + crossTieBreaker(nx, currentY);
+            const cross = Math.abs(dxGoal * (currentY - goalY) - dyGoal * (nx - goalX));
+            const f = tentativeG + h + Math.floor(cross * crossFactor);
             queue.push(neighbor, f);
           }
         }

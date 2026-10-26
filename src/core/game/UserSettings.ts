@@ -17,6 +17,7 @@ export function getDefaultKeybinds(isMac: boolean): Record<string, string> {
   return {
     toggleView: "Space",
     coordinateGrid: "KeyM",
+    toggleTacticalOverlay: "KeyO",
     buildCity: "Digit1",
     buildFactory: "Digit2",
     buildPort: "Digit3",
@@ -33,6 +34,7 @@ export function getDefaultKeybinds(isMac: boolean): Record<string, string> {
     groundAttack: "KeyG",
     retaliateAttack: "Shift+KeyR",
     buildWaterBomb: "KeyJ",
+    buildTankFactory: "KeyH",
     requestAlliance: "KeyK",
     breakAlliance: "KeyL",
     swapDirection: "KeyU",

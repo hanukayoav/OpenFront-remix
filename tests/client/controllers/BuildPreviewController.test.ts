@@ -38,7 +38,40 @@ describe("samThreatensNukePreview (nuke trajectory threat set, #4226)", () => {
   const teammates = new Set([7, 8]);
   const allies = new Set([2, 3]);
 
-  test("non-friendly SAM threatens the trajectory", () => {
+  test("target player SAM threatens the trajectory", () => {
+    expect(
+      samThreatensNukePreview(5, teammates, allies, new Set(), 5, new Set([5])),
+    ).toBe(true);
+  });
+
+  test("target player's ally SAM threatens the trajectory", () => {
+    expect(
+      samThreatensNukePreview(
+        6,
+        teammates,
+        allies,
+        new Set(),
+        5,
+        new Set([5, 6]),
+      ),
+    ).toBe(true);
+  });
+
+  test("third-party SAM does NOT threaten the trajectory when not target or ally of target", () => {
+    // Player 9 is an unrelated 3rd party
+    expect(
+      samThreatensNukePreview(
+        9,
+        teammates,
+        allies,
+        new Set(),
+        5,
+        new Set([5, 6]),
+      ),
+    ).toBe(false);
+  });
+
+  test("unallied SAM threatens when target is unspecified", () => {
     expect(samThreatensNukePreview(5, teammates, allies, new Set())).toBe(true);
   });
 

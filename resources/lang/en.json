@@ -127,6 +127,7 @@
       "missile_silo": "Used to launch nukes",
       "port": "Sends trade ships to generate gold",
       "sam_launcher": "Defends against incoming nukes",
+      "tank_factory": "Constructs and maintains up to 5 armored tanks to patrol borders and provide fire support.",
       "warship": "Captures trade ships, destroys ships and boats",
       "water_bomb": "Invisible bomb placed in water to destroy enemy ships."
     },
@@ -1349,6 +1350,7 @@
       "port": "Port",
       "saml": "SAM Launcher",
       "silo": "Missile Silo",
+      "tfct": "Tank Factory",
       "trade": "Trade Ship",
       "trans": "Transport Ship",
       "wbmb": "Water Bomb",
@@ -1468,8 +1470,13 @@
     "waiting_for_players": "Waiting for players"
   },
   "radial_menu": {
+    "attack_all": "Attack All Borders",
+    "attack_piece": "Attack Region",
     "delete_unit_description": "Click to delete the nearest unit",
     "delete_unit_title": "Delete Unit",
+    "tank_no_range": "No Tanks in Range",
+    "tank_strike": "Tank Strike",
+    "tank_strike_reloading": "Tank Reloading ({seconds}s)",
     "upgrade_x": "Upgrade x{amount}"
   },
   "relation": {
@@ -1648,6 +1655,13 @@
     "viewers": "{count} watching",
     "watch": "Watch {name}"
   },
+  "tactical_overlay": {
+    "naval": "Naval",
+    "off": "Off",
+    "sams": "SAMs",
+    "trade": "Trade",
+    "troops": "Troops"
+  },
   "team_colors": {
     "blue": "Blue",
     "bot": "Tribes",
@@ -1710,6 +1724,9 @@
     "missile_silo": "Missile Silo",
     "port": "Port",
     "sam_launcher": "SAM Launcher",
+    "tank": "Armored Tank",
+    "tank_factory": "Tank Factory",
+    "tank_shell": "Tank Shell",
     "warship": "Warship",
     "water_bomb": "Water Bomb"
   },
@@ -1757,6 +1774,8 @@
     "build_port_desc": "Build a Port under your cursor.",
     "build_sam_launcher": "Build SAM Launcher",
     "build_sam_launcher_desc": "Build a SAM Launcher under your cursor.",
+    "build_tank_factory": "Build Tank Factory",
+    "build_tank_factory_desc": "Build a Tank Factory under your cursor.",
     "build_warship": "Build Warship",
     "build_warship_desc": "Build a Warship under your cursor.",
     "camera_movement": "Camera Movement",
@@ -1835,6 +1854,8 @@
     "territory_patterns_desc": "Choose whether to display territory skin designs in game",
     "territory_patterns_label": "Territory Skins",
     "title": "Settings",
+    "toggle_tactical_overlay": "Tactical Map Overlays",
+    "toggle_tactical_overlay_desc": "Cycle tactical overlay modes (Troop Density, SAMs, Trade, Naval)",
     "toggle_terrain": "Toggle Terrain",
     "toggle_view": "Toggle View",
     "toggle_view_desc": "Alternate view (terrain/countries)",

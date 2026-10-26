@@ -803,6 +803,7 @@ export class NationNukeBehavior {
 
     // Try each enemy SAM as a target, easiest (lowest level) first
     const sortedSams = enemySams.slice().sort((a, b) => a.level() - b.level());
+
     let needsMoreSilos = false;
     // Track the first failed attempt so we can upgrade a silo that would
     // actually have helped that plan (rather than an unrelated silo).

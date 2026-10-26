@@ -378,30 +378,7 @@ export class CrazyGamesSDK {
   }
 
   requestMidgameAd(): Promise<void> {
-    return new Promise((resolve) => {
-      if (!this.isReady()) {
-        resolve();
-        return;
-      }
-
-      try {
-        const callbacks = {
-          adFinished: () => {
-            console.log("End midgame ad");
-            resolve();
-          },
-          adError: (error: any) => {
-            console.log("Error midgame ad", error);
-            resolve();
-          },
-          adStarted: () => console.log("Start midgame ad"),
-        };
-        window.CrazyGames!.SDK.ad.requestAd("midgame", callbacks);
-      } catch (error) {
-        console.error("Failed to request midgame ad:", error);
-        resolve();
-      }
-    });
+    return Promise.resolve();
   }
 }
 

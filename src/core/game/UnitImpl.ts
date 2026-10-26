@@ -4,6 +4,7 @@ import {
   MessageType,
   NukeState,
   Player,
+  TankState,
   Tick,
   TrainType,
   TrajectoryTile,
@@ -44,6 +45,12 @@ export class UnitImpl implements Unit {
   private _trainType: TrainType | undefined;
   // Nuke only
   private _deletionAt: number | null = null;
+  private _disabledUntilTick: number = 0;
+  // Tank & Tank Factory
+  private _tankState: TankState | undefined = undefined;
+  private _tankCooldown: number = 0;
+  private _tankRallyTile: TileRef | undefined = undefined;
+  private _turretAngle: number = 0;
 
   constructor(
     private _type: UnitType,
@@ -87,6 +94,12 @@ export class UnitImpl implements Unit {
     this._loaded =
       "loaded" in params ? (params.loaded ?? undefined) : undefined;
     this._trainType = "trainType" in params ? params.trainType : undefined;
+    if (this._type === UnitType.Tank) {
+      this._tankState = TankState.Idle;
+    }
+    if (this._type === UnitType.TankFactory && "rallyTile" in params) {
+      this._tankRallyTile = params.rallyTile;
+    }
 
     switch (this._type) {
       case UnitType.Warship:
@@ -97,6 +110,7 @@ export class UnitImpl implements Unit {
       case UnitType.City:
       case UnitType.Factory:
       case UnitType.WaterBomb:
+      case UnitType.TankFactory:
         this.mg.stats().unitBuild(_owner, this._type);
     }
   }
@@ -163,6 +177,12 @@ export class UnitImpl implements Unit {
       hasTrainStation: this._hasTrainStation,
       trainType: this._trainType,
       loaded: this._loaded,
+      disabledUntilTick:
+        this._disabledUntilTick > 0 ? this._disabledUntilTick : undefined,
+      tankState: this._tankState,
+      tankCooldown: this._tankCooldown,
+      tankRallyTile: this._tankRallyTile,
+      turretAngle: this._turretAngle,
     };
   }
 
@@ -702,6 +722,70 @@ export class UnitImpl implements Unit {
   setLoaded(loaded: boolean): void {
     if (this._loaded !== loaded) {
       this._loaded = loaded;
+      this.mg.addUpdate(this.toUpdate());
+    }
+  }
+
+  disable(durationTicks: number): void {
+    const until = this.mg.ticks() + durationTicks;
+    if (until > this._disabledUntilTick) {
+      this._disabledUntilTick = until;
+      this.mg.addUpdate(this.toUpdate());
+    }
+  }
+
+  disabledUntil(tick: number): void {
+    if (tick > this._disabledUntilTick) {
+      this._disabledUntilTick = tick;
+      this.mg.addUpdate(this.toUpdate());
+    }
+  }
+
+  isDisabled(): boolean {
+    return this.mg.ticks() < this._disabledUntilTick;
+  }
+
+  disabledUntilTick(): number {
+    return this._disabledUntilTick;
+  }
+
+  tankState(): TankState | undefined {
+    return this._tankState;
+  }
+
+  setTankState(state: TankState): void {
+    if (this._tankState !== state) {
+      this._tankState = state;
+      this.mg.addUpdate(this.toUpdate());
+    }
+  }
+
+  tankCooldown(): number {
+    return this._tankCooldown;
+  }
+
+  setTankCooldown(cooldown: number): void {
+    this._tankCooldown = cooldown;
+  }
+
+  tankRallyTile(): TileRef | undefined {
+    return this._tankRallyTile;
+  }
+
+  setTankRallyTile(tile: TileRef | undefined): void {
+    if (this._tankRallyTile !== tile) {
+      this._tankRallyTile = tile;
+      this.mg.addUpdate(this.toUpdate());
+    }
+  }
+
+  turretAngle(): number {
+    return this._turretAngle;
+  }
+
+  setTurretAngle(angle: number): void {
+    if (this._turretAngle !== angle) {
+      this._turretAngle = angle;
       this.mg.addUpdate(this.toUpdate());
     }
   }

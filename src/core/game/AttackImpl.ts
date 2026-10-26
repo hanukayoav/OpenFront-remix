@@ -17,10 +17,19 @@ export class AttackImpl implements Attack {
     private _sourceTile: TileRef | null,
     private _border: Set<number>,
     private _mg: GameImpl,
+    private _targetTile: TileRef | null = null,
   ) {}
 
   sourceTile(): TileRef | null {
     return this._sourceTile;
+  }
+
+  targetTile(): TileRef | null {
+    return this._targetTile;
+  }
+
+  isTargeted(): boolean {
+    return this._targetTile !== null;
   }
 
   target(): Player | TerraNullius {

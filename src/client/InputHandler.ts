@@ -189,6 +189,18 @@ export class ToggleCoordinateGridEvent implements GameEvent {
   constructor(public readonly enabled: boolean) {}
 }
 
+export class SetTacticalOverlayModeEvent implements GameEvent {
+  constructor(public readonly mode: number) {}
+}
+
+export class CycleTacticalOverlayEvent implements GameEvent {
+  constructor() {}
+}
+
+export class TacticalOverlayModeChangedEvent implements GameEvent {
+  constructor(public readonly mode: number) {}
+}
+
 export class TickMetricsEvent implements GameEvent {
   constructor(
     public readonly tickExecutionDuration?: number,
@@ -376,6 +388,7 @@ export class InputHandler {
       "buildHydrogenBomb",
       "buildWarship",
       "buildMIRV",
+      "buildTankFactory",
     ];
     buildKeybinds = buildKeybinds.map((i: string): string => {
       return this.keybinds[i];
@@ -596,6 +609,14 @@ export class InputHandler {
         this.eventBus.emit(
           new ToggleCoordinateGridEvent(this.coordinateGridEnabled),
         );
+      }
+
+      if (
+        this.keybindMatchesEvent(e, this.keybinds.toggleTacticalOverlay) &&
+        !e.repeat
+      ) {
+        e.preventDefault();
+        this.eventBus.emit(new CycleTacticalOverlayEvent());
       }
 
       if (e.code === "Escape") {
@@ -864,6 +885,7 @@ export class InputHandler {
       if (
         !this.userSettings.leftClickOpensMenu() ||
         event.shiftKey ||
+        this.uiState.ghostStructure !== null ||
         this.gameView.inSpawnPhase() // No Radial Menu during spawn phase, only spawn point selection
       ) {
         this.eventBus.emit(new MouseUpEvent(event.x, event.y));
@@ -1131,6 +1153,7 @@ export class InputHandler {
       { key: "buildHydrogenBomb", type: UnitType.HydrogenBomb },
       { key: "buildWarship", type: UnitType.Warship },
       { key: "buildMIRV", type: UnitType.MIRV },
+      { key: "buildTankFactory", type: UnitType.TankFactory },
       { key: "buildWaterBomb", type: UnitType.WaterBomb },
     ];
     for (const { key, type } of buildKeybinds) {

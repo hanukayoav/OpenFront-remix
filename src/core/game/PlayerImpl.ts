@@ -507,9 +507,6 @@ export class PlayerImpl implements Player {
     const smallID = this.smallID();
     const visit = (neighbor: TileRef) => {
       if (map.isLand(neighbor) && !map.isImpassable(neighbor)) {
-        if (!map.hasOwner(neighbor) && map.hasFallout(neighbor)) {
-          return;
-        }
         const owner = map.ownerID(neighbor);
         if (owner !== smallID) {
           ns.add(
@@ -559,7 +556,6 @@ export class PlayerImpl implements Player {
         const tile = map.ref(nx, ny);
         if (!map.isLand(tile)) continue;
         if (map.isImpassable(tile)) continue;
-        if (!map.hasOwner(tile) && map.hasFallout(tile)) continue;
         const owner = map.ownerID(tile);
         if (owner !== this.smallID()) {
           ns.add(
@@ -1456,7 +1452,12 @@ export class PlayerImpl implements Player {
       case UnitType.SAMLauncher:
       case UnitType.City:
       case UnitType.Factory:
+      case UnitType.TankFactory:
         return this.landBasedStructureSpawn(targetTile, validTiles);
+      case UnitType.Tank:
+        return this.landBasedUnitSpawn(targetTile);
+      case UnitType.TankShell:
+        return targetTile;
       default:
         assertNever(unitType);
     }
@@ -1500,10 +1501,13 @@ export class PlayerImpl implements Player {
       }
     }
 
-    // only get missilesilos that are not on cooldown and not under construction
+    // only get missilesilos that are not on cooldown, not under construction, and not disabled
     const readySilos = this.units(UnitType.MissileSilo).filter(
       (silo) =>
-        silo.isActive() && !silo.isInCooldown() && !silo.isUnderConstruction(),
+        silo.isActive() &&
+        !silo.isInCooldown() &&
+        !silo.isUnderConstruction() &&
+        !silo.isDisabled(),
     );
     readySilos.sort(
       (a, b) =>
@@ -1687,6 +1691,7 @@ export class PlayerImpl implements Player {
     troops: number,
     sourceTile: TileRef | null,
     border: Set<number>,
+    targetTile: TileRef | null = null,
   ): Attack {
     const attack = new AttackImpl(
       this._pseudo_random.nextID(),
@@ -1696,6 +1701,7 @@ export class PlayerImpl implements Player {
       sourceTile,
       border,
       this.mg,
+      targetTile,
     );
     this._outgoingAttacks.push(attack);
     if (target.isPlayer()) {

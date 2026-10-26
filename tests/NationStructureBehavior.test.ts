@@ -1,7 +1,7 @@
 import { vi } from "vitest";
 import { ConstructionExecution } from "../src/core/execution/ConstructionExecution";
 import { NationStructureBehavior } from "../src/core/execution/nation/NationStructureBehavior";
-import { Difficulty, PlayerType } from "../src/core/game/Game";
+import { Difficulty, PlayerType, UnitType } from "../src/core/game/Game";
 import { Cluster } from "../src/core/game/TrainStation";
 import { PseudoRandom } from "../src/core/PseudoRandom";
 
@@ -897,5 +897,58 @@ describe("NationStructureBehavior.getOrBuildReachableStations", () => {
     (behavior as any).getOrBuildReachableStations();
 
     expect(buildSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("NationStructureBehavior TankFactory", () => {
+  it("evaluates shouldBuildStructure for TankFactory according to ratios and caps", () => {
+    const config = {
+      gameConfig: () => ({ difficulty: Difficulty.Medium }),
+    };
+    const player = {
+      unitsOwned: vi.fn(),
+    };
+    const behavior = makeBehavior({ config: () => config }, player);
+
+    // First tank factory with 2 cities -> ratio = 0.5 -> target = floor(2 * 0.5) = 1 -> true
+    player.unitsOwned.mockReturnValue(0);
+    expect((behavior as any).shouldBuildStructure(UnitType.TankFactory, 2, false)).toBe(true);
+
+    // 0 cities -> target = 0 -> false
+    expect((behavior as any).shouldBuildStructure(UnitType.TankFactory, 0, false)).toBe(false);
+
+    // Already owns 1 with 2 cities -> ratio = 0.35 -> target = floor(2 * 0.35) = 0 -> false
+    player.unitsOwned.mockReturnValue(1);
+    expect((behavior as any).shouldBuildStructure(UnitType.TankFactory, 2, false)).toBe(false);
+
+    // Owns 1 with 6 cities -> ratio = 0.35 -> target = floor(6 * 0.35) = 2 -> true
+    expect((behavior as any).shouldBuildStructure(UnitType.TankFactory, 6, false)).toBe(true);
+
+    // Capped at MAX_TANK_FACTORIES (4)
+    player.unitsOwned.mockReturnValue(4);
+    expect((behavior as any).shouldBuildStructure(UnitType.TankFactory, 100, false)).toBe(false);
+  });
+
+  it("scores tankFactoryValue with appropriate border and spacing incentives", () => {
+    const game = {
+      magnitude: vi.fn(() => 10),
+      config: () => ({
+        nukeMagnitudes: () => ({ outer: 30 }),
+      }),
+      manhattanDist: vi.fn((a, b) => Math.abs(a - b)),
+    };
+    const player = {
+      borderTiles: () => new Set([100]),
+      units: vi.fn(() => []),
+    };
+    const behavior = makeBehavior(game, player);
+    const valueFn = (behavior as any).tankFactoryValue();
+
+    // Tile 101 is distance 1 from border (< 2): penalized
+    const scoreClose = valueFn(101);
+    // Tile 106 is distance 6 from border (sweet spot 4-12): bonus
+    const scoreSweetSpot = valueFn(106);
+
+    expect(scoreSweetSpot).toBeGreaterThan(scoreClose);
   });
 });

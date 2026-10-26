@@ -44,6 +44,8 @@ import {
   UT_MIRV_WARHEAD,
   UT_SAM_MISSILE,
   UT_SHELL,
+  UT_TANK,
+  UT_TANK_SHELL,
   UT_TRADE_SHIP,
   UT_TRAIN,
   UT_TRANSPORT,
@@ -84,6 +86,8 @@ const UNIT_ORDER = [
   "TrainEngine",
   "TrainCarriage",
   "TrainCarriageLoaded",
+  UT_TANK,
+  UT_TANK_SHELL,
 ] as const;
 
 const ATLAS_COLS = UNIT_ORDER.length;
@@ -141,6 +145,7 @@ const MISSILE_TYPES: ReadonlySet<string> = new Set([
   UT_SAM_MISSILE,
   UT_SHELL,
   UT_MIRV_WARHEAD,
+  UT_TANK_SHELL,
 ]);
 
 /** Values per smoothing segment in the flat `smoothSegs` array:
@@ -518,7 +523,7 @@ export class UnitPass {
         this.emitMissile(x, y, unit.ownerID, atlasIdx, flags);
 
         // Shells emit a second instance at lastPos (2-pixel trail effect)
-        if (unit.unitType === UT_SHELL && unit.lastPos !== unit.pos) {
+        if ((unit.unitType === UT_SHELL || unit.unitType === UT_TANK_SHELL) && unit.lastPos !== unit.pos) {
           const lx = unit.lastPos % this.mapW;
           const ly = (unit.lastPos - lx) / this.mapW;
           this.emitMissile(lx, ly, unit.ownerID, atlasIdx, flags);

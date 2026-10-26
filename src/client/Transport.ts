@@ -77,6 +77,7 @@ export class SendAttackIntentEvent implements GameEvent {
   constructor(
     public readonly targetID: PlayerID | null,
     public readonly troops: number,
+    public readonly targetTile: TileRef | null = null,
   ) {}
 }
 
@@ -142,6 +143,20 @@ export class SendEmbargoAllIntentEvent implements GameEvent {
 
 export class SendDeleteUnitIntentEvent implements GameEvent {
   constructor(public readonly unitId: number) {}
+}
+
+export class SendTankStrikeIntentEvent implements GameEvent {
+  constructor(
+    public readonly targetTile: TileRef,
+    public readonly targetUnitId?: string,
+  ) {}
+}
+
+export class SendSetTankRallyPointIntentEvent implements GameEvent {
+  constructor(
+    public readonly rallyTile?: TileRef,
+    public readonly factoryUnitId?: number,
+  ) {}
 }
 
 export class CancelAttackIntentEvent implements GameEvent {
@@ -274,6 +289,14 @@ export class Transport {
 
     this.eventBus.on(SendDeleteUnitIntentEvent, (e) =>
       this.onSendDeleteUnitIntent(e),
+    );
+
+    this.eventBus.on(SendTankStrikeIntentEvent, (e) =>
+      this.onSendTankStrikeIntent(e),
+    );
+
+    this.eventBus.on(SendSetTankRallyPointIntentEvent, (e) =>
+      this.onSendSetTankRallyPointIntent(e),
     );
 
     this.eventBus.on(SendKickPlayerIntentEvent, (e) =>
@@ -504,6 +527,7 @@ export class Transport {
       type: "attack",
       targetID: event.targetID,
       troops: event.troops,
+      targetTile: event.targetTile ?? undefined,
     });
   }
 
@@ -664,6 +688,22 @@ export class Transport {
     this.sendIntent({
       type: "delete_unit",
       unitId: event.unitId,
+    });
+  }
+
+  private onSendTankStrikeIntent(event: SendTankStrikeIntentEvent) {
+    this.sendIntent({
+      type: "tank_strike",
+      targetTile: event.targetTile,
+      targetUnitId: event.targetUnitId,
+    });
+  }
+
+  private onSendSetTankRallyPointIntent(event: SendSetTankRallyPointIntentEvent) {
+    this.sendIntent({
+      type: "set_tank_rally_point",
+      rallyTile: event.rallyTile,
+      factoryUnitId: event.factoryUnitId,
     });
   }
 

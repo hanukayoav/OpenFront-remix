@@ -40,6 +40,7 @@ import { PlayerPanel } from "./layers/PlayerPanel";
 import { ReplayPanel } from "./layers/ReplayPanel";
 import { SettingsModal } from "./layers/SettingsModal";
 import { SpawnTimer } from "./layers/SpawnTimer";
+import { TacticalOverlaySelector } from "./layers/TacticalOverlaySelector";
 import { UnitDisplay } from "./layers/UnitDisplay";
 import { WinModal } from "./layers/WinModal";
 import { loadAllSprites } from "./SpriteLoader";
@@ -282,9 +283,18 @@ export function createRenderer(
   if (!(inGamePromo instanceof InGamePromo)) {
     console.error("in-game promo not found");
   }
-  inGamePromo.game = game;
+  const tacticalOverlaySelector = document.querySelector(
+    "tactical-overlay-selector",
+  ) as TacticalOverlaySelector;
+  if (tacticalOverlaySelector instanceof TacticalOverlaySelector) {
+    tacticalOverlaySelector.game = game;
+    tacticalOverlaySelector.eventBus = eventBus;
+  }
 
   const layers: Controller[] = [
+    ...(tacticalOverlaySelector instanceof TacticalOverlaySelector
+      ? [tacticalOverlaySelector]
+      : []),
     new WarshipSelectionController(game, eventBus, transformHandler, view),
     new BuildPreviewController(
       game,

@@ -201,6 +201,18 @@ export enum UnitType {
   Train = "Train",
   Factory = "Factory",
   WaterBomb = "Water Bomb",
+  TankFactory = "Tank Factory",
+  Tank = "Tank",
+  TankShell = "Tank Shell",
+}
+
+export enum TankState {
+  Idle = "Idle",
+  Deploying = "Deploying",
+  Patrolling = "Patrolling",
+  Aiming = "Aiming",
+  Reloading = "Reloading",
+  Spearheading = "Spearheading",
 }
 
 export enum TrainType {
@@ -231,6 +243,7 @@ export const Structures = unitTypeGroup([
   UnitType.Port,
   UnitType.Factory,
   UnitType.WaterBomb,
+  UnitType.TankFactory,
 ] as const);
 
 export const BuildMenus = unitTypeGroup([
@@ -312,6 +325,20 @@ export interface UnitParamsMap {
   [UnitType.City]: Record<string, never>;
 
   [UnitType.WaterBomb]: Record<string, never>;
+
+  [UnitType.TankFactory]: {
+    rallyTile?: TileRef;
+  };
+
+  [UnitType.Tank]: {
+    factoryId?: number;
+    patrolTile?: TileRef;
+  };
+
+  [UnitType.TankShell]: {
+    targetTile?: TileRef;
+    targetUnit?: Unit;
+  };
 }
 
 // Type helper to get params type for a specific unit type
@@ -392,6 +419,9 @@ export interface Attack {
   delete(): void;
   // The tile the attack originated from, mostly used for boat attacks.
   sourceTile(): TileRef | null;
+  // The specific tile / land piece targeted, if not a full country attack.
+  targetTile(): TileRef | null;
+  isTargeted(): boolean;
   addBorderTile(tile: TileRef): void;
   removeBorderTile(tile: TileRef): void;
   clearBorder(): void;
@@ -550,6 +580,22 @@ export interface Unit {
   level(): number;
   increaseLevel(): void;
   decreaseLevel(destroyer?: Player): void;
+
+  // Disabled status
+  disable(durationTicks: number): void;
+  disabledUntil(tick: number): void;
+  isDisabled(): boolean;
+  disabledUntilTick(): number;
+
+  // Tanks & Tank Factories
+  tankState(): TankState | undefined;
+  setTankState(state: TankState): void;
+  tankCooldown(): number;
+  setTankCooldown(cooldown: number): void;
+  tankRallyTile(): TileRef | undefined;
+  setTankRallyTile(tile: TileRef | undefined): void;
+  turretAngle(): number;
+  setTurretAngle(angle: number): void;
 }
 
 export interface TerraNullius {
@@ -719,6 +765,7 @@ export interface Player {
     troops: number,
     sourceTile: TileRef | null,
     border: Set<number>,
+    targetTile?: TileRef | null,
   ): Attack;
   outgoingAttacks(): Attack[];
   incomingAttacks(): Attack[];

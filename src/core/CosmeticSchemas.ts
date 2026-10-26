@@ -179,7 +179,11 @@ export const TrailEffectAttributesSchema = z.discriminatedUnion("type", [
 // The bomb a nuke-explosion effect applies to. The store/selection UI groups
 // nukeExplosion effects into one tab per type. Enum, so an effect for a bomb
 // this client doesn't know is dropped by lenientRecord (not rendered wrong).
-export const NUKE_EXPLOSION_TYPES = ["atom", "hydro", "mirvWarhead"] as const;
+export const NUKE_EXPLOSION_TYPES = [
+  "atom",
+  "hydro",
+  "mirvWarhead",
+] as const;
 export type NukeExplosionType = (typeof NUKE_EXPLOSION_TYPES)[number];
 
 // A nuke-explosion effect — a detonation FX, not a trail. `type` picks the

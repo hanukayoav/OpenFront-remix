@@ -89,7 +89,6 @@ const SPECIAL_MODIFIER_POOL: ModifierKey[] = [
   ...Array<ModifierKey>(1).fill("isNukesDisabled"),
   ...Array<ModifierKey>(1).fill("isSAMsDisabled"),
   ...Array<ModifierKey>(1).fill("isPeaceTime"),
-  ...Array<ModifierKey>(4).fill("isWaterNukes"),
   ...Array<ModifierKey>(4).fill("isDoomsdayClock"),
 ];
 
@@ -103,24 +102,6 @@ const DOOMSDAY_ROTATION_SPEEDS = [
   "veryfast",
 ] as const;
 
-// Maps where water nukes have a higher chance on top of the normal pool
-// Water nukes are especially fun here
-const WATER_NUKES_BOOSTED_MAPS: ReadonlySet<GameMapType> = new Set([
-  GameMapType.FourIslands,
-  GameMapType.Baikal,
-  GameMapType.Luna,
-  GameMapType.ArchipelagoSea,
-  GameMapType.ChoppingBlock,
-  GameMapType.Sol,
-]);
-
-// Maps that are entirely land.
-// - Water nukes forced on 75% of the time (overrides WATER_NUKES_BOOSTED_MAPS)
-const FULL_LAND_MAPS: ReadonlySet<GameMapType> = new Set([
-  GameMapType.TheBox,
-  GameMapType.Alps,
-]);
-
 // Modifiers that cannot be active at the same time.
 const MUTUALLY_EXCLUSIVE_MODIFIERS: [ModifierKey, ModifierKey][] = [
   ["startingGold5M", "startingGold25M"],
@@ -128,7 +109,6 @@ const MUTUALLY_EXCLUSIVE_MODIFIERS: [ModifierKey, ModifierKey][] = [
   ["startingGold25M", "startingGold1M"],
   ["isHardNations", "startingGold25M"],
   ["isNukesDisabled", "isSAMsDisabled"],
-  ["isNukesDisabled", "isWaterNukes"],
 ];
 
 export class MapPlaylist {
@@ -235,23 +215,7 @@ export class MapPlaylist {
       excludedModifiers.push("isPeaceTime"); // Nations don't have PVP immunity
     }
 
-    // Boost water nukes chance
-    // When boosted, water nukes is forced on and takes one modifier slot.
-    const waterNukesBoostChance = FULL_LAND_MAPS.has(map)
-      ? 0.75
-      : WATER_NUKES_BOOSTED_MAPS.has(map)
-        ? 0.5
-        : 0;
-    const boostWaterNukes = Math.random() < waterNukesBoostChance;
-    if (boostWaterNukes) {
-      excludedModifiers.push("isWaterNukes", "isNukesDisabled");
-    }
-
-    const poolResult = this.getRandomSpecialGameModifiers(
-      excludedModifiers,
-      undefined,
-      boostWaterNukes ? 1 : 0,
-    );
+    const poolResult = this.getRandomSpecialGameModifiers(excludedModifiers);
     let {
       isCrowded,
       startingGold,
@@ -266,9 +230,6 @@ export class MapPlaylist {
       isWaterNukes,
       isDoomsdayClock,
     } = poolResult;
-    if (boostWaterNukes) {
-      isWaterNukes = true;
-    }
 
     // Crowded modifier: if the map's biggest player count (first number of calculateMapPlayerCounts) is 60 or lower (small maps),
     // set player count to MAX_PLAYER_COUNT (or 60 if compact map is also enabled)
@@ -399,7 +360,7 @@ export class MapPlaylist {
         peaceTimeDuration ??
         this.getSpawnImmunityDuration(playerTeams, startingGold),
       disabledUnits,
-      waterNukes: isWaterNukes ? true : undefined,
+      waterNukes: undefined,
       disableClanTags: mode === GameMode.FFA ? true : undefined,
     } satisfies GameConfig;
   }
@@ -610,7 +571,7 @@ export class MapPlaylist {
       isNukesDisabled: selected.has("isNukesDisabled") || undefined,
       isSAMsDisabled: selected.has("isSAMsDisabled") || undefined,
       isPeaceTime: selected.has("isPeaceTime") || undefined,
-      isWaterNukes: selected.has("isWaterNukes") || undefined,
+      isWaterNukes: undefined,
       isDoomsdayClock: selected.has("isDoomsdayClock") || undefined,
     };
   }

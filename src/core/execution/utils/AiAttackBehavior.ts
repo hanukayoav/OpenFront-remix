@@ -87,9 +87,7 @@ export class AiAttackBehavior {
     );
 
     // Attack TerraNullius but not nuked territory (direct border or across a river)
-    const hasNonNukedTerraNullius =
-      borderHasNonNukedTerraNullius ||
-      playerNeighbors.some((n) => !n.isPlayer());
+    const hasNonNukedTerraNullius = borderHasNonNukedTerraNullius;
     if (hasNonNukedTerraNullius) {
       if (this.sendAttack(this.game.terraNullius())) return;
     }

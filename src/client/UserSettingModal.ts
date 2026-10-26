@@ -393,6 +393,18 @@ export class UserSettingModal extends BaseModal {
       ></setting-keybind>
 
       <setting-keybind
+        action="toggleTacticalOverlay"
+        label=${translateText("user_setting.toggle_tactical_overlay")}
+        description=${translateText(
+          "user_setting.toggle_tactical_overlay_desc",
+        )}
+        defaultKey=${this.defaultKeybinds.toggleTacticalOverlay}
+        .value=${this.getKeyValue("toggleTacticalOverlay")}
+        .display=${this.getKeyChar("toggleTacticalOverlay")}
+        @change=${this.handleKeybindChange}
+      ></setting-keybind>
+
+      <setting-keybind
         action="altKey"
         label=${translateText("user_setting.graphics_refresh_modifier")}
         description=${translateText(
@@ -507,6 +519,16 @@ export class UserSettingModal extends BaseModal {
         defaultKey=${this.defaultKeybinds.buildMIRV}
         .value=${this.getKeyValue("buildMIRV")}
         .display=${this.getKeyChar("buildMIRV")}
+        @change=${this.handleKeybindChange}
+      ></setting-keybind>
+
+      <setting-keybind
+        action="buildTankFactory"
+        label=${translateText("user_setting.build_tank_factory")}
+        description=${translateText("user_setting.build_tank_factory_desc")}
+        defaultKey=${this.defaultKeybinds.buildTankFactory}
+        .value=${this.getKeyValue("buildTankFactory")}
+        .display=${this.getKeyChar("buildTankFactory")}
         @change=${this.handleKeybindChange}
       ></setting-keybind>
 

@@ -22,7 +22,9 @@ import { NoOpExecution } from "./NoOpExecution";
 import { PauseExecution } from "./PauseExecution";
 import { QuickChatExecution } from "./QuickChatExecution";
 import { RetreatExecution } from "./RetreatExecution";
+import { SetTankRallyPointExecution } from "./SetTankRallyPointExecution";
 import { SpawnExecution } from "./SpawnExecution";
+import { TankStrikeExecution } from "./TankStrikeExecution";
 import { TargetPlayerExecution } from "./TargetPlayerExecution";
 import { TransportShipExecution } from "./TransportShipExecution";
 import { TribeSpawner } from "./TribeSpawner";
@@ -63,6 +65,8 @@ export class Executor {
           player,
           intent.targetID,
           null,
+          true,
+          intent.targetTile ?? null,
         );
       }
       case "cancel_attack":
@@ -135,6 +139,18 @@ export class Executor {
         return new MarkDisconnectedExecution(player, intent.isDisconnected);
       case "toggle_pause":
         return new PauseExecution(player, intent.paused);
+      case "tank_strike":
+        return new TankStrikeExecution(
+          player,
+          intent.targetTile,
+          intent.targetUnitId,
+        );
+      case "set_tank_rally_point":
+        return new SetTankRallyPointExecution(
+          player,
+          intent.rallyTile ?? null,
+          intent.factoryUnitId,
+        );
       default:
         throw new Error(`intent type ${intent} not found`);
     }

@@ -123,7 +123,7 @@ export class BucketQueue implements PriorityQueue {
   }
 
   push(node: number, priority: number): void {
-    const bucket = Math.min(priority | 0, this.maxBucket - 1);
+    const bucket = Math.max(0, Math.min(priority | 0, this.maxBucket - 1));
 
     if (!this.buckets[bucket]) {
       this.buckets[bucket] = new Int32Array(64);

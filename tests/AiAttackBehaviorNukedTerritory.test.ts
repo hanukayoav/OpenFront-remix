@@ -191,7 +191,7 @@ describe("AiAttackBehavior - nuked territory early-out", () => {
   // `shoreReachableNeighbors()`.
 
   describe("regression: early gate no longer fires on nuked-only borders", () => {
-    test("nearby() excludes directly-adjacent nuked TerraNullius", async () => {
+    test("nearby() includes TerraNullius when bordering nuked land", async () => {
       const { game, nation } = await setupBehavior(Difficulty.Impossible, {
         withEnemy: false,
       });
@@ -206,10 +206,9 @@ describe("AiAttackBehavior - nuked territory early-out", () => {
       );
       expect(bordersNuked).toBe(true);
 
-      // nearby() must NOT report TerraNullius (it's all nuked), and with no
-      // enemy there are no player neighbours either.
+      // nearby() reports TerraNullius so players and systems can reclaim it.
       const nearby = nation.nearby();
-      expect(nearby.some((n) => !n.isPlayer())).toBe(false);
+      expect(nearby.some((n) => !n.isPlayer())).toBe(true);
       expect(nearby.filter((n) => n.isPlayer())).toHaveLength(0);
     });
 

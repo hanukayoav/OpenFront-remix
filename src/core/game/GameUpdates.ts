@@ -9,6 +9,7 @@ import {
   PlayerID,
   PlayerType,
   Team,
+  TankState,
   Tick,
   TrainType,
   TransportShipState,
@@ -200,6 +201,11 @@ export interface UnitUpdate {
   hasTrainStation: boolean;
   trainType?: TrainType; // Only for trains
   loaded?: boolean; // Only for trains
+  disabledUntilTick?: number;
+  tankState?: TankState;
+  tankCooldown?: number;
+  tankRallyTile?: TileRef;
+  turretAngle?: number;
 }
 
 export interface AttackUpdate {

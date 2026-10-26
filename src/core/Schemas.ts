@@ -53,7 +53,9 @@ export type Intent =
   | KickPlayerIntent
   | TogglePauseIntent
   | UpdateGameConfigIntent
-  | ToggleGameStartTimer;
+  | ToggleGameStartTimer
+  | TankStrikeIntent
+  | SetTankRallyPointIntent;
 
 export type AttackIntent = z.infer<typeof AttackIntentSchema>;
 export type CancelAttackIntent = z.infer<typeof CancelAttackIntentSchema>;
@@ -89,6 +91,10 @@ export type UpdateGameConfigIntent = z.infer<
 >;
 export type ToggleGameStartTimer = z.infer<
   typeof ToggleGameStartTimerIntentSchema
+>;
+export type TankStrikeIntent = z.infer<typeof TankStrikeIntentSchema>;
+export type SetTankRallyPointIntent = z.infer<
+  typeof SetTankRallyPointIntentSchema
 >;
 
 export type Turn = z.infer<typeof TurnSchema>;
@@ -448,6 +454,7 @@ export const AttackIntentSchema = z.object({
   type: z.literal("attack"),
   targetID: ID.nullable(),
   troops: z.number().nonnegative().nullable(),
+  targetTile: z.number().int().nonnegative().nullable().optional(),
 });
 
 export const SpawnIntentSchema = z.object({
@@ -586,6 +593,18 @@ export const ToggleGameStartTimerIntentSchema = z.object({
   type: z.literal("toggle_game_start_timer"),
 });
 
+export const TankStrikeIntentSchema = z.object({
+  type: z.literal("tank_strike"),
+  targetTile: z.number(),
+  targetUnitId: z.string().optional(),
+});
+
+export const SetTankRallyPointIntentSchema = z.object({
+  type: z.literal("set_tank_rally_point"),
+  rallyTile: z.number().nullable().optional(),
+  factoryUnitId: z.number().optional(),
+});
+
 export const IntentSchema = z.discriminatedUnion("type", [
   AttackIntentSchema,
   CancelAttackIntentSchema,
@@ -612,6 +631,8 @@ export const IntentSchema = z.discriminatedUnion("type", [
   TogglePauseIntentSchema,
   UpdateGameConfigIntentSchema,
   ToggleGameStartTimerIntentSchema,
+  TankStrikeIntentSchema,
+  SetTankRallyPointIntentSchema,
 ]);
 
 // StampedIntent = Intent with server-stamped clientID (used in turns and execution)

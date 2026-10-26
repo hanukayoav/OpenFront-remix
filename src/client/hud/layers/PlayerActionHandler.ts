@@ -11,7 +11,9 @@ import {
   SendDonateTroopsIntentEvent,
   SendEmbargoIntentEvent,
   SendEmojiIntentEvent,
+  SendSetTankRallyPointIntentEvent,
   SendSpawnIntentEvent,
+  SendTankStrikeIntentEvent,
   SendTargetPlayerIntentEvent,
 } from "../../Transport";
 import { UIState } from "../../UIState";
@@ -23,11 +25,16 @@ export class PlayerActionHandler {
     private uiState: UIState,
   ) {}
 
-  handleAttack(player: PlayerView, targetId: string | null) {
+  handleAttack(
+    player: PlayerView,
+    targetId: string | null,
+    targetTile: TileRef | null = null,
+  ) {
     this.eventBus.emit(
       new SendAttackIntentEvent(
         targetId,
         this.uiState.attackRatio * player.troops(),
+        targetTile,
       ),
     );
   }
@@ -92,5 +99,15 @@ export class PlayerActionHandler {
 
   handleDeleteUnit(unitId: number) {
     this.eventBus.emit(new SendDeleteUnitIntentEvent(unitId));
+  }
+
+  handleTankStrike(targetTile: TileRef, targetUnitId?: string) {
+    this.eventBus.emit(new SendTankStrikeIntentEvent(targetTile, targetUnitId));
+  }
+
+  handleSetTankRallyPoint(rallyTile?: TileRef, factoryUnitId?: number) {
+    this.eventBus.emit(
+      new SendSetTankRallyPointIntentEvent(rallyTile, factoryUnitId),
+    );
   }
 }

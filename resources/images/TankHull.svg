@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="#ffffff" width="48" height="48">
+  <!-- Tracks -->
+  <rect x="4" y="6" width="40" height="8" rx="3" fill="#334155"/>
+  <rect x="4" y="34" width="40" height="8" rx="3" fill="#334155"/>
+  <!-- Track treads -->
+  <line x1="8" y1="6" x2="8" y2="14" stroke="#64748b" stroke-width="1.5"/>
+  <line x1="14" y1="6" x2="14" y2="14" stroke="#64748b" stroke-width="1.5"/>
+  <line x1="20" y1="6" x2="20" y2="14" stroke="#64748b" stroke-width="1.5"/>
+  <line x1="26" y1="6" x2="26" y2="14" stroke="#64748b" stroke-width="1.5"/>
+  <line x1="32" y1="6" x2="32" y2="14" stroke="#64748b" stroke-width="1.5"/>
+  <line x1="38" y1="6" x2="38" y2="14" stroke="#64748b" stroke-width="1.5"/>
+  <line x1="8" y1="34" x2="8" y2="42" stroke="#64748b" stroke-width="1.5"/>
+  <line x1="14" y1="34" x2="14" y2="42" stroke="#64748b" stroke-width="1.5"/>
+  <line x1="20" y1="34" x2="20" y2="42" stroke="#64748b" stroke-width="1.5"/>
+  <line x1="26" y1="34" x2="26" y2="42" stroke="#64748b" stroke-width="1.5"/>
+  <line x1="32" y1="34" x2="32" y2="42" stroke="#64748b" stroke-width="1.5"/>
+  <line x1="38" y1="34" x2="38" y2="42" stroke="#64748b" stroke-width="1.5"/>
+  <!-- Armored Chassis / Hull -->
+  <polygon points="8,12 40,12 44,24 40,36 8,36 4,24" fill="#475569"/>
+  <rect x="10" y="15" width="28" height="18" rx="2" fill="#64748b"/>
+  <!-- Front glacis / armor plate -->
+  <polygon points="36,15 42,24 36,33" fill="#94a3b8"/>
+  <circle cx="24" cy="24" r="7" fill="#1e293b"/>
+</svg>

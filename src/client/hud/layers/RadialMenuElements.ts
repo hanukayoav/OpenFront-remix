@@ -41,6 +41,7 @@ const swordIcon = assetUrl("images/SwordIconWhite.svg");
 const targetIcon = assetUrl("images/TargetIconWhite.svg");
 const traitorIcon = assetUrl("images/TraitorIconWhite.svg");
 const xIcon = assetUrl("images/XIcon.svg");
+const tankStrikeIcon = assetUrl("images/TankStrikeIcon.svg");
 
 export interface MenuElementParams {
   myPlayer: PlayerView;
@@ -129,6 +130,7 @@ export enum Slot {
   Ally = "ally",
   Back = "back",
   Delete = "delete",
+  TankStrike = "tank_strike",
 }
 
 function isFriendlyTarget(params: MenuElementParams): boolean {
@@ -589,6 +591,42 @@ function createMenuElements(
     });
 }
 
+export const attackPieceElement: MenuElement = {
+  id: "attack_piece",
+  name: "attack_piece",
+  disabled: (params: MenuElementParams) =>
+    params.game.inSpawnPhase() || !params.playerActions.canAttack,
+  icon: swordIcon,
+  color: COLORS.attack,
+  text: translateText("radial_menu.attack_piece"),
+  action: (params: MenuElementParams) => {
+    params.playerActionHandler.handleAttack(
+      params.myPlayer,
+      params.selected?.id() ?? null,
+      params.tile,
+    );
+    params.closeMenu();
+  },
+};
+
+export const attackAllElement: MenuElement = {
+  id: "attack_all",
+  name: "attack_all",
+  disabled: (params: MenuElementParams) =>
+    params.game.inSpawnPhase() || !params.playerActions.canAttack,
+  icon: swordIcon,
+  color: COLORS.attack,
+  text: translateText("radial_menu.attack_all"),
+  action: (params: MenuElementParams) => {
+    params.playerActionHandler.handleAttack(
+      params.myPlayer,
+      params.selected?.id() ?? null,
+      null,
+    );
+    params.closeMenu();
+  },
+};
+
 export const attackMenuElement: MenuElement = {
   id: Slot.Attack,
   name: "radial_attack",
@@ -765,9 +803,93 @@ export const centerButtonElement: CenterButtonElement = {
         params.playerActionHandler.handleAttack(
           params.myPlayer,
           params.selected?.id() ?? null,
+          params.tile,
         );
       }
     }
+    params.closeMenu();
+  },
+};
+
+export function createTankStrikeElement(params: MenuElementParams): MenuElement {
+  const firingRange = params.game?.config?.()?.tankFiringRange?.() ?? 5;
+  const getDist = (a: number, b: number) =>
+    typeof params.game?.manhattanDist === "function"
+      ? params.game.manhattanDist(a, b)
+      : 999;
+  const allTanks = (
+    typeof params.myPlayer?.units === "function"
+      ? params.myPlayer.units(UnitType.Tank)
+      : []
+  ).filter((u) => u.isActive());
+  let tooltipText = translateText("radial_menu.tank_strike");
+
+  if (allTanks.length === 0) {
+    tooltipText = translateText("radial_menu.tank_no_range");
+  } else {
+    const closest = findClosestBy(allTanks, (u) => getDist(u.tile(), params.tile));
+    if (!closest || getDist(closest.tile(), params.tile) > firingRange) {
+      tooltipText = translateText("radial_menu.tank_no_range");
+    } else if (closest.tankCooldown() > 0) {
+      const seconds = Math.ceil(closest.tankCooldown() / 10);
+      tooltipText = translateText("radial_menu.tank_strike_reloading", {
+        seconds: String(seconds),
+      });
+    }
+  }
+
+  return {
+    id: Slot.TankStrike,
+    name: "tank_strike",
+    cooldown: () => {
+      const inRangeTanks = allTanks.filter(
+        (u) => getDist(u.tile(), params.tile) <= firingRange,
+      );
+      if (inRangeTanks.length === 0) return 0;
+      const closest = findClosestBy(inRangeTanks, (u) =>
+        getDist(u.tile(), params.tile),
+      );
+      return closest ? closest.tankCooldown() : 0;
+    },
+    disabled: () => {
+      if (params.game?.inSpawnPhase?.()) return true;
+      if (isFriendlyTarget(params)) return true;
+      const tileOwner = params.game?.owner?.(params.tile);
+      if (
+        tileOwner &&
+        typeof tileOwner.isPlayer === "function" &&
+        tileOwner.isPlayer() &&
+        (tileOwner as PlayerView).id() === params.myPlayer?.id()
+      ) {
+        return true;
+      }
+      const readyTanks = allTanks.filter(
+        (u) =>
+          getDist(u.tile(), params.tile) <= firingRange &&
+          u.tankCooldown() === 0,
+      );
+      return readyTanks.length === 0;
+    },
+    icon: tankStrikeIcon,
+    color: COLORS.attack,
+    tooltipItems: [{ text: tooltipText, className: "title" }],
+    action: () => {
+      params.playerActionHandler.handleTankStrike(params.tile);
+      params.closeMenu();
+    },
+  };
+}
+
+export const tankStrikeElement: MenuElement = {
+  id: Slot.TankStrike,
+  name: "tank_strike",
+  disabled: (params: MenuElementParams) =>
+    createTankStrikeElement(params).disabled(params),
+  icon: tankStrikeIcon,
+  color: COLORS.attack,
+  tooltipKeys: [{ key: "radial_menu.tank_strike", className: "title" }],
+  action: (params: MenuElementParams) => {
+    params.playerActionHandler.handleTankStrike(params.tile);
     params.closeMenu();
   },
 };
@@ -810,6 +932,10 @@ export const rootMenuElement: MenuElement = {
             showDonateInsteadOfAttack
               ? donateGoldRadialElement
               : attackMenuElement,
+            !isFriendlyTarget(params) && params.playerActions.canAttack
+              ? attackAllElement
+              : null,
+            !isFriendlyTarget(params) ? createTankStrikeElement(params) : null,
           ]),
     ];
 

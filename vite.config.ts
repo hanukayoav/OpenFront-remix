@@ -335,26 +335,17 @@ export default defineConfig(({ mode }) => {
       open: process.env.SKIP_BROWSER_OPEN !== "true",
       proxy: {
         "/lobbies": {
-          target: "ws://localhost:9001",
+          target: "http://localhost:9001",
           ws: true,
           changeOrigin: true,
         },
-        // Worker proxies
-        "/w0": {
-          target: "ws://localhost:9002",
+        // Worker proxies (HTTP and WebSocket routes through Master at 9001)
+        "^/w\\d+": {
+          target: "http://localhost:9001",
           ws: true,
           secure: false,
           changeOrigin: true,
           bypass: (req) => devGameHtmlBypass(req),
-          rewrite: (path) => path.replace(/^\/w0/, ""),
-        },
-        "/w1": {
-          target: "ws://localhost:9003",
-          ws: true,
-          secure: false,
-          changeOrigin: true,
-          bypass: (req) => devGameHtmlBypass(req),
-          rewrite: (path) => path.replace(/^\/w1/, ""),
         },
         // API proxies
         "/api": {

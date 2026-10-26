@@ -1,3 +1,4 @@
+import type { TankState } from "../../../core/game/Game";
 import type { TileRef } from "../../../core/game/GameMap";
 
 /** TrainType enum — numeric values matching UnitState.trainType. */
@@ -112,6 +113,10 @@ export interface UnitState {
   trainType: number | null; // 0=Engine, 1=TailEngine, 2=Carriage
   loaded: boolean | null;
   constructionStartTick: number | null;
+  tankState?: TankState | null;
+  tankCooldown?: number;
+  tankRallyTile?: number | null;
+  turretAngle?: number;
 }
 
 /** Minimal dead-unit data needed by the FX pass. */

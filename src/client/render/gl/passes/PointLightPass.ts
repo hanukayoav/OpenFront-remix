@@ -19,6 +19,9 @@ import {
   UT_MISSILE_SILO,
   UT_PORT,
   UT_SAM_LAUNCHER,
+  UT_TANK,
+  UT_TANK_FACTORY,
+  UT_TANK_SHELL,
   UT_TRADE_SHIP,
   UT_TRAIN,
   UT_TRANSPORT,
@@ -60,6 +63,9 @@ const LIGHT_CONFIGS: Record<string, LightConfig> = {
   // lights blend additively — keep per-unit intensity low (~a trade ship's
   // brightness ÷ car count) so the train corridor doesn't blow out.
   [UT_TRAIN]: { r: 1.0, g: 0.85, b: 0.5, radius: 6, intensity: 0.5 },
+  [UT_TANK_FACTORY]: { r: 1.0, g: 0.6, b: 0.3, radius: 12, intensity: 1.0 },
+  [UT_TANK]: { r: 0.9, g: 0.85, b: 0.7, radius: 8, intensity: 2.0 },
+  [UT_TANK_SHELL]: { r: 1.0, g: 0.8, b: 0.3, radius: 4, intensity: 2.0 },
 };
 
 const FLOATS_PER_LIGHT = 6;

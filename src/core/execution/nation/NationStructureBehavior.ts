@@ -16,7 +16,7 @@ import { PseudoRandom } from "../../PseudoRandom";
 import { assertNever } from "../../Util";
 import { ConstructionExecution } from "../ConstructionExecution";
 import { UpgradeStructureExecution } from "../UpgradeStructureExecution";
-import { closestTile, closestTwoTiles } from "../Util";
+import { closestTile } from "../Util";
 import { randTerritoryTileArray } from "./NationUtils";
 
 /**
@@ -56,6 +56,10 @@ function getStructureRatios(
       ratioPerCity: SAM_RATIO_BY_DIFFICULTY[difficulty],
       perceivedCostIncreasePerOwned: 0.3,
     },
+    [UnitType.TankFactory]: {
+      ratioPerCity: 0.35,
+      perceivedCostIncreasePerOwned: 1,
+    },
     [UnitType.MissileSilo]: {
       ratioPerCity: 0.2,
       perceivedCostIncreasePerOwned: 1,
@@ -72,8 +76,14 @@ const FACTORY_COASTAL_RATIO_MULTIPLIER = 0.33;
 /** Maximum number of missile silos a nation will build */
 const MAX_MISSILE_SILOS = 3;
 
+/** Maximum number of tank factories a nation will build */
+const MAX_TANK_FACTORIES = 4;
+
 /** Ratio per city used for the first missile silo so nations start nuking earlier */
 const FIRST_MISSILE_SILO_RATIO = 0.4;
+
+/** Ratio per city used for the first tank factory so nations with 2 cities start building one */
+const FIRST_TANK_FACTORY_RATIO = 0.5;
 
 /** If we have more than this many structures per tiles, prefer upgrading over building */
 const UPGRADE_DENSITY_THRESHOLD = 1 / 1500;
@@ -484,6 +494,7 @@ export class NationStructureBehavior {
       UnitType.Port,
       UnitType.Factory,
       UnitType.SAMLauncher,
+      UnitType.TankFactory,
       UnitType.MissileSilo,
     ];
 
@@ -583,9 +594,19 @@ export class NationStructureBehavior {
       return false;
     }
 
+    // Hard cap on tank factories
+    if (type === UnitType.TankFactory && owned >= MAX_TANK_FACTORIES) {
+      return false;
+    }
+
     // First missile silo uses a higher ratio so nations can start nuking earlier
     if (type === UnitType.MissileSilo && owned === 0) {
       ratio = FIRST_MISSILE_SILO_RATIO;
+    }
+
+    // First tank factory uses a higher ratio so nations start producing tanks earlier
+    if (type === UnitType.TankFactory && owned === 0) {
+      ratio = FIRST_TANK_FACTORY_RATIO;
     }
 
     const targetCount = Math.floor(cityCount * ratio);
@@ -902,6 +923,8 @@ export class NationStructureBehavior {
         return this.portValue();
       case UnitType.SAMLauncher:
         return this.samLauncherValue();
+      case UnitType.TankFactory:
+        return this.tankFactoryValue();
       default:
         throw new Error(`Value function not implemented for ${type}`);
     }
@@ -914,7 +937,9 @@ export class NationStructureBehavior {
   private missileSiloValue(): (tile: TileRef) => number {
     const game = this.game;
     const borderTiles = this.player.borderTiles();
-    const otherUnits = this.player.units(UnitType.MissileSilo);
+    const otherTiles: TileRef[] = this.player
+      .units(UnitType.MissileSilo)
+      .map((u) => u.tile());
     const { borderSpacing, structureSpacing } = this.spacingConstants();
 
     return (tile) => {
@@ -928,12 +953,15 @@ export class NationStructureBehavior {
       w += Math.min(closestBorderDist, borderSpacing);
 
       // Prefer to be away from other structures of the same type
-      const otherTiles: Set<TileRef> = new Set(otherUnits.map((u) => u.tile()));
-      otherTiles.delete(tile);
-      const closestOther = closestTwoTiles(game, otherTiles, [tile]);
-      if (closestOther !== null) {
-        const d = game.manhattanDist(closestOther.x, tile);
-        w += Math.min(d, structureSpacing);
+      let minOtherDist = Infinity;
+      for (let i = 0; i < otherTiles.length; i++) {
+        const otherTile = otherTiles[i];
+        if (otherTile === tile) continue;
+        const d = game.manhattanDist(otherTile, tile);
+        if (d < minOtherDist) minOtherDist = d;
+      }
+      if (minOtherDist !== Infinity) {
+        w += Math.min(minOtherDist, structureSpacing);
       }
 
       return w;
@@ -946,16 +974,24 @@ export class NationStructureBehavior {
    */
   private portValue(): (tile: TileRef) => number {
     const game = this.game;
-    const otherUnits = this.player.units(UnitType.Port);
+    const otherTiles: TileRef[] = this.player
+      .units(UnitType.Port)
+      .map((u) => u.tile());
 
     return (tile) => {
       let w = 0;
 
       // Prefer to be as far as possible from other ports
-      const otherTiles: Set<TileRef> = new Set(otherUnits.map((u) => u.tile()));
-      otherTiles.delete(tile);
-      const [, closestOtherDist] = closestTile(game, otherTiles, tile);
-      w += closestOtherDist;
+      let minOtherDist = Infinity;
+      for (let i = 0; i < otherTiles.length; i++) {
+        const otherTile = otherTiles[i];
+        if (otherTile === tile) continue;
+        const d = game.manhattanDist(otherTile, tile);
+        if (d < minOtherDist) minOtherDist = d;
+      }
+      if (minOtherDist !== Infinity) {
+        w += minOtherDist;
+      }
 
       return w;
     };
@@ -987,9 +1023,10 @@ export class NationStructureBehavior {
     const minRangeSquared = game.config().trainStationMinRange() ** 2;
 
     // Cross-type spacing: prefer to be away from cities.
-    const cityTiles: Set<TileRef> = new Set(
-      player.units(UnitType.City).map((u) => u.tile()),
-    );
+    const cityTiles: TileRef[] = player
+      .units(UnitType.City)
+      .map((u) => u.tile());
+    const otherTiles: TileRef[] = otherUnits.map((u) => u.tile());
 
     return (tile) => {
       let w = 0;
@@ -1002,19 +1039,21 @@ export class NationStructureBehavior {
       w += Math.min(closestBorderDist, borderSpacing);
 
       // Prefer to be away from other factories
-      const otherTiles: Set<TileRef> = new Set(otherUnits.map((u) => u.tile()));
-      otherTiles.delete(tile);
-      const closestOther = closestTwoTiles(game, otherTiles, [tile]);
-      if (closestOther !== null) {
-        const d = game.manhattanDist(closestOther.x, tile);
-        w += Math.min(d, stationRange);
+      let minOtherDist = Infinity;
+      for (let i = 0; i < otherTiles.length; i++) {
+        const otherTile = otherTiles[i];
+        if (otherTile === tile) continue;
+        const d = game.manhattanDist(otherTile, tile);
+        if (d < minOtherDist) minOtherDist = d;
+      }
+      if (minOtherDist !== Infinity) {
+        w += Math.min(minOtherDist, stationRange);
       }
 
       // Prefer to be away from cities (cross-type spacing)
-      const closestCity = closestTwoTiles(game, cityTiles, [tile]);
-      if (closestCity !== null) {
-        const d = game.manhattanDist(closestCity.x, tile);
-        w += Math.min(d, structureSpacing);
+      if (cityTiles.length > 0) {
+        const [, cityDist] = closestTile(game, cityTiles, tile);
+        w += Math.min(cityDist, structureSpacing);
       }
 
       if (!useConnectionScore) {
@@ -1204,9 +1243,10 @@ export class NationStructureBehavior {
     const minRangeSquared = game.config().trainStationMinRange() ** 2;
 
     // Cross-type spacing: prefer to be away from factories.
-    const factoryTiles: Set<TileRef> = new Set(
-      player.units(UnitType.Factory).map((u) => u.tile()),
-    );
+    const factoryTiles: TileRef[] = player
+      .units(UnitType.Factory)
+      .map((u) => u.tile());
+    const otherTiles: TileRef[] = otherUnits.map((u) => u.tile());
 
     return (tile) => {
       let w = 0;
@@ -1216,19 +1256,21 @@ export class NationStructureBehavior {
       const [, closestBorderDist] = closestTile(game, borderTiles, tile);
       w += Math.min(closestBorderDist, borderSpacing);
 
-      const otherTiles: Set<TileRef> = new Set(otherUnits.map((u) => u.tile()));
-      otherTiles.delete(tile);
-      const closestOther = closestTwoTiles(game, otherTiles, [tile]);
-      if (closestOther !== null) {
-        const d = game.manhattanDist(closestOther.x, tile);
-        w += Math.min(d, structureSpacing);
+      let minOtherDist = Infinity;
+      for (let i = 0; i < otherTiles.length; i++) {
+        const otherTile = otherTiles[i];
+        if (otherTile === tile) continue;
+        const d = game.manhattanDist(otherTile, tile);
+        if (d < minOtherDist) minOtherDist = d;
+      }
+      if (minOtherDist !== Infinity) {
+        w += Math.min(minOtherDist, structureSpacing);
       }
 
       // Prefer to be away from factories (cross-type spacing)
-      const closestFactory = closestTwoTiles(game, factoryTiles, [tile]);
-      if (closestFactory !== null) {
-        const d = game.manhattanDist(closestFactory.x, tile);
-        w += Math.min(d, structureSpacing);
+      if (factoryTiles.length > 0) {
+        const [, factoryDist] = closestTile(game, factoryTiles, tile);
+        w += Math.min(factoryDist, structureSpacing);
       }
 
       if (!useConnectionScore) {
@@ -1270,6 +1312,7 @@ export class NationStructureBehavior {
         case UnitType.Factory:
         case UnitType.MissileSilo:
         case UnitType.Port:
+        case UnitType.TankFactory:
           protectEntries.push({
             tile: unit.tile(),
             weight: weightByLevel ? unit.level() : 1,
@@ -1300,6 +1343,8 @@ export class NationStructureBehavior {
       }
     }
 
+    const otherTiles: TileRef[] = otherUnits.map((u) => u.tile());
+
     return (tile) => {
       let w = 0;
 
@@ -1307,19 +1352,19 @@ export class NationStructureBehavior {
       w += game.magnitude(tile);
 
       // Prefer to be away from the border
-      const closestBorder = closestTwoTiles(game, borderTiles, [tile]);
-      if (closestBorder !== null) {
-        const d = game.manhattanDist(closestBorder.x, tile);
-        w += Math.min(d, borderSpacing);
-      }
+      const [, closestBorderDist] = closestTile(game, borderTiles, tile);
+      w += Math.min(closestBorderDist, borderSpacing);
 
       // Prefer to be away from other structures of the same type
-      const otherTiles: Set<TileRef> = new Set(otherUnits.map((u) => u.tile()));
-      otherTiles.delete(tile);
-      const closestOther = closestTwoTiles(game, otherTiles, [tile]);
-      if (closestOther !== null) {
-        const d = game.manhattanDist(closestOther.x, tile);
-        w += Math.min(d, structureSpacing);
+      let minOtherDist = Infinity;
+      for (let i = 0; i < otherTiles.length; i++) {
+        const otherTile = otherTiles[i];
+        if (otherTile === tile) continue;
+        const d = game.manhattanDist(otherTile, tile);
+        if (d < minOtherDist) minOtherDist = d;
+      }
+      if (minOtherDist !== Infinity) {
+        w += Math.min(minOtherDist, structureSpacing);
       }
 
       // Prefer to be in range of other structures (skip on easy difficulty)
@@ -1335,6 +1380,66 @@ export class NationStructureBehavior {
             w += structureSpacing * entry.weight;
           }
         }
+      }
+
+      return w;
+    };
+  }
+
+  /**
+   * Value function for TankFactory.
+   * Prefers moderate distance from border (close enough to deploy tanks quickly, but not on the outermost edge),
+   * spacing from other tank factories, and spacing from cities.
+   */
+  private tankFactoryValue(): (tile: TileRef) => number {
+    const game = this.game;
+    const player = this.player;
+    const borderTiles = player.borderTiles();
+    const { borderSpacing, structureSpacing } = this.spacingConstants();
+
+    // Collected once per evaluation instead of once per candidate tile.
+    const otherTiles: TileRef[] = player
+      .units(UnitType.TankFactory)
+      .map((u) => u.tile());
+    const cityTiles: TileRef[] = player
+      .units(UnitType.City)
+      .map((u) => u.tile());
+
+    return (tile) => {
+      let w = 0;
+
+      // Prefer higher elevations slightly
+      w += game.magnitude(tile);
+
+      // Distance to border: ideal is ~4-12 tiles away from border
+      const [, closestBorderDist] = closestTile(game, borderTiles, tile);
+      if (closestBorderDist < 2) {
+        // Too close to immediate front line
+        w += closestBorderDist * 2;
+      } else if (closestBorderDist <= 12) {
+        // Sweet spot: close to the front for quick tank deployment
+        w += 24 + closestBorderDist;
+      } else {
+        // Deeper interior: still acceptable, capped
+        w += Math.max(0, 36 - (closestBorderDist - 12));
+      }
+
+      // Spacing from other tank factories (excluding one on this tile).
+      // Same result as closestTwoTiles(game, others, [tile]) — an exact
+      // min-Manhattan scan — without the per-candidate Set/sort allocations.
+      let otherDist = Infinity;
+      for (let i = 0; i < otherTiles.length; i++) {
+        const t = otherTiles[i];
+        if (t === tile) continue;
+        const d = game.manhattanDist(t, tile);
+        if (d < otherDist) otherDist = d;
+      }
+      w += otherDist === Infinity ? structureSpacing : Math.min(otherDist, structureSpacing);
+
+      // Cross-type spacing from cities
+      if (cityTiles.length > 0) {
+        const [, cityDist] = closestTile(game, cityTiles, tile);
+        w += Math.min(cityDist, borderSpacing);
       }
 
       return w;

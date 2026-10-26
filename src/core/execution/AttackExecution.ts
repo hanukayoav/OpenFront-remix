@@ -8,8 +8,10 @@ import {
   Player,
   PlayerID,
   PlayerType,
+  TankState,
   TerrainType,
   TerraNullius,
+  UnitType,
 } from "../game/Game";
 import { GameMap, TileRef } from "../game/GameMap";
 import { PseudoRandom } from "../PseudoRandom";
@@ -38,16 +40,24 @@ export class AttackExecution implements Execution {
   private nbuf: TileRef[] = [0, 0, 0, 0];
   private nbuf2: TileRef[] = [0, 0, 0, 0];
 
+  // Specific connected land piece tiles of the defender, if targeted
+  private targetPieceTiles: Set<TileRef> | null = null;
+
   constructor(
     private startTroops: number | null = null,
     private _owner: Player,
     private _targetID: PlayerID | null,
     private sourceTile: TileRef | null = null,
     private removeTroops: boolean = true,
+    private targetTile: TileRef | null = null,
   ) {}
 
   public targetID(): PlayerID | null {
     return this._targetID;
+  }
+
+  public getAttack(): Attack | null {
+    return this.attack;
   }
 
   activeDuringSpawnPhase(): boolean {
@@ -121,7 +131,15 @@ export class AttackExecution implements Execution {
       this.startTroops,
       this.sourceTile,
       new Set<TileRef>(),
+      this.targetTile,
     );
+
+    if (
+      this.targetTile !== null &&
+      this.map.ownerID(this.targetTile) === this.targetSmallID
+    ) {
+      this.targetPieceTiles = this.computeConnectedPiece(this.targetTile);
+    }
 
     if (this.sourceTile !== null) {
       this.addNeighbors(this.sourceTile);
@@ -151,7 +169,9 @@ export class AttackExecution implements Execution {
         outgoing !== this.attack &&
         outgoing.target() === this.attack.target() &&
         // Boat attacks (sourceTile is not null) are not combined with other attacks
-        this.attack.sourceTile() === null
+        this.attack.sourceTile() === null &&
+        outgoing.sourceTile() === null &&
+        this.attack.targetTile() === outgoing.targetTile()
       ) {
         this.attack.setTroops(this.attack.troops() + outgoing.troops());
         outgoing.delete();
@@ -181,6 +201,32 @@ export class AttackExecution implements Execution {
     }
   }
 
+  private computeConnectedPiece(startTile: TileRef): Set<TileRef> {
+    const piece = new Set<TileRef>();
+    const queue: TileRef[] = [startTile];
+    piece.add(startTile);
+    let head = 0;
+    const scratch: TileRef[] = [0, 0, 0, 0];
+
+    while (head < queue.length) {
+      const curr = queue[head++];
+      const numNeighbors = this.map.neighbors4(curr, scratch);
+      for (let i = 0; i < numNeighbors; i++) {
+        const neighbor = scratch[i];
+        if (
+          !piece.has(neighbor) &&
+          this.map.isLand(neighbor) &&
+          !this.map.isImpassable(neighbor) &&
+          this.map.ownerID(neighbor) === this.targetSmallID
+        ) {
+          piece.add(neighbor);
+          queue.push(neighbor);
+        }
+      }
+    }
+    return piece;
+  }
+
   private refreshToConquer() {
     if (this.attack === null) {
       throw new Error("Attack not initialized");
@@ -189,6 +235,19 @@ export class AttackExecution implements Execution {
     this.toConquer.clear();
     this.attack.clearBorder();
     for (const tile of this._owner.borderTiles()) {
+      if (this.targetPieceTiles !== null) {
+        let bordersPiece = false;
+        const numNeighbors = this.map.neighbors4(tile, this.nbuf);
+        for (let i = 0; i < numNeighbors; i++) {
+          if (this.targetPieceTiles.has(this.nbuf[i])) {
+            bordersPiece = true;
+            break;
+          }
+        }
+        if (!bordersPiece) {
+          continue;
+        }
+      }
       this.addNeighbors(tile);
     }
   }
@@ -269,6 +328,12 @@ export class AttackExecution implements Execution {
         this.attack.borderSize() + this.random.nextInt(0, 5),
       );
 
+    // Tank (vanguard) effects need spatial queries per conquered tile. Most
+    // players own no tanks, so check once per tick and skip those queries
+    // entirely. Tanks can't be created mid-loop, so this stays accurate.
+    const hasTanks = this._owner.units(UnitType.Tank).length > 0;
+    const tankFiringRange = hasTanks ? this.mg.config().tankFiringRange() : 0;
+
     while (numTilesPerTick > 0) {
       if (troopCount < 1) {
         this.attack.delete();
@@ -312,13 +377,68 @@ export class AttackExecution implements Execution {
           this.target,
           tileToConquer,
         );
+      // Vanguard Covering Fire
+      let finalAttackerLoss = attackerTroopLoss;
+      const hasVanguard =
+        hasTanks &&
+        this.mg.nearbyUnits(
+          tileToConquer,
+          tankFiringRange,
+          UnitType.Tank,
+          ({ unit }) => unit.owner() === this._owner && unit.isActive(),
+        ).length > 0;
+      if (hasVanguard) {
+        const reduction = this.mg.config().tankVanguardCasualtyReduction();
+        finalAttackerLoss = Math.floor(attackerTroopLoss * (1 - reduction));
+
+        if (targetPlayer) {
+          const posts = this.mg.nearbyUnits(
+            tileToConquer,
+            this.mg.config().defensePostRange(),
+            UnitType.DefensePost,
+            ({ unit }) => unit.owner() === targetPlayer && unit.isActive(),
+          );
+          for (const post of posts) {
+            post.unit.modifyHealth(-50, this._owner);
+          }
+        }
+      }
+
       numTilesPerTick -= tilesPerTickUsed;
-      troopCount -= attackerTroopLoss;
+      troopCount -= finalAttackerLoss;
       this.attack.setTroops(troopCount);
       if (targetPlayer) {
         targetPlayer.removeTroops(defenderTroopLoss);
       }
       this._owner.conquer(tileToConquer);
+      if (this.targetPieceTiles !== null) {
+        this.targetPieceTiles.delete(tileToConquer);
+      }
+
+      // Vanguard Spearhead Advance
+      if (!hasTanks) {
+        this.handleDeadDefender();
+        continue;
+      }
+      const nearbyAdvanceTanks = this.mg.nearbyUnits(
+        tileToConquer,
+        2,
+        UnitType.Tank,
+        ({ unit }) =>
+          unit.owner() === this._owner &&
+          unit.isActive() &&
+          unit.tankState() !== TankState.Spearheading &&
+          unit.tile() !== tileToConquer,
+      );
+      if (nearbyAdvanceTanks.length > 0) {
+        nearbyAdvanceTanks.sort(
+          (a, b) => a.distSquared - b.distSquared || a.unit.id() - b.unit.id(),
+        );
+        const vanguardTank = nearbyAdvanceTanks[0].unit;
+        vanguardTank.move(tileToConquer);
+        vanguardTank.setTankState(TankState.Spearheading);
+      }
+
       this.handleDeadDefender();
     }
   }
@@ -345,7 +465,8 @@ export class AttackExecution implements Execution {
       if (
         this.map.isWater(neighbor) ||
         this.map.isImpassable(neighbor) ||
-        this.map.ownerID(neighbor) !== this.targetSmallID
+        this.map.ownerID(neighbor) !== this.targetSmallID ||
+        (this.targetPieceTiles !== null && !this.targetPieceTiles.has(neighbor))
       ) {
         continue;
       }

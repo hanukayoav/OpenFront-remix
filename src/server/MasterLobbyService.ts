@@ -194,60 +194,93 @@ export class MasterLobbyService {
   }
 
   private broadcastLobbies() {
-    const { games, losers } = this.getAllLobbies();
-    const delist = this.delistGameIDs(losers);
-    const msg = {
-      type: "lobbiesBroadcast",
-      publicGames: {
-        serverTime: Date.now(),
-        games,
-      },
-      delistGameIDs: delist.length > 0 ? delist : undefined,
-    } satisfies MasterLobbiesBroadcast;
-    for (const [workerId, worker] of this.workers.entries()) {
-      worker.send(msg, (e) => {
-        if (e) {
-          this.log.error(
-            `Failed to send lobbies broadcast to worker ${workerId}, killing worker:`,
-            e,
-          );
-          worker.kill();
-        }
-      });
+    try {
+      const { games, losers } = this.getAllLobbies();
+      const delist = this.delistGameIDs(losers);
+      const msg = {
+        type: "lobbiesBroadcast",
+        publicGames: {
+          serverTime: Date.now(),
+          games,
+        },
+        delistGameIDs: delist.length > 0 ? delist : undefined,
+      } satisfies MasterLobbiesBroadcast;
+      for (const [workerId, worker] of this.workers.entries()) {
+        worker.send(msg, (e) => {
+          if (e) {
+            this.log.error(
+              `Failed to send lobbies broadcast to worker ${workerId}, killing worker:`,
+              e,
+            );
+            worker.kill();
+          }
+        });
+      }
+    } catch (error) {
+      this.log.error("Failed to broadcast lobbies:", error);
     }
   }
 
   private async maybeScheduleLobby() {
-    const lobbiesByType = this.getAllLobbies().games;
+    try {
+      const lobbiesByType = this.getAllLobbies().games;
 
-    // Scheduled types only: hosted lobbies are started by their host, never
-    // given a countdown or replaced by the master.
-    for (const type of SCHEDULED_PUBLIC_GAME_TYPES) {
-      const lobbies = lobbiesByType[type];
+      // Scheduled types only: hosted lobbies are started by their host, never
+      // given a countdown or replaced by the master.
+      for (const type of SCHEDULED_PUBLIC_GAME_TYPES) {
+        const lobbies = lobbiesByType[type];
 
-      // Always ensure the next lobby has a timer, even if we already have 2+
-      // lobbies. This prevents a race where two lobbies are created before
-      // either receives a startsAt (IPC round-trip delay), leaving both stuck
-      // without a countdown.
-      const nextLobby = lobbies[0];
-      if (nextLobby && nextLobby.startsAt === undefined) {
-        this.sendMessageToWorker({
-          type: "updateLobby",
-          gameID: nextLobby.gameID,
-          startsAt: Date.now() + ServerEnv.gameCreationRate(),
-        });
+        // Always ensure the next lobby has a timer, even if we already have 2+
+        // lobbies. This prevents a race where two lobbies are created before
+        // either receives a startsAt (IPC round-trip delay), leaving both stuck
+        // without a countdown.
+        const nextLobby = lobbies[0];
+        if (nextLobby && nextLobby.startsAt === undefined) {
+          this.sendMessageToWorker({
+            type: "updateLobby",
+            gameID: nextLobby.gameID,
+            startsAt: Date.now() + ServerEnv.gameCreationRate(),
+          });
+        }
+
+        if (lobbies.length >= 2) {
+          continue;
+        }
+
+        try {
+          const gameConfig = await this.playlist.gameConfig(type);
+          this.sendMessageToWorker({
+            type: "createGame",
+            gameID: generateID(),
+            gameConfig,
+            publicGameType: type,
+          } satisfies MasterCreateGame);
+        } catch (error) {
+          const err = error as { code?: string; cause?: { code?: string }; message?: string };
+          if (
+            err.code === "ECONNREFUSED" ||
+            err.cause?.code === "ECONNREFUSED" ||
+            (typeof err.message === "string" && err.message.includes("ECONNREFUSED"))
+          ) {
+            this.log.warn(
+              `Failed to schedule ${type} lobby due to connection refused: ${err.message}`,
+            );
+          } else {
+            this.log.error(`Failed to schedule ${type} lobby:`, error);
+          }
+        }
       }
-
-      if (lobbies.length >= 2) {
-        continue;
+    } catch (error) {
+      const err = error as { code?: string; cause?: { code?: string }; message?: string };
+      if (
+        err.code === "ECONNREFUSED" ||
+        err.cause?.code === "ECONNREFUSED" ||
+        (typeof err.message === "string" && err.message.includes("ECONNREFUSED"))
+      ) {
+        this.log.warn(`Error in lobby scheduling loop (connection refused): ${err.message}`);
+      } else {
+        this.log.error("Error in lobby scheduling loop:", error);
       }
-
-      this.sendMessageToWorker({
-        type: "createGame",
-        gameID: generateID(),
-        gameConfig: await this.playlist.gameConfig(type),
-        publicGameType: type,
-      } satisfies MasterCreateGame);
     }
   }
 
