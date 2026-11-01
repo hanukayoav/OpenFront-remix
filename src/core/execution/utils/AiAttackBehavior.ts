@@ -32,6 +32,7 @@ import {
 } from "../nation/NationEmojiBehavior";
 import { TransportShipExecution } from "../TransportShipExecution";
 import { closestTwoTiles } from "../Util";
+import { BotAI } from "./BotAI";
 
 // Reusable neighbor buffer for hot loops; the simulation is single-threaded.
 const NEIGHBOR_SCRATCH: TileRef[] = [0, 0, 0, 0];
@@ -88,7 +89,11 @@ export class AiAttackBehavior {
 
     // Attack TerraNullius but not nuked territory (direct border or across a river)
     const hasNonNukedTerraNullius = borderHasNonNukedTerraNullius;
-    if (hasNonNukedTerraNullius) {
+    const botPersonality = BotAI.getPersonality(this.player.id());
+    const shouldIgnoreNeutral = botPersonality
+      ? BotAI.shouldRusherIgnoreNeutral(botPersonality, borderingEnemies.length)
+      : false;
+    if (hasNonNukedTerraNullius && !shouldIgnoreNeutral) {
       if (this.sendAttack(this.game.terraNullius())) return;
     }
 
@@ -845,6 +850,16 @@ export class AiAttackBehavior {
   }
 
   shouldAttack(other: Player | TerraNullius): boolean {
+    if (other.isPlayer()) {
+      const personality = BotAI.getPersonality(this.player.id());
+      if (
+        personality &&
+        personality.archetype === "turtle" &&
+        !BotAI.canTurtleAttack(personality, this.player.troops(), other.troops())
+      ) {
+        return false;
+      }
+    }
     if (
       // Always attack Terra Nullius, non-humans and traitors
       other.isPlayer() === false ||
@@ -973,6 +988,12 @@ export class AiAttackBehavior {
       );
     } else {
       troops = nonBotTroops(targetTroops);
+    }
+
+    // Rusher archetype allocates 80% of troops directly towards player territories
+    const botPersonality = BotAI.getPersonality(this.player.id());
+    if (target.isPlayer() && botPersonality && botPersonality.archetype === "rusher") {
+      troops = Math.max(1, Math.floor(this.player.troops() * botPersonality.troopAllocationRatio));
     }
 
     // Hard & Impossible: don't drop below neighbor troop threshold (players only)

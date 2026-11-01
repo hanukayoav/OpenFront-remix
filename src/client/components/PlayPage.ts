@@ -3,6 +3,8 @@ import { customElement } from "lit/decorators.js";
 import { assetUrl } from "../../core/AssetUrls";
 import { crazyGamesSDK } from "../CrazyGamesSDK";
 import "./CosmeticBackground";
+import "./AvatarCustomizer";
+import "./LobbySettings";
 import "./NewsBox";
 import "./SteamWishlist";
 import "./StreamingNow";
@@ -136,6 +138,9 @@ export class PlayPage extends LitElement {
                 ></username-input>
               </div>
             </div>
+
+            <avatar-customizer class="w-full"></avatar-customizer>
+            <lobby-mutators-panel class="w-full"></lobby-mutators-panel>
           </div>
 
           <!-- Right column: Streaming Now (desktop only), stretched to the left column's

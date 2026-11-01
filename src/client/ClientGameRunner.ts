@@ -51,6 +51,11 @@ import {
 } from "./InputHandler";
 import { endGame, startGame, startTime } from "./LocalPersistantStats";
 import { terrainMapFileLoader } from "./TerrainMapFileLoader";
+import {
+  DualLayerEngine,
+  DualLayerEngineHandle,
+  setupDualLayerEngine,
+} from "./graphics/engine";
 import { GoToPlayerEvent } from "./TransformHandler";
 import {
   MoveWarshipIntentEvent,
@@ -404,6 +409,7 @@ function mountWebGLFrameLoop(
   transformHandler: import("./TransformHandler").TransformHandler,
   gameView: GameView,
   eventBus: EventBus,
+  dualLayerHandle?: DualLayerEngineHandle,
 ): { builder: WebGLFrameBuilder; stopFrameLoop: () => void } {
   const gameMap = terrainMap.gameMap;
   const mapWidth = gameMap.width();
@@ -437,6 +443,7 @@ function mountWebGLFrameLoop(
       mapHeight / 2 +
       (cachedCanvasH - mapHeight) / (2 * scale);
     view.setCameraState(centerX, centerY, scale * dpr);
+    dualLayerHandle?.engine.setCamera(centerX, centerY, scale);
     // Invoke the WebGL renderer's frame callback synchronously, with the just-
     // updated camera state. The callback re-arms itself via captureRaf, so
     // we'll get a fresh callback ready for the next canvas2D frame.
@@ -466,6 +473,7 @@ function mountWebGLFrameLoop(
   let rafId: number | null = null;
   const driveFrame = (): void => {
     syncCamera();
+    dualLayerHandle?.syncWithSimulation();
     rafId = requestAnimationFrame(driveFrame);
   };
   rafId = requestAnimationFrame(driveFrame);
@@ -686,6 +694,25 @@ async function createClientGame(
       mapLayerController,
     );
 
+    const dualLayerContainer = document.createElement("div");
+    dualLayerContainer.id = "openfront-duallayer-container";
+    dualLayerContainer.style.position = "fixed";
+    dualLayerContainer.style.left = "0";
+    dualLayerContainer.style.top = "0";
+    dualLayerContainer.style.width = "100%";
+    dualLayerContainer.style.height = "100%";
+    dualLayerContainer.style.pointerEvents = "none";
+    dualLayerContainer.style.zIndex = "5";
+    document.body.appendChild(dualLayerContainer);
+
+    const dualLayerHandle = setupDualLayerEngine(dualLayerContainer, {
+      gameView,
+      eventBus,
+      transformHandler: gameRenderer.transformHandler,
+      autoStart: true,
+    });
+    (window as unknown as { dualLayerEngine?: DualLayerEngine }).dualLayerEngine = dualLayerHandle.engine;
+
     const { builder: webglBuilder, stopFrameLoop } = mountWebGLFrameLoop(
       gameMap,
       view,
@@ -694,6 +721,7 @@ async function createClientGame(
       gameRenderer.transformHandler,
       gameView,
       eventBus,
+      dualLayerHandle,
     );
 
     // Releases all WebGL/DOM resources this game created. Without it, stopping
@@ -708,6 +736,9 @@ async function createClientGame(
       view.dispose();
       glCanvas.remove();
       inputOverlay.remove();
+      dualLayerHandle.dispose();
+      dualLayerContainer.remove();
+      delete (window as unknown as { dualLayerEngine?: DualLayerEngine }).dualLayerEngine;
     };
 
     console.log(

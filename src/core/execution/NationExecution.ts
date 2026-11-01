@@ -23,6 +23,7 @@ import { NationStructureBehavior } from "./nation/NationStructureBehavior";
 import { NationWarshipBehavior } from "./nation/NationWarshipBehavior";
 import { SpawnExecution } from "./SpawnExecution";
 import { AiAttackBehavior } from "./utils/AiAttackBehavior";
+import { BotAI } from "./utils/BotAI";
 
 export class NationExecution implements Execution {
   private active = true;
@@ -61,6 +62,7 @@ export class NationExecution implements Execution {
 
   init(mg: Game) {
     this.mg = mg;
+    BotAI.assignPersonality(this.nation.playerInfo.id, simpleHash(this.gameID));
     this.attackRate = this.getAttackRate();
     this.attackTick = this.random.nextInt(0, this.attackRate);
 
