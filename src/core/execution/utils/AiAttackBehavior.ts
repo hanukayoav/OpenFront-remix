@@ -89,7 +89,8 @@ export class AiAttackBehavior {
 
     // Attack TerraNullius but not nuked territory (direct border or across a river)
     const hasNonNukedTerraNullius = borderHasNonNukedTerraNullius;
-    const botPersonality = BotAI.getPersonality(this.player.id());
+    const isBot = this.player.type() === PlayerType.Bot;
+    const botPersonality = isBot ? BotAI.getPersonality(this.player.id()) : null;
     const shouldIgnoreNeutral = botPersonality
       ? BotAI.shouldRusherIgnoreNeutral(botPersonality, borderingEnemies.length)
       : false;
@@ -850,7 +851,7 @@ export class AiAttackBehavior {
   }
 
   shouldAttack(other: Player | TerraNullius): boolean {
-    if (other.isPlayer()) {
+    if (other.isPlayer() && this.player.type() === PlayerType.Bot) {
       const personality = BotAI.getPersonality(this.player.id());
       if (
         personality &&
@@ -992,7 +993,7 @@ export class AiAttackBehavior {
 
     // Rusher archetype allocates 80% of troops directly towards player territories
     const botPersonality = BotAI.getPersonality(this.player.id());
-    if (target.isPlayer() && botPersonality && botPersonality.archetype === "rusher") {
+    if (target.isPlayer() && this.player.type() === PlayerType.Bot && botPersonality && botPersonality.archetype === "rusher") {
       troops = Math.max(1, Math.floor(this.player.troops() * botPersonality.troopAllocationRatio));
     }
 

@@ -95,6 +95,8 @@ export interface CapitalAvatar {
   targetY: number;
   config: AvatarColorConfig;
   isLocalPlayer?: boolean;
+  badgeTitle?: string;
+  badgeColor?: string;
 }
 
 /**
@@ -199,6 +201,8 @@ export class AvatarSystem {
     capitalY: number,
     config: AvatarColorConfig = loadAvatarConfig(),
     isLocalPlayer = false,
+    badgeTitle?: string,
+    badgeColor?: string,
   ): CapitalAvatar {
     const avatar: CapitalAvatar = {
       id,
@@ -211,6 +215,8 @@ export class AvatarSystem {
       targetY: capitalY,
       config,
       isLocalPlayer,
+      badgeTitle,
+      badgeColor,
     };
     this.avatars.set(id, avatar);
     return avatar;
@@ -427,6 +433,15 @@ export class AvatarSystem {
         ctx.fillStyle = config.skinTone;
         ctx.fillRect(ax - 6, ay + 4.5, 2.5, 2);
         ctx.fillRect(ax + 3.5, ay + 4.5, 2.5, 2);
+      }
+
+      // Render bot archetype mini title if present
+      if (avatar.badgeTitle) {
+        ctx.fillStyle = avatar.badgeColor ?? "#38bdf8";
+        ctx.font = "bold 10px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(avatar.badgeTitle, ax, ay + 26);
       }
     } finally {
       ctx.restore();

@@ -328,6 +328,7 @@ function createWebGLView(
   const glCanvas = createCanvas();
   glCanvas.id = "webgl-debug-canvas";
   glCanvas.style.pointerEvents = "none";
+  glCanvas.style.zIndex = "1";
   document.body.insertBefore(glCanvas, document.body.firstChild);
 
   // Capture the WebGL renderer's animation-frame callback rather than letting
@@ -471,9 +472,12 @@ function mountWebGLFrameLoop(
   // renderer's captured frame callback (which draws). One RAF = one
   // synchronized camera-update + WebGL render.
   let rafId: number | null = null;
-  const driveFrame = (): void => {
+  let lastDriveTime = performance.now();
+  const driveFrame = (time: number): void => {
+    const deltaMs = Math.min(time - lastDriveTime, 100);
+    lastDriveTime = time;
     syncCamera();
-    dualLayerHandle?.syncWithSimulation();
+    dualLayerHandle?.engine.step(deltaMs, time);
     rafId = requestAnimationFrame(driveFrame);
   };
   rafId = requestAnimationFrame(driveFrame);
@@ -702,14 +706,14 @@ async function createClientGame(
     dualLayerContainer.style.width = "100%";
     dualLayerContainer.style.height = "100%";
     dualLayerContainer.style.pointerEvents = "none";
-    dualLayerContainer.style.zIndex = "5";
+    dualLayerContainer.style.zIndex = "2";
     document.body.appendChild(dualLayerContainer);
 
     const dualLayerHandle = setupDualLayerEngine(dualLayerContainer, {
       gameView,
       eventBus,
       transformHandler: gameRenderer.transformHandler,
-      autoStart: true,
+      autoStart: false,
     });
     (window as unknown as { dualLayerEngine?: DualLayerEngine }).dualLayerEngine = dualLayerHandle.engine;
 
@@ -759,6 +763,7 @@ async function createClientGame(
       webglBuilder,
       graphicsListenerAbort,
       disposeRenderer,
+      dualLayerHandle,
     );
   } catch (err) {
     soundManager.dispose();
@@ -794,6 +799,7 @@ export class ClientGameRunner {
     private webglBuilder: WebGLFrameBuilder | null = null,
     private graphicsListenerAbort: AbortController | null = null,
     private disposeRenderer: (() => void) | null = null,
+    private dualLayerHandle: DualLayerEngineHandle | null = null,
   ) {
     this.lastMessageTime = Date.now();
   }
@@ -906,6 +912,7 @@ export class ClientGameRunner {
       this.gameView.update(gu);
       this.webglBuilder?.update(this.gameView);
       this.renderer.tick();
+      this.dualLayerHandle?.syncWithSimulation();
 
       // Emit tick metrics event for performance overlay
       this.eventBus.emit(

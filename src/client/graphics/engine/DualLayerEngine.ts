@@ -253,12 +253,22 @@ export class DualLayerEngine {
   }
 
   public setCamera(x: number, y: number, scale: number): void {
-    if (this.cameraX !== x || this.cameraY !== y || this.cameraScale !== scale) {
+    if (
+      Math.abs(this.cameraX - x) > 0.001 ||
+      Math.abs(this.cameraY - y) > 0.001 ||
+      Math.abs(this.cameraScale - scale) > 0.001
+    ) {
       this.cameraX = x;
       this.cameraY = y;
       this.cameraScale = scale;
-      // When camera pans or zooms, the static background geometry moves as well
-      this.markStaticDirty();
+      // Only mark static dirty if there is actual static content to re-project
+      if (
+        this.staticTerrain &&
+        (this.staticTerrain.landPolygons.length > 0 ||
+          this.staticTerrain.neutralBoundaries.length > 0)
+      ) {
+        this.markStaticDirty();
+      }
     }
   }
 
@@ -349,12 +359,21 @@ export class DualLayerEngine {
     const w = this.staticCanvas.width;
     const h = this.staticCanvas.height;
 
-    // Background fill (water / ocean default)
-    const bgColor = this.staticTerrain?.backgroundColor ?? "#091e3a";
-    ctx.fillStyle = bgColor;
-    ctx.fillRect(0, 0, w, h);
+    // Clear static layer to avoid occluding underlying WebGL map
+    ctx.clearRect(0, 0, w, h);
 
-    if (!this.staticTerrain) {
+    // Background fill (only if explicitly set to non-transparent)
+    const bgColor = this.staticTerrain?.backgroundColor;
+    if (bgColor && bgColor !== "transparent") {
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    if (
+      !this.staticTerrain ||
+      (this.staticTerrain.landPolygons.length === 0 &&
+        this.staticTerrain.neutralBoundaries.length === 0)
+    ) {
       this.staticDirty = false;
       this.staticRedrawCount++;
       this.onStaticRender?.();
@@ -740,6 +759,29 @@ export class DualLayerEngine {
   // ============================================================
 
   /**
+   * Advances and renders a single frame of the dual-layer engine.
+   * Can be driven by the engine's internal RAF loop (via start()) or an external frame loop.
+   */
+  public step(deltaMs: number, time = performance.now()): void {
+    // 1. Static layer only updates when dirty or resized
+    if (this.staticDirty) {
+      this.renderStaticLayer();
+    }
+
+    // 2. Dynamic layer updates every frame
+    this.renderDynamicLayer(deltaMs);
+
+    // Calculate telemetry FPS
+    this.frameCount++;
+    this.fpsFrames++;
+    if (time - this.fpsTimer >= 1000) {
+      this.fps = Math.round((this.fpsFrames * 1000) / (time - this.fpsTimer));
+      this.fpsTimer = time;
+      this.fpsFrames = 0;
+    }
+  }
+
+  /**
    * Start the dual-layer render loop.
    */
   public start(): void {
@@ -755,22 +797,7 @@ export class DualLayerEngine {
       const deltaMs = Math.min(time - this.lastFrameTime, 100); // Clamp large delta spikes
       this.lastFrameTime = time;
 
-      // 1. Static layer only updates when dirty or resized
-      if (this.staticDirty) {
-        this.renderStaticLayer();
-      }
-
-      // 2. Dynamic layer updates every frame
-      this.renderDynamicLayer(deltaMs);
-
-      // Calculate telemetry FPS
-      this.frameCount++;
-      this.fpsFrames++;
-      if (time - this.fpsTimer >= 1000) {
-        this.fps = Math.round((this.fpsFrames * 1000) / (time - this.fpsTimer));
-        this.fpsTimer = time;
-        this.fpsFrames = 0;
-      }
+      this.step(deltaMs, time);
 
       this.rafId = requestAnimationFrame(frameLoop);
     };

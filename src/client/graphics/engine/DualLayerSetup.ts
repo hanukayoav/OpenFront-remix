@@ -214,19 +214,10 @@ export function setupDualLayerEngine(
               by,
               { skinTone: "#d1d5db", shirtColor: personality.badgeColor, hairColor: "#374151" },
               false,
+              `[${personality.title}]`,
+              personality.badgeColor,
             );
           }
-
-          // Visual Indicator: render distinct mini title beneath bot name
-          engine.queueText(
-            `[${personality.title}]`,
-            bx,
-            by + 26,
-            personality.badgeColor,
-            "bold 10px sans-serif",
-            "center",
-            "middle",
-          );
         }
       }
     }
@@ -261,8 +252,8 @@ export function setupDualLayerEngine(
       }
     }
 
-    // Camera synchronization from TransformHandler
-    if (transformHandler) {
+    // Camera synchronization from TransformHandler (when running standalone without an external frame loop)
+    if (transformHandler && options.autoStart !== false) {
       const centerX =
         transformHandler.offsetX +
         gameView.width() / 2;
@@ -483,9 +474,9 @@ export function setupDualLayerEngine(
     const terrain: StaticTerrainData = {
       width: gameView.width(),
       height: gameView.height(),
-      backgroundColor: "#091e3a",
+      backgroundColor: "transparent",
       landColor: "#1b4d3e",
-      waterColor: "#091e3a",
+      waterColor: "transparent",
       neutralStrokeColor: "#334155",
       landPolygons: [],
       neutralBoundaries: [],
