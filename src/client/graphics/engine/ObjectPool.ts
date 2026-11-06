@@ -354,7 +354,7 @@ export class VisualFxPools {
     let color = "#38bdf8";
     let startRadius = 4;
     let maxRadius = 28;
-    let dur = durationMs;
+    let dur: number;
 
     if (typeof colorOrRadius === "number") {
       startRadius = colorOrRadius;

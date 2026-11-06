@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   BOT_ARCHETYPES,
   BotAI,
-  BotArchetype,
 } from "../../../src/core/execution/utils/BotAI";
 
 describe("Adaptive Bot Personality Engine (BotAI)", () => {
