@@ -17,7 +17,25 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           port: 22
           script: |
+            set -euo pipefail
+
+            echo "=== Step 1: Navigating to project directory ==="
             cd /home/ubuntu/openfront
-            git pull origin main
-            npm install --production=false
+
+            echo "=== Step 2: Fetching and syncing latest main ==="
+            git fetch origin main
+            git checkout main
+            git reset --hard origin/main
+            git clean -fd -e node_modules -e .env
+
+            echo "=== Step 3: Installing dependencies ==="
+            npm ci || npm install --production=false
+
+            echo "=== Step 4: Compiling TypeScript & Building Production Assets ==="
+            npm run build-prod
+
+            echo "=== Step 5: Restarting Application Service ==="
             pm2 restart openfront-server --update-env
+
+            echo "=== Step 6: Verifying Deployment Status ==="
+            pm2 status openfront-server

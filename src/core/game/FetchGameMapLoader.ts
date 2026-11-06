@@ -48,10 +48,12 @@ export class FetchGameMapLoader implements GameMapLoader {
     // Blob-based Web Workers cannot reliably fetch root-relative URLs.
     // Resolve them against the worker's origin or configured CDN origin.
     if (typeof window === "undefined" && raw.startsWith("/")) {
-      const origin =
-        (typeof self !== "undefined" && self.location && self.location.origin) ||
-        (globalThis as unknown as { __CDN_BASE__?: string }).__CDN_BASE__ ||
-        "";
+      const workerOrigin =
+        typeof self !== "undefined" && self.location?.origin
+          ? self.location.origin
+          : undefined;
+      const cdnOrigin = (globalThis as unknown as { __CDN_BASE__?: string }).__CDN_BASE__;
+      const origin = workerOrigin ?? cdnOrigin ?? "";
       if (origin) {
         try {
           return new URL(raw, origin).href;
