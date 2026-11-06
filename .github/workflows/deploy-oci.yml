@@ -21,7 +21,7 @@ jobs:
 
             DEPLOY_SUCCESS=false
             PRODUCTION_MODIFIED=false
-            SERVICE_RESTARTED=false
+            SERVICE_RESTART_ATTEMPTED=false
 
             BACKUP_DIR="/home/ubuntu/backups"
             TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -41,7 +41,7 @@ jobs:
                 echo "Initiating recovery procedure..."
                 echo "================================================================="
 
-                # Always clean staging if present
+                # Always clean build staging if present
                 rm -rf "${STAGING_DIR}"
 
                 if [ "${PRODUCTION_MODIFIED}" = "true" ]; then
@@ -54,34 +54,21 @@ jobs:
                     cp -a "${SNAPSHOT_DIR}/node_modules_pre_deploy" /home/ubuntu/openfront/node_modules
                   fi
 
-                  # 2. Clean and restore static assets (eliminates overlay & orphaned chunks)
-                  if [ -d "${SNAPSHOT_DIR}/static_pre_deploy" ]; then
-                    echo "Restoring pre-deploy static frontend assets..."
-                    rm -rf /home/ubuntu/openfront/static
-                    cp -a "${SNAPSHOT_DIR}/static_pre_deploy" /home/ubuntu/openfront/static
-                  fi
-
-                  # 3. Clean Git working tree back to exact previous revision and purge newly added files
+                  # 2. Clean Git working tree back to exact previous revision and purge newly added files
                   if [ -n "${PREV_REV:-}" ]; then
                     echo "Restoring source repository to commit ${PREV_REV} and cleaning extraneous files..."
                     git -C /home/ubuntu/openfront checkout -f "${PREV_REV}"
-                    git -C /home/ubuntu/openfront clean -fdx --exclude='node_modules' --exclude='static'
+                    git -C /home/ubuntu/openfront clean -fdx --exclude='node_modules'
                   fi
 
-                  # 4. Restore pre-deploy untracked files & configuration
-                  if [ -f "${SNAPSHOT_DIR}/untracked_pre_deploy.tar.gz" ]; then
-                    echo "Restoring pre-deploy untracked configuration and files..."
-                    tar -xzf "${SNAPSHOT_DIR}/untracked_pre_deploy.tar.gz" -C /home/ubuntu/openfront
+                  # 3. Restore all original configuration, ignored files (.env), untracked files, and assets from verified full backup archive
+                  if [ -f "${BACKUP_ARCHIVE}" ]; then
+                    echo "Restoring all original configuration, ignored files, and assets from verified full backup archive..."
+                    tar -xzf "${BACKUP_ARCHIVE}" -C /home/ubuntu/openfront
                   fi
 
-                  # 5. Restore uncommitted patch if present
-                  if [ -s "${SNAPSHOT_DIR}/uncommitted.patch" ]; then
-                    echo "Re-applying pre-deploy uncommitted patch..."
-                    git -C /home/ubuntu/openfront apply "${SNAPSHOT_DIR}/uncommitted.patch" 2>/dev/null || true
-                  fi
-
-                  # 6. Service reload only if PM2 was restarted during deployment
-                  if [ "${SERVICE_RESTARTED}" = "true" ]; then
+                  # 4. Service reload if PM2 restart was attempted or performed
+                  if [ "${SERVICE_RESTART_ATTEMPTED}" = "true" ]; then
                     echo "Reloading application service with restored configuration..."
                     pm2 restart openfront-server --update-env || true
                     sleep 3
@@ -91,7 +78,7 @@ jobs:
                       echo "[CRITICAL] Restored service failed local HTTP probe! Manual intervention required."
                     fi
                   else
-                    echo "[INFO] Application service was not restarted during deployment; PM2 process left running."
+                    echo "[INFO] Application service was not touched prior to failure; PM2 process left running."
                   fi
                 else
                   echo "[INFO] Failure occurred prior to production modifications; filesystem and PM2 left untouched."
@@ -114,21 +101,16 @@ jobs:
             echo "Current HEAD commit: ${PREV_REV}" > "${SNAPSHOT_DIR}/info.txt"
             git status --porcelain >> "${SNAPSHOT_DIR}/info.txt"
 
-            # Capture uncommitted modifications and untracked files
+            # Capture uncommitted modifications and all untracked/ignored files
             git diff HEAD > "${SNAPSHOT_DIR}/uncommitted.patch" 2>/dev/null || true
-            git ls-files --others --exclude-standard > "${SNAPSHOT_DIR}/untracked_files.txt" 2>/dev/null || true
+            git ls-files --others > "${SNAPSHOT_DIR}/untracked_and_ignored_files.txt" 2>/dev/null || true
 
-            # Create dedicated physical backups of dependencies and static assets
-            echo "Creating physical snapshots of dependencies and live assets..."
+            # Create dedicated physical backup of dependencies
+            echo "Creating physical snapshot of dependencies..."
             cp -a /home/ubuntu/openfront/node_modules "${SNAPSHOT_DIR}/node_modules_pre_deploy"
-            cp -a /home/ubuntu/openfront/static "${SNAPSHOT_DIR}/static_pre_deploy"
-
-            # Archive untracked files
-            if [ -s "${SNAPSHOT_DIR}/untracked_files.txt" ]; then
-              tar -czf "${SNAPSHOT_DIR}/untracked_pre_deploy.tar.gz" -T "${SNAPSHOT_DIR}/untracked_files.txt"
-            fi
 
             # Create comprehensive archive of the entire application directory
+            # Includes all tracked files, untracked files, and ignored files (.env, configs, etc.)
             echo "Archiving production directory..."
             tar -czf "${BACKUP_ARCHIVE}" \
               -C /home/ubuntu/openfront \
@@ -198,8 +180,9 @@ jobs:
             echo "[OK] Assets promoted cleanly. Previous hashed assets retained for active sessions."
 
             echo "=== Step 6: Reloading Application Service (Expected ~1-2s backend downtime) ==="
+            # Mark restart attempted BEFORE executing restart command so failures during restart trigger PM2 recovery
+            SERVICE_RESTART_ATTEMPTED=true
             pm2 restart openfront-server --update-env
-            SERVICE_RESTARTED=true
 
             echo "=== Step 7: Verifying Service & Network Health ==="
             sleep 3
