@@ -158,7 +158,7 @@ jobs:
               exit 1
             fi
 
-            node -e 'JSON.parse(fs.readFileSync(process.argv[1], "utf8"))' "${STAGING_DIR}/asset-manifest.json"
+            node -e 'const fs = require("fs"); JSON.parse(fs.readFileSync(process.argv[1], "utf8"))' "${STAGING_DIR}/asset-manifest.json"
 
             echo "=== Step 5: Promoting Assets While Preserving Existing Browser Sessions ==="
             mkdir -p static/assets static/_assets
@@ -189,6 +189,7 @@ jobs:
 
             # Check PM2 process status
             PM2_STATUS=$(pm2 jlist | node -e '
+              const fs = require("fs");
               const list = JSON.parse(fs.readFileSync(0, "utf8"));
               const app = list.find(p => p.name === "openfront-server");
               if (!app) { console.log("missing"); process.exit(0); }
