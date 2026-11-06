@@ -19,29 +19,92 @@ jobs:
           script: |
             set -euo pipefail
 
+            DEPLOY_SUCCESS=false
             BACKUP_DIR="/home/ubuntu/backups"
             TIMESTAMP=$(date +%Y%m%d_%H%M%S)
             SNAPSHOT_NAME="openfront_pre_deploy_${TIMESTAMP}"
+            BACKUP_ARCHIVE="${BACKUP_DIR}/${SNAPSHOT_NAME}.tar.gz"
+            STAGING_DIR="/home/ubuntu/openfront/static_staging"
+
+            # Trap handler for ALL failure exits (including set -e, errors, and explicit exit 1)
+            cleanup_and_rollback() {
+              local exit_code=$?
+              # Disable traps during rollback to avoid recursive triggers
+              trap - EXIT ERR
+              
+              if [ "${DEPLOY_SUCCESS}" != "true" ]; then
+                echo ""
+                echo "================================================================="
+                echo "[ALERT] Deployment aborted or failed with status code ${exit_code}!"
+                echo "Initiating automatic rollback to previous verified deployment..."
+                echo "================================================================="
+                
+                # 1. Clean up build staging directory if left behind
+                rm -rf "${STAGING_DIR}"
+                
+                # 2. Restore previous working tree and assets from verified backup archive
+                if [ -n "${BACKUP_ARCHIVE:-}" ] && [ -f "${BACKUP_ARCHIVE}" ]; then
+                  echo "Restoring previous deployment from backup archive: ${BACKUP_ARCHIVE}"
+                  tar -xzf "${BACKUP_ARCHIVE}" -C /home/ubuntu/openfront
+                  echo "[OK] Filesystem state restored from pre-deploy snapshot."
+                elif [ -n "${PREV_REV:-}" ]; then
+                  echo "Restoring Git repository to pre-deploy revision: ${PREV_REV}"
+                  git -C /home/ubuntu/openfront checkout -f "${PREV_REV}" || true
+                fi
+                
+                # 3. Restart application service to restore previous running backend
+                echo "Restarting application service with restored configuration..."
+                pm2 restart openfront-server --update-env || true
+                
+                # 4. Verify rollback health
+                sleep 3
+                if curl -s -f -o /dev/null http://localhost:9001/; then
+                  echo "[OK] Service successfully restored and responding to HTTP probes."
+                else
+                  echo "[CRITICAL] Restored service failed local HTTP probe! Manual intervention required."
+                fi
+                
+                echo "================================================================="
+                echo "Rollback sequence completed. Deployment marked as FAILED."
+                echo "================================================================="
+                exit 1
+              fi
+            }
+
+            trap cleanup_and_rollback EXIT
+
+            echo "=== Step 1: Auditing & Preserving Complete Production State ==="
+            cd /home/ubuntu/openfront
             mkdir -p "${BACKUP_DIR}"
 
-            echo "=== Step 1: Auditing & Preserving Current Production State ==="
-            cd /home/ubuntu/openfront
-
-            # Record current revision & state
-            CURRENT_REV=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
-            echo "Current HEAD commit: ${CURRENT_REV}" > "${BACKUP_DIR}/${SNAPSHOT_NAME}_info.txt"
+            PREV_REV=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+            echo "Current HEAD commit: ${PREV_REV}" > "${BACKUP_DIR}/${SNAPSHOT_NAME}_info.txt"
             git status --porcelain >> "${BACKUP_DIR}/${SNAPSHOT_NAME}_info.txt"
 
-            # Save any uncommitted modifications/diffs safely before touching git
+            # Save uncommitted modifications and full untracked file list
             git diff HEAD > "${BACKUP_DIR}/${SNAPSHOT_NAME}_uncommitted.patch" 2>/dev/null || true
-            git status --porcelain | grep '^??' | awk '{print $2}' > "${BACKUP_DIR}/${SNAPSHOT_NAME}_untracked_files.txt" || true
+            git ls-files --others --exclude-standard > "${BACKUP_DIR}/${SNAPSHOT_NAME}_untracked_files.txt" 2>/dev/null || true
 
-            # Backup current working static assets and critical files
-            tar -czf "${BACKUP_DIR}/${SNAPSHOT_NAME}.tar.gz" \
+            # Create complete pre-deploy archive (captures all tracked, untracked, and modified files)
+            echo "Archiving production directory (including all untracked files and live assets)..."
+            tar -czf "${BACKUP_ARCHIVE}" \
               -C /home/ubuntu/openfront \
               --exclude='node_modules' \
-              static .git version.txt 2>/dev/null || true
-            echo "Snapshot archived to ${BACKUP_DIR}/${SNAPSHOT_NAME}.tar.gz"
+              --exclude='.cache' \
+              --exclude='static_staging' \
+              .
+
+            # Verify backup integrity before allowing deployment to proceed
+            if [ ! -s "${BACKUP_ARCHIVE}" ]; then
+              echo "[FATAL] Backup archive was not created or is empty: ${BACKUP_ARCHIVE}"
+              exit 1
+            fi
+            if ! tar -tzf "${BACKUP_ARCHIVE}" >/dev/null; then
+              echo "[FATAL] Backup integrity verification failed! Archive is corrupted."
+              exit 1
+            fi
+            ARCHIVE_SIZE=$(du -h "${BACKUP_ARCHIVE}" | cut -f1)
+            echo "[OK] Production snapshot created and integrity verified: ${BACKUP_ARCHIVE} (${ARCHIVE_SIZE})"
 
             echo "=== Step 2: Fetching Latest Approved Code ==="
             git fetch origin main
@@ -51,36 +114,104 @@ jobs:
             echo "=== Step 3: Deterministic Dependency Installation ==="
             npm ci
 
-            echo "=== Step 4: Isolated Production Build & Atomic Switch ==="
-            # Preserve existing static assets in case build fails
-            if [ -d "static" ]; then
-              cp -r static static_live_backup
+            echo "=== Step 4: Staged Production Build & Asset Validation ==="
+            # Clean any stale staging directory
+            rm -rf "${STAGING_DIR}"
+
+            # Build in isolated staging location without modifying live static directory
+            BUILD_OUT_DIR=static_staging npm run build-prod
+
+            # Validate that critical build outputs exist and are non-empty in staging
+            if [ ! -s "${STAGING_DIR}/index.html" ]; then
+              echo "[FATAL] Build verification failed: ${STAGING_DIR}/index.html is missing or empty!"
+              exit 1
             fi
-
-            # Execute full build (TypeScript typecheck + Vite bundling)
-            # If this fails, set -e stops execution; static_live_backup is restored below via trap
-            trap 'if [ -d "/home/ubuntu/openfront/static_live_backup" ]; then rm -rf /home/ubuntu/openfront/static && mv /home/ubuntu/openfront/static_live_backup /home/ubuntu/openfront/static; echo "[ERROR] Build failed. Restored live static assets."; fi' ERR
-
-            npm run build-prod
-
-            # Validate that critical build outputs were successfully created
-            if [ ! -f "static/index.html" ] || [ ! -d "static/assets" ] || [ ! -f "static/asset-manifest.json" ]; then
-              echo "[FATAL] Build verification failed: essential static assets missing!"
+            if [ ! -s "${STAGING_DIR}/asset-manifest.json" ]; then
+              echo "[FATAL] Build verification failed: ${STAGING_DIR}/asset-manifest.json is missing or empty!"
+              exit 1
+            fi
+            if [ ! -d "${STAGING_DIR}/assets" ]; then
+              echo "[FATAL] Build verification failed: ${STAGING_DIR}/assets directory is missing!"
               exit 1
             fi
 
-            # Build validated successfully; remove temporary backup
-            rm -rf static_live_backup
-            trap - ERR
+            # Validate asset manifest JSON format
+            node -e 'JSON.parse(fs.readFileSync(process.argv[1], "utf8"))' "${STAGING_DIR}/asset-manifest.json"
 
-            echo "=== Step 5: Restarting Application Service ==="
+            echo "=== Step 5: Promoting Assets While Preserving Existing Browser Sessions ==="
+            mkdir -p static/assets static/_assets
+
+            # 1. Merge new hashed bundles into static/assets (retains old hashed assets for active sessions)
+            cp -a "${STAGING_DIR}/assets/." static/assets/
+
+            # 2. Merge new hashed public assets into static/_assets (retains old assets for active sessions)
+            if [ -d "${STAGING_DIR}/_assets" ]; then
+              cp -a "${STAGING_DIR}/_assets/." static/_assets/
+            fi
+
+            # 3. Copy root public files (e.g. robots.txt, privacy-policy.html, etc.)
+            find "${STAGING_DIR}" -maxdepth 1 -type f ! -name "index.html" ! -name "asset-manifest.json" -exec cp -a {} static/ \;
+
+            # 4. Atomically swap index.html and asset-manifest.json
+            cp -a "${STAGING_DIR}/index.html" static/index.html.tmp && mv -f static/index.html.tmp static/index.html
+            cp -a "${STAGING_DIR}/asset-manifest.json" static/asset-manifest.json.tmp && mv -f static/asset-manifest.json.tmp static/asset-manifest.json
+
+            # 5. Clean up build staging directory
+            rm -rf "${STAGING_DIR}"
+            echo "[OK] Assets promoted cleanly. Previous hashed assets retained for in-flight sessions."
+
+            echo "=== Step 6: Reloading Application Service (Expected ~1-2s backend downtime) ==="
+            # OpenFront runs in PM2 fork mode; service reload incurs ~1-2s backend interruption while WebSockets reconnect
             pm2 restart openfront-server --update-env
 
-            echo "=== Step 6: Verifying Service & Network Health ==="
+            echo "=== Step 7: Verifying Service & Network Health ==="
+            # Allow PM2 worker to initialize
             sleep 3
-            pm2 status openfront-server
 
-            # Local HTTP check
-            curl -s -f -o /dev/null http://localhost:9001/ || echo "[WARN] Local HTTP probe returned non-200"
+            # Check PM2 process status
+            PM2_STATUS=$(pm2 jlist | node -e '
+              const list = JSON.parse(fs.readFileSync(0, "utf8"));
+              const app = list.find(p => p.name === "openfront-server");
+              if (!app) { console.log("missing"); process.exit(0); }
+              console.log(app.pm2_env.status);
+            ')
 
+            if [ "${PM2_STATUS}" != "online" ]; then
+              echo "[FATAL] PM2 status check failed: openfront-server is ${PM2_STATUS} (expected online)!"
+              exit 1
+            fi
+            echo "[OK] PM2 process openfront-server is online."
+
+            # Probe local HTTP endpoint with retries
+            HEALTH_OK=false
+            for i in 1 2 3 4 5; do
+              if curl -s -f -o /dev/null http://localhost:9001/; then
+                HEALTH_OK=true
+                break
+              fi
+              echo "Local HTTP probe attempt ${i}/5 failed, waiting 2s..."
+              sleep 2
+            done
+
+            if [ "${HEALTH_OK}" != "true" ]; then
+              echo "[FATAL] Local HTTP health probe failed after 5 attempts!"
+              exit 1
+            fi
+            echo "[OK] Local HTTP endpoint healthy (HTTP 200)."
+
+            # Probe external HTTPS domain
+            if curl -s -f -k -o /dev/null https://openfront-2.duckdns.org/; then
+              echo "[OK] External HTTPS domain endpoint healthy (HTTP 200)."
+            else
+              echo "[WARN] External HTTPS probe failed or unreachable from host; local probe verified."
+            fi
+
+            # Probe asset manifest availability
+            if curl -s -f -k -o /dev/null https://openfront-2.duckdns.org/asset-manifest.json; then
+              echo "[OK] Static asset manifest verified accessible via web server."
+            fi
+
+            DEPLOY_SUCCESS=true
+            echo "================================================================="
             echo "Deployment completed successfully at commit $(git rev-parse --short HEAD)!"
+            echo "================================================================="

@@ -210,7 +210,9 @@ export default defineConfig(({ mode }) => {
       viteBundleFiles = Object.keys(bundle);
     },
     closeBundle() {
-      const outDir = path.join(__dirname, "static");
+      const outDir = process.env.BUILD_OUT_DIR
+        ? path.resolve(__dirname, process.env.BUILD_OUT_DIR)
+        : path.join(__dirname, "static");
       copyRootPublicFiles(resourcesDir, outDir);
       // Run the source→hashed copy first; createHashedPublicAssetFiles iterates
       // assetManifest and expects every key to resolve to a file in resources/
@@ -313,7 +315,7 @@ export default defineConfig(({ mode }) => {
     },
 
     build: {
-      outDir: "static", // Webpack outputs to 'static', assuming we want to keep this.
+      outDir: process.env.BUILD_OUT_DIR ?? "static", // Webpack outputs to 'static', assuming we want to keep this.
       emptyOutDir: true,
       assetsDir: "assets", // Sub-directory for assets
       rollupOptions: {
