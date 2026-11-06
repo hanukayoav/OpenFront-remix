@@ -73,9 +73,19 @@ export class ClientEnv {
   }
   static jwtIssuer(): string {
     const audience = ClientEnv.jwtAudience();
-    return audience === "localhost"
-      ? "http://localhost:8787"
-      : `https://api.${audience}`;
+    if (audience === "localhost") {
+      return "http://localhost:8787";
+    }
+    if (
+      audience.endsWith(".duckdns.org") ||
+      audience.endsWith(".onrender.com") ||
+      (typeof window !== "undefined" &&
+        (window.location.hostname.endsWith(".duckdns.org") ||
+          window.location.hostname.endsWith(".onrender.com")))
+    ) {
+      return `${typeof window !== "undefined" ? window.location.origin : `https://${audience}`}/api`;
+    }
+    return `https://api.${audience}`;
   }
   static async jwkPublicKey(): Promise<JWK> {
     if (ClientEnv.publicKey) return ClientEnv.publicKey;

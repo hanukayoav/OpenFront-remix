@@ -85,9 +85,16 @@ export class ServerEnv {
   }
   static jwtIssuer(): string {
     const audience = ServerEnv.jwtAudience();
-    return audience === "localhost"
-      ? "http://localhost:8787"
-      : `https://api.${audience}`;
+    if (audience === "localhost") {
+      return "http://localhost:8787";
+    }
+    if (
+      audience.endsWith(".duckdns.org") ||
+      audience.endsWith(".onrender.com")
+    ) {
+      return `https://${audience}/api`;
+    }
+    return `https://api.${audience}`;
   }
   static async jwkPublicKey(): Promise<JWK> {
     if (ServerEnv.publicKey) return ServerEnv.publicKey;

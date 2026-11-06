@@ -52,7 +52,7 @@ export class AiAttackBehavior {
   ) {}
 
   maybeAttack() {
-    if (this.player === null || this.allianceBehavior === undefined) {
+    if (this.player === null) {
       throw new Error("not initialized");
     }
 
@@ -87,6 +87,12 @@ export class AiAttackBehavior {
       (o) => this.player?.isFriendly(o) === false,
     );
 
+    // Prioritize defense / retaliation against active threats
+    const incomingAttacker = this.findIncomingAttackPlayer();
+    if (incomingAttacker) {
+      if (this.sendAttack(incomingAttacker, true)) return;
+    }
+
     // Attack TerraNullius but not nuked territory (direct border or across a river)
     const hasNonNukedTerraNullius = borderHasNonNukedTerraNullius;
     const isBot = this.player.type() === PlayerType.Bot;
@@ -94,7 +100,8 @@ export class AiAttackBehavior {
     const shouldIgnoreNeutral = botPersonality
       ? BotAI.shouldRusherIgnoreNeutral(botPersonality, borderingEnemies.length)
       : false;
-    if (hasNonNukedTerraNullius && !shouldIgnoreNeutral) {
+    const needsBaseExpansion = this.player.numTilesOwned() < 15;
+    if (hasNonNukedTerraNullius && (!shouldIgnoreNeutral || needsBaseExpansion)) {
       if (this.sendAttack(this.game.terraNullius())) return;
     }
 
@@ -108,7 +115,7 @@ export class AiAttackBehavior {
         return;
       }
 
-      this.allianceBehavior.maybeSendAllianceRequests(borderingEnemies);
+      this.allianceBehavior?.maybeSendAllianceRequests(borderingEnemies);
     }
 
     this.attackBestTarget(borderingFriends, borderingEnemies);
@@ -489,7 +496,7 @@ export class AiAttackBehavior {
   }
 
   private assistAllies(): boolean {
-    if (this.emojiBehavior === undefined) throw new Error("not initialized");
+    if (!this.emojiBehavior) return false;
 
     if (this.game.config().disableAlliances()) return false;
 
@@ -535,7 +542,7 @@ export class AiAttackBehavior {
     borderingFriends: Player[],
     borderingEnemies: Player[],
   ): boolean {
-    if (this.allianceBehavior === undefined) throw new Error("not initialized");
+    if (!this.allianceBehavior) return false;
 
     if (this.game.config().disableAlliances()) return false;
 
@@ -853,9 +860,12 @@ export class AiAttackBehavior {
   shouldAttack(other: Player | TerraNullius): boolean {
     if (other.isPlayer() && this.player.type() === PlayerType.Bot) {
       const personality = BotAI.getPersonality(this.player.id());
+      const isRetaliating = this.player.incomingAttacks().some((a) => a.attacker() === other);
       if (
         personality &&
         personality.archetype === "turtle" &&
+        !isRetaliating &&
+        other.troops() > 20 &&
         !BotAI.canTurtleAttack(personality, this.player.troops(), other.troops())
       ) {
         return false;
@@ -991,10 +1001,10 @@ export class AiAttackBehavior {
       troops = nonBotTroops(targetTroops);
     }
 
-    // Rusher archetype allocates 80% of troops directly towards player territories
+    // Rusher archetype allocates troops towards player territories while retaining a defense reserve
     const botPersonality = BotAI.getPersonality(this.player.id());
     if (target.isPlayer() && this.player.type() === PlayerType.Bot && botPersonality && botPersonality.archetype === "rusher") {
-      troops = Math.max(1, Math.floor(this.player.troops() * botPersonality.troopAllocationRatio));
+      troops = Math.max(1, Math.floor(this.player.troops() * 0.55));
     }
 
     // Hard & Impossible: don't drop below neighbor troop threshold (players only)
@@ -1012,8 +1022,7 @@ export class AiAttackBehavior {
     }
 
     if (target.isPlayer() && this.player.type() === PlayerType.Nation) {
-      if (this.emojiBehavior === undefined) throw new Error("not initialized");
-      this.emojiBehavior.maybeSendAttackEmoji(target);
+      this.emojiBehavior?.maybeSendAttackEmoji(target);
     }
 
     return troops;

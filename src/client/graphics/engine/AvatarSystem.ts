@@ -173,9 +173,9 @@ export class AvatarSystem {
   }
 
   public setCapitalPosition(x: number, y: number): void {
-    let local = this.getLocalAvatar();
+    const local = this.getLocalAvatar();
     if (!local) {
-      local = this.registerAvatar("local_capital", 1, x, y, this.localConfig, true);
+      this.registerAvatar("local_capital", 1, x, y, this.localConfig, true);
     } else {
       local.capitalX = x;
       local.capitalY = y;

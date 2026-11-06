@@ -177,7 +177,7 @@ export class DualLayerEngine {
     this.staticCanvas.style.zIndex = "1";
     this.staticCanvas.style.pointerEvents = "none";
 
-    const sCtx = this.staticCanvas.getContext("2d", { alpha: false });
+    const sCtx = this.staticCanvas.getContext("2d", { alpha: true });
     if (!sCtx) throw new Error("Failed to get 2D context for static canvas");
     this.staticCtx = sCtx;
 

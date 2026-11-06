@@ -978,9 +978,15 @@ export function getApiBase() {
     return localStorage.getItem("apiHost") ?? "http://localhost:8787";
   }
 
-  // If on Render or similar platform where subdomains are not used for API
-  if (window.location.hostname.endsWith(".onrender.com")) {
-    return `${window.location.origin}/api`;
+  // If on DuckDNS, Render, or similar platform where subdomains are not used for API
+  if (
+    domainname.endsWith(".duckdns.org") ||
+    domainname.endsWith(".onrender.com") ||
+    (typeof window !== "undefined" &&
+      (window.location.hostname.endsWith(".duckdns.org") ||
+        window.location.hostname.endsWith(".onrender.com")))
+  ) {
+    return `${typeof window !== "undefined" ? window.location.origin : `https://${domainname}`}/api`;
   }
 
   // Original logic for custom domains with api. subdomain

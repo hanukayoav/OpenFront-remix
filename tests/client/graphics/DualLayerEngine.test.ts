@@ -6,7 +6,6 @@ import {
   ObjectPool,
   ScreenShakeController,
   setupDualLayerEngine,
-  SupplyDropManager,
   VisualFxPools,
 } from "../../../src/client/graphics/engine";
 
