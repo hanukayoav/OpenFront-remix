@@ -1,4 +1,4 @@
-﻿import { Execution, Game, Player, Structures } from "../game/Game";
+import { Execution, Game, Player, Structures } from "../game/Game";
 import { PseudoRandom } from "../PseudoRandom";
 import { simpleHash } from "../Util";
 import { AllianceExtensionExecution } from "./alliance/AllianceExtensionExecution";
@@ -9,7 +9,6 @@ export class TribeExecution implements Execution {
   private active = true;
   private random: PseudoRandom;
   private mg: Game;
-  private neighborsTerraNullius = true;
 
   private attackBehavior: AiAttackBehavior | null = null;
   private attackRate: number;
@@ -20,10 +19,10 @@ export class TribeExecution implements Execution {
 
   constructor(private tribe: Player) {
     this.random = new PseudoRandom(simpleHash(tribe.id()));
-    this.attackRate = this.random.nextInt(40, 80);
+    this.attackRate = this.random.nextInt(25, 50);
     this.attackTick = this.random.nextInt(0, this.attackRate);
-    this.triggerRatio = this.random.nextInt(50, 60) / 100;
-    this.reserveRatio = this.random.nextInt(30, 40) / 100;
+    this.triggerRatio = this.random.nextInt(40, 55) / 100;
+    this.reserveRatio = this.random.nextInt(25, 35) / 100;
     this.expandRatio = this.random.nextInt(10, 20) / 100;
   }
 
@@ -33,6 +32,14 @@ export class TribeExecution implements Execution {
 
   init(mg: Game) {
     this.mg = mg;
+    this.attackBehavior = new AiAttackBehavior(
+      this.random,
+      this.mg,
+      this.tribe,
+      this.triggerRatio,
+      this.reserveRatio,
+      this.expandRatio,
+    );
   }
 
   tick(ticks: number) {
@@ -41,21 +48,6 @@ export class TribeExecution implements Execution {
     if (!this.tribe.isAlive()) {
       //removeOnDeath is called from tribe's PlayerExecution
       this.active = false;
-      return;
-    }
-
-    if (this.attackBehavior === null) {
-      this.attackBehavior = new AiAttackBehavior(
-        this.random,
-        this.mg,
-        this.tribe,
-        this.triggerRatio,
-        this.reserveRatio,
-        this.expandRatio,
-      );
-
-      // Send an attack on the first tick
-      this.attackBehavior.sendAttack(this.mg.terraNullius());
       return;
     }
 
@@ -97,30 +89,9 @@ export class TribeExecution implements Execution {
     if (this.attackBehavior === null) {
       throw new Error("not initialized");
     }
-    const toAttack = this.attackBehavior.getNeighborTraitorToAttack();
-    if (toAttack !== null) {
-      const odds = this.tribe.isFriendly(toAttack) ? 6 : 3;
-      if (this.random.chance(odds)) {
-        // Check and break alliance before attacking if needed
-        const alliance = this.tribe.allianceWith(toAttack);
 
-        if (alliance !== null) {
-          this.tribe.breakAlliance(alliance);
-        }
-
-        if (this.attackBehavior.sendAttack(toAttack)) return;
-      }
-    }
-
-    if (this.neighborsTerraNullius) {
-      if (this.tribe.nearby().some((n) => !n.isPlayer())) {
-        if (this.attackBehavior.sendAttack(this.mg.terraNullius())) return;
-      } else {
-        this.neighborsTerraNullius = false;
-      }
-    }
-
-    this.attackBehavior.attackRandomTarget();
+    // Leverage full strategic AI targeting pipeline (neutral expansion, victims, weak targets, retaliation, difficulty strategies)
+    this.attackBehavior.maybeAttack();
   }
 
   isActive(): boolean {

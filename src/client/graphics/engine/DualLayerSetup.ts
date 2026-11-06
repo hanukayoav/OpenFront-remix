@@ -189,36 +189,14 @@ export function setupDualLayerEngine(
       }
     }
 
-    // Register and render visual indicators for Bot Players
+    // Ensure bot personalities are initialized deterministically without flooding AvatarSystem
     const allPlayers = gameView.players();
     if (allPlayers && allPlayers.length > 0) {
       for (let i = 0; i < allPlayers.length; i++) {
         const p = allPlayers[i];
         if (!p || !p.isAlive()) continue;
         if (myPlayer && p.id() === myPlayer.id()) continue;
-
-        // Assign/retrieve autonomous personality archetype
-        const personality = BotAI.assignPersonality(p.id());
-
-        // If bot has a capital node, register avatar and render mini title
-        const capTile = p.state?.spawnTile;
-        if (capTile !== undefined && capTile !== null) {
-          const bx = gameView.x(capTile);
-          const by = gameView.y(capTile);
-
-          if (!engine.avatarSystem.getAvatar(p.id())) {
-            engine.avatarSystem.registerAvatar(
-              p.id(),
-              p.smallID(),
-              bx,
-              by,
-              { skinTone: "#d1d5db", shirtColor: personality.badgeColor, hairColor: "#374151" },
-              false,
-              `[${personality.title}]`,
-              personality.badgeColor,
-            );
-          }
-        }
+        BotAI.assignPersonality(p.id());
       }
     }
 

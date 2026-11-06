@@ -40,10 +40,28 @@ export class FetchGameMapLoader implements GameMapLoader {
   }
 
   private resolveUrl(path: string): string {
-    if (typeof this.pathResolver === "function") {
-      return this.pathResolver(path);
+    const raw =
+      typeof this.pathResolver === "function"
+        ? this.pathResolver(path)
+        : `${this.pathResolver}/${path}`;
+
+    // Blob-based Web Workers cannot reliably fetch root-relative URLs.
+    // Resolve them against the worker's origin or configured CDN origin.
+    if (typeof window === "undefined" && raw.startsWith("/")) {
+      const origin =
+        (typeof self !== "undefined" && self.location && self.location.origin) ||
+        (globalThis as unknown as { __CDN_BASE__?: string }).__CDN_BASE__ ||
+        "";
+      if (origin) {
+        try {
+          return new URL(raw, origin).href;
+        } catch {
+          return raw;
+        }
+      }
     }
-    return `${this.pathResolver}/${path}`;
+
+    return raw;
   }
 
   private url(map: string, path: string) {
