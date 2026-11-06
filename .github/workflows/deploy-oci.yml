@@ -20,52 +20,85 @@ jobs:
             set -euo pipefail
 
             DEPLOY_SUCCESS=false
+            PRODUCTION_MODIFIED=false
+            SERVICE_RESTARTED=false
+
             BACKUP_DIR="/home/ubuntu/backups"
             TIMESTAMP=$(date +%Y%m%d_%H%M%S)
             SNAPSHOT_NAME="openfront_pre_deploy_${TIMESTAMP}"
+            SNAPSHOT_DIR="${BACKUP_DIR}/${SNAPSHOT_NAME}"
             BACKUP_ARCHIVE="${BACKUP_DIR}/${SNAPSHOT_NAME}.tar.gz"
             STAGING_DIR="/home/ubuntu/openfront/static_staging"
 
-            # Trap handler for ALL failure exits (including set -e, errors, and explicit exit 1)
             cleanup_and_rollback() {
               local exit_code=$?
-              # Disable traps during rollback to avoid recursive triggers
               trap - EXIT ERR
-              
+
               if [ "${DEPLOY_SUCCESS}" != "true" ]; then
                 echo ""
                 echo "================================================================="
                 echo "[ALERT] Deployment aborted or failed with status code ${exit_code}!"
-                echo "Initiating automatic rollback to previous verified deployment..."
+                echo "Initiating recovery procedure..."
                 echo "================================================================="
-                
-                # 1. Clean up build staging directory if left behind
+
+                # Always clean staging if present
                 rm -rf "${STAGING_DIR}"
-                
-                # 2. Restore previous working tree and assets from verified backup archive
-                if [ -n "${BACKUP_ARCHIVE:-}" ] && [ -f "${BACKUP_ARCHIVE}" ]; then
-                  echo "Restoring previous deployment from backup archive: ${BACKUP_ARCHIVE}"
-                  tar -xzf "${BACKUP_ARCHIVE}" -C /home/ubuntu/openfront
-                  echo "[OK] Filesystem state restored from pre-deploy snapshot."
-                elif [ -n "${PREV_REV:-}" ]; then
-                  echo "Restoring Git repository to pre-deploy revision: ${PREV_REV}"
-                  git -C /home/ubuntu/openfront checkout -f "${PREV_REV}" || true
-                fi
-                
-                # 3. Restart application service to restore previous running backend
-                echo "Restarting application service with restored configuration..."
-                pm2 restart openfront-server --update-env || true
-                
-                # 4. Verify rollback health
-                sleep 3
-                if curl -s -f -o /dev/null http://localhost:9001/; then
-                  echo "[OK] Service successfully restored and responding to HTTP probes."
+
+                if [ "${PRODUCTION_MODIFIED}" = "true" ]; then
+                  echo "[ROLLBACK] Production filesystem was modified. Executing clean full-state restore..."
+
+                  # 1. Clean and restore node_modules (eliminates overlay & mismatched dependencies)
+                  if [ -d "${SNAPSHOT_DIR}/node_modules_pre_deploy" ]; then
+                    echo "Restoring pre-deploy node_modules dependencies..."
+                    rm -rf /home/ubuntu/openfront/node_modules
+                    cp -a "${SNAPSHOT_DIR}/node_modules_pre_deploy" /home/ubuntu/openfront/node_modules
+                  fi
+
+                  # 2. Clean and restore static assets (eliminates overlay & orphaned chunks)
+                  if [ -d "${SNAPSHOT_DIR}/static_pre_deploy" ]; then
+                    echo "Restoring pre-deploy static frontend assets..."
+                    rm -rf /home/ubuntu/openfront/static
+                    cp -a "${SNAPSHOT_DIR}/static_pre_deploy" /home/ubuntu/openfront/static
+                  fi
+
+                  # 3. Clean Git working tree back to exact previous revision and purge newly added files
+                  if [ -n "${PREV_REV:-}" ]; then
+                    echo "Restoring source repository to commit ${PREV_REV} and cleaning extraneous files..."
+                    git -C /home/ubuntu/openfront checkout -f "${PREV_REV}"
+                    git -C /home/ubuntu/openfront clean -fdx --exclude='node_modules' --exclude='static'
+                  fi
+
+                  # 4. Restore pre-deploy untracked files & configuration
+                  if [ -f "${SNAPSHOT_DIR}/untracked_pre_deploy.tar.gz" ]; then
+                    echo "Restoring pre-deploy untracked configuration and files..."
+                    tar -xzf "${SNAPSHOT_DIR}/untracked_pre_deploy.tar.gz" -C /home/ubuntu/openfront
+                  fi
+
+                  # 5. Restore uncommitted patch if present
+                  if [ -s "${SNAPSHOT_DIR}/uncommitted.patch" ]; then
+                    echo "Re-applying pre-deploy uncommitted patch..."
+                    git -C /home/ubuntu/openfront apply "${SNAPSHOT_DIR}/uncommitted.patch" 2>/dev/null || true
+                  fi
+
+                  # 6. Service reload only if PM2 was restarted during deployment
+                  if [ "${SERVICE_RESTARTED}" = "true" ]; then
+                    echo "Reloading application service with restored configuration..."
+                    pm2 restart openfront-server --update-env || true
+                    sleep 3
+                    if curl -s -f -o /dev/null http://localhost:9001/; then
+                      echo "[OK] Service successfully restored and responding to HTTP probes."
+                    else
+                      echo "[CRITICAL] Restored service failed local HTTP probe! Manual intervention required."
+                    fi
+                  else
+                    echo "[INFO] Application service was not restarted during deployment; PM2 process left running."
+                  fi
                 else
-                  echo "[CRITICAL] Restored service failed local HTTP probe! Manual intervention required."
+                  echo "[INFO] Failure occurred prior to production modifications; filesystem and PM2 left untouched."
                 fi
-                
+
                 echo "================================================================="
-                echo "Rollback sequence completed. Deployment marked as FAILED."
+                echo "Recovery sequence completed. Deployment marked as FAILED."
                 echo "================================================================="
                 exit 1
               fi
@@ -75,18 +108,28 @@ jobs:
 
             echo "=== Step 1: Auditing & Preserving Complete Production State ==="
             cd /home/ubuntu/openfront
-            mkdir -p "${BACKUP_DIR}"
+            mkdir -p "${SNAPSHOT_DIR}"
 
             PREV_REV=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
-            echo "Current HEAD commit: ${PREV_REV}" > "${BACKUP_DIR}/${SNAPSHOT_NAME}_info.txt"
-            git status --porcelain >> "${BACKUP_DIR}/${SNAPSHOT_NAME}_info.txt"
+            echo "Current HEAD commit: ${PREV_REV}" > "${SNAPSHOT_DIR}/info.txt"
+            git status --porcelain >> "${SNAPSHOT_DIR}/info.txt"
 
-            # Save uncommitted modifications and full untracked file list
-            git diff HEAD > "${BACKUP_DIR}/${SNAPSHOT_NAME}_uncommitted.patch" 2>/dev/null || true
-            git ls-files --others --exclude-standard > "${BACKUP_DIR}/${SNAPSHOT_NAME}_untracked_files.txt" 2>/dev/null || true
+            # Capture uncommitted modifications and untracked files
+            git diff HEAD > "${SNAPSHOT_DIR}/uncommitted.patch" 2>/dev/null || true
+            git ls-files --others --exclude-standard > "${SNAPSHOT_DIR}/untracked_files.txt" 2>/dev/null || true
 
-            # Create complete pre-deploy archive (captures all tracked, untracked, and modified files)
-            echo "Archiving production directory (including all untracked files and live assets)..."
+            # Create dedicated physical backups of dependencies and static assets
+            echo "Creating physical snapshots of dependencies and live assets..."
+            cp -a /home/ubuntu/openfront/node_modules "${SNAPSHOT_DIR}/node_modules_pre_deploy"
+            cp -a /home/ubuntu/openfront/static "${SNAPSHOT_DIR}/static_pre_deploy"
+
+            # Archive untracked files
+            if [ -s "${SNAPSHOT_DIR}/untracked_files.txt" ]; then
+              tar -czf "${SNAPSHOT_DIR}/untracked_pre_deploy.tar.gz" -T "${SNAPSHOT_DIR}/untracked_files.txt"
+            fi
+
+            # Create comprehensive archive of the entire application directory
+            echo "Archiving production directory..."
             tar -czf "${BACKUP_ARCHIVE}" \
               -C /home/ubuntu/openfront \
               --exclude='node_modules' \
@@ -100,13 +143,14 @@ jobs:
               exit 1
             fi
             if ! tar -tzf "${BACKUP_ARCHIVE}" >/dev/null; then
-              echo "[FATAL] Backup integrity verification failed! Archive is corrupted."
+              echo "[FATAL] Backup archive integrity verification failed! Archive is corrupted."
               exit 1
             fi
             ARCHIVE_SIZE=$(du -h "${BACKUP_ARCHIVE}" | cut -f1)
             echo "[OK] Production snapshot created and integrity verified: ${BACKUP_ARCHIVE} (${ARCHIVE_SIZE})"
 
             echo "=== Step 2: Fetching Latest Approved Code ==="
+            PRODUCTION_MODIFIED=true
             git fetch origin main
             git checkout main
             git reset --hard origin/main
@@ -115,13 +159,10 @@ jobs:
             npm ci
 
             echo "=== Step 4: Staged Production Build & Asset Validation ==="
-            # Clean any stale staging directory
             rm -rf "${STAGING_DIR}"
-
-            # Build in isolated staging location without modifying live static directory
             BUILD_OUT_DIR=static_staging npm run build-prod
 
-            # Validate that critical build outputs exist and are non-empty in staging
+            # Validate critical build outputs in staging
             if [ ! -s "${STAGING_DIR}/index.html" ]; then
               echo "[FATAL] Build verification failed: ${STAGING_DIR}/index.html is missing or empty!"
               exit 1
@@ -135,37 +176,32 @@ jobs:
               exit 1
             fi
 
-            # Validate asset manifest JSON format
             node -e 'JSON.parse(fs.readFileSync(process.argv[1], "utf8"))' "${STAGING_DIR}/asset-manifest.json"
 
             echo "=== Step 5: Promoting Assets While Preserving Existing Browser Sessions ==="
             mkdir -p static/assets static/_assets
 
-            # 1. Merge new hashed bundles into static/assets (retains old hashed assets for active sessions)
+            # Merge new hashed assets without deleting previous hashed files
             cp -a "${STAGING_DIR}/assets/." static/assets/
-
-            # 2. Merge new hashed public assets into static/_assets (retains old assets for active sessions)
             if [ -d "${STAGING_DIR}/_assets" ]; then
               cp -a "${STAGING_DIR}/_assets/." static/_assets/
             fi
 
-            # 3. Copy root public files (e.g. robots.txt, privacy-policy.html, etc.)
+            # Copy root public files
             find "${STAGING_DIR}" -maxdepth 1 -type f ! -name "index.html" ! -name "asset-manifest.json" -exec cp -a {} static/ \;
 
-            # 4. Atomically swap index.html and asset-manifest.json
+            # Atomically replace index.html and asset-manifest.json
             cp -a "${STAGING_DIR}/index.html" static/index.html.tmp && mv -f static/index.html.tmp static/index.html
             cp -a "${STAGING_DIR}/asset-manifest.json" static/asset-manifest.json.tmp && mv -f static/asset-manifest.json.tmp static/asset-manifest.json
 
-            # 5. Clean up build staging directory
             rm -rf "${STAGING_DIR}"
-            echo "[OK] Assets promoted cleanly. Previous hashed assets retained for in-flight sessions."
+            echo "[OK] Assets promoted cleanly. Previous hashed assets retained for active sessions."
 
             echo "=== Step 6: Reloading Application Service (Expected ~1-2s backend downtime) ==="
-            # OpenFront runs in PM2 fork mode; service reload incurs ~1-2s backend interruption while WebSockets reconnect
             pm2 restart openfront-server --update-env
+            SERVICE_RESTARTED=true
 
             echo "=== Step 7: Verifying Service & Network Health ==="
-            # Allow PM2 worker to initialize
             sleep 3
 
             # Check PM2 process status
@@ -182,34 +218,38 @@ jobs:
             fi
             echo "[OK] PM2 process openfront-server is online."
 
-            # Probe local HTTP endpoint with retries
-            HEALTH_OK=false
-            for i in 1 2 3 4 5; do
-              if curl -s -f -o /dev/null http://localhost:9001/; then
-                HEALTH_OK=true
-                break
+            probe_endpoint() {
+              local url="$1"
+              local description="$2"
+              local max_retries="${3:-5}"
+              local delay="${4:-2}"
+              local success=false
+
+              echo "Probing ${description} (${url})..."
+              for i in $(seq 1 "${max_retries}"); do
+                # Strict certificate validation (no -k / --insecure)
+                if curl -s -f --show-error -o /dev/null "${url}"; then
+                  success=true
+                  echo "[OK] ${description} healthy (attempt ${i}/${max_retries})."
+                  break
+                fi
+                echo "[WAIT] ${description} probe attempt ${i}/${max_retries} failed; retrying in ${delay}s..."
+                sleep "${delay}"
+              done
+
+              if [ "${success}" != "true" ]; then
+                echo "[FATAL] ${description} failed health check after ${max_retries} attempts!"
+                exit 1
               fi
-              echo "Local HTTP probe attempt ${i}/5 failed, waiting 2s..."
-              sleep 2
-            done
+            }
 
-            if [ "${HEALTH_OK}" != "true" ]; then
-              echo "[FATAL] Local HTTP health probe failed after 5 attempts!"
-              exit 1
-            fi
-            echo "[OK] Local HTTP endpoint healthy (HTTP 200)."
+            # Required health check probes with bounded retries & strict certificate validation
+            probe_endpoint "http://localhost:9001/" "Local HTTP service" 5 2
+            probe_endpoint "https://openfront-2.duckdns.org/" "External HTTPS web service" 5 2
+            probe_endpoint "https://openfront-2.duckdns.org/asset-manifest.json" "External static asset manifest" 5 2
 
-            # Probe external HTTPS domain
-            if curl -s -f -k -o /dev/null https://openfront-2.duckdns.org/; then
-              echo "[OK] External HTTPS domain endpoint healthy (HTTP 200)."
-            else
-              echo "[WARN] External HTTPS probe failed or unreachable from host; local probe verified."
-            fi
-
-            # Probe asset manifest availability
-            if curl -s -f -k -o /dev/null https://openfront-2.duckdns.org/asset-manifest.json; then
-              echo "[OK] Static asset manifest verified accessible via web server."
-            fi
+            # Clean temporary snapshot directory upon verified successful deployment
+            rm -rf "${SNAPSHOT_DIR}"
 
             DEPLOY_SUCCESS=true
             echo "================================================================="
