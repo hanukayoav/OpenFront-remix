@@ -19,23 +19,68 @@ jobs:
           script: |
             set -euo pipefail
 
-            echo "=== Step 1: Navigating to project directory ==="
+            BACKUP_DIR="/home/ubuntu/backups"
+            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+            SNAPSHOT_NAME="openfront_pre_deploy_${TIMESTAMP}"
+            mkdir -p "${BACKUP_DIR}"
+
+            echo "=== Step 1: Auditing & Preserving Current Production State ==="
             cd /home/ubuntu/openfront
 
-            echo "=== Step 2: Fetching and syncing latest main ==="
+            # Record current revision & state
+            CURRENT_REV=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+            echo "Current HEAD commit: ${CURRENT_REV}" > "${BACKUP_DIR}/${SNAPSHOT_NAME}_info.txt"
+            git status --porcelain >> "${BACKUP_DIR}/${SNAPSHOT_NAME}_info.txt"
+
+            # Save any uncommitted modifications/diffs safely before touching git
+            git diff HEAD > "${BACKUP_DIR}/${SNAPSHOT_NAME}_uncommitted.patch" 2>/dev/null || true
+            git status --porcelain | grep '^??' | awk '{print $2}' > "${BACKUP_DIR}/${SNAPSHOT_NAME}_untracked_files.txt" || true
+
+            # Backup current working static assets and critical files
+            tar -czf "${BACKUP_DIR}/${SNAPSHOT_NAME}.tar.gz" \
+              -C /home/ubuntu/openfront \
+              --exclude='node_modules' \
+              static .git version.txt 2>/dev/null || true
+            echo "Snapshot archived to ${BACKUP_DIR}/${SNAPSHOT_NAME}.tar.gz"
+
+            echo "=== Step 2: Fetching Latest Approved Code ==="
             git fetch origin main
             git checkout main
             git reset --hard origin/main
-            git clean -fd -e node_modules -e .env
 
-            echo "=== Step 3: Installing dependencies ==="
-            npm ci || npm install --production=false
+            echo "=== Step 3: Deterministic Dependency Installation ==="
+            npm ci
 
-            echo "=== Step 4: Compiling TypeScript & Building Production Assets ==="
+            echo "=== Step 4: Isolated Production Build & Atomic Switch ==="
+            # Preserve existing static assets in case build fails
+            if [ -d "static" ]; then
+              cp -r static static_live_backup
+            fi
+
+            # Execute full build (TypeScript typecheck + Vite bundling)
+            # If this fails, set -e stops execution; static_live_backup is restored below via trap
+            trap 'if [ -d "/home/ubuntu/openfront/static_live_backup" ]; then rm -rf /home/ubuntu/openfront/static && mv /home/ubuntu/openfront/static_live_backup /home/ubuntu/openfront/static; echo "[ERROR] Build failed. Restored live static assets."; fi' ERR
+
             npm run build-prod
+
+            # Validate that critical build outputs were successfully created
+            if [ ! -f "static/index.html" ] || [ ! -d "static/assets" ] || [ ! -f "static/asset-manifest.json" ]; then
+              echo "[FATAL] Build verification failed: essential static assets missing!"
+              exit 1
+            fi
+
+            # Build validated successfully; remove temporary backup
+            rm -rf static_live_backup
+            trap - ERR
 
             echo "=== Step 5: Restarting Application Service ==="
             pm2 restart openfront-server --update-env
 
-            echo "=== Step 6: Verifying Deployment Status ==="
+            echo "=== Step 6: Verifying Service & Network Health ==="
+            sleep 3
             pm2 status openfront-server
+
+            # Local HTTP check
+            curl -s -f -o /dev/null http://localhost:9001/ || echo "[WARN] Local HTTP probe returned non-200"
+
+            echo "Deployment completed successfully at commit $(git rev-parse --short HEAD)!"
