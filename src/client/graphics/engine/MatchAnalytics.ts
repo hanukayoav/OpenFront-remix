@@ -94,6 +94,7 @@ export class MatchAnalytics {
   private readonly peakTerritory = new Map<number | string, { name: string; color: string; percent: number }>();
 
   private modalContainer: HTMLElement | null = null;
+  private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
   private avatarSystem = new AvatarSystem();
 
   /**
@@ -232,30 +233,42 @@ export class MatchAnalytics {
       "relative w-full max-w-2xl bg-slate-900/90 border border-white/15 " +
       "rounded-2xl p-6 shadow-2xl text-white flex flex-col gap-6 max-h-[92vh] overflow-y-auto";
 
-    // Header Victor Banner
+    // Header Victor Banner with Close Button
     const isDomination = options.victoryType === "Domination";
     const headerHtml = `
-      <div class="flex items-center gap-4 border-b border-white/10 pb-5">
-        <!-- Victor Avatar Portrait Canvas -->
-        <div class="relative shrink-0">
-          <canvas id="analytics-avatar-portrait" width="72" height="72" class="rounded-2xl border border-white/20 shadow-lg bg-slate-950/60"></canvas>
-          <div class="absolute -top-2 -right-1 text-base">👑</div>
+      <div class="flex items-center justify-between border-b border-white/10 pb-5">
+        <div class="flex items-center gap-4">
+          <!-- Victor Avatar Portrait Canvas -->
+          <div class="relative shrink-0">
+            <canvas id="analytics-avatar-portrait" width="72" height="72" class="rounded-2xl border border-white/20 shadow-lg bg-slate-950/60"></canvas>
+            <div class="absolute -top-2 -right-1 text-base">👑</div>
+          </div>
+
+          <div class="flex flex-col gap-1 min-w-0">
+            <div class="flex items-center gap-2.5 flex-wrap">
+              <span class="text-xs uppercase font-extrabold tracking-widest px-2.5 py-0.5 rounded-full ${
+                isDomination ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+              }">
+                ${options.victoryType} Victory
+              </span>
+              <span class="text-xs text-white/50 font-medium">Match Completed</span>
+            </div>
+            <h2 class="text-2xl font-black tracking-tight text-white flex items-center gap-2 truncate">
+              <span style="color: ${options.winnerColor};">${options.winnerName}</span>
+              <span class="text-white/80 font-semibold text-lg">Claims the Realm</span>
+            </h2>
+          </div>
         </div>
 
-        <div class="flex flex-col gap-1 min-w-0">
-          <div class="flex items-center gap-2.5 flex-wrap">
-            <span class="text-xs uppercase font-extrabold tracking-widest px-2.5 py-0.5 rounded-full ${
-              isDomination ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
-            }">
-              ${options.victoryType} Victory
-            </span>
-            <span class="text-xs text-white/50 font-medium">Match Completed</span>
-          </div>
-          <h2 class="text-2xl font-black tracking-tight text-white flex items-center gap-2 truncate">
-            <span style="color: ${options.winnerColor};">${options.winnerName}</span>
-            <span class="text-white/80 font-semibold text-lg">Claims the Realm</span>
-          </h2>
-        </div>
+        <button
+          id="analytics-close-btn"
+          type="button"
+          class="shrink-0 p-2.5 rounded-xl text-white/60 hover:text-white hover:bg-white/10 transition-colors cursor-pointer text-lg font-bold leading-none"
+          title="Close / Dismiss (Esc)"
+          aria-label="Close modal"
+        >
+          ✕
+        </button>
       </div>
     `;
 
@@ -323,15 +336,20 @@ export class MatchAnalytics {
       </div>
     `;
 
-    // Footer with Play Again Button
+    // Footer with Spectate / Dismiss and Play Again Buttons
     const footerHtml = `
-      <div class="flex items-center justify-end gap-3 pt-2">
+      <div class="flex flex-col-reverse sm:flex-row items-center justify-end gap-3 pt-2">
+        <button
+          id="analytics-spectate-btn"
+          type="button"
+          class="w-full sm:w-auto px-6 py-3 rounded-xl font-bold text-sm tracking-wide text-white/80 hover:text-white bg-white/10 hover:bg-white/15 border border-white/15 transition-all duration-200 active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+        >
+          <span>👁</span> Spectate Battlefield
+        </button>
         <button
           id="analytics-play-again-btn"
           type="button"
-          class="w-full sm:w-auto px-8 py-3 rounded-xl font-bold text-sm tracking-wide text-white cursor-pointer " +
-          "bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 " +
-          "shadow-lg shadow-blue-500/25 transition-all duration-200 active:scale-95 flex items-center justify-center gap-2"
+          class="w-full sm:w-auto px-8 py-3 rounded-xl font-bold text-sm tracking-wide text-white cursor-pointer bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 shadow-lg shadow-blue-500/25 transition-all duration-200 active:scale-95 flex items-center justify-center gap-2"
         >
           <span>↺</span> Play Again
         </button>
@@ -370,6 +388,34 @@ export class MatchAnalytics {
     const graphCanvas = card.querySelector<HTMLCanvasElement>("#analytics-timeline-graph");
     if (graphCanvas) {
       this.drawLineGraph(graphCanvas, samples, options.winnerId);
+    }
+
+    // Wire Close & Spectate Buttons
+    const closeBtn = card.querySelector<HTMLButtonElement>("#analytics-close-btn");
+    if (closeBtn) {
+      closeBtn.addEventListener("click", () => this.hideVictoryModal());
+    }
+
+    const spectateBtn = card.querySelector<HTMLButtonElement>("#analytics-spectate-btn");
+    if (spectateBtn) {
+      spectateBtn.addEventListener("click", () => this.hideVictoryModal());
+    }
+
+    // Wire backdrop click to dismiss
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) {
+        this.hideVictoryModal();
+      }
+    });
+
+    // Wire Escape key listener to dismiss
+    if (typeof window !== "undefined") {
+      this.keydownHandler = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          this.hideVictoryModal();
+        }
+      };
+      window.addEventListener("keydown", this.keydownHandler);
     }
 
     // Wire Play Again Button
@@ -512,10 +558,21 @@ export class MatchAnalytics {
    * Hide the victory modal if currently visible.
    */
   public hideVictoryModal(): void {
+    if (this.keydownHandler && typeof window !== "undefined") {
+      window.removeEventListener("keydown", this.keydownHandler);
+      this.keydownHandler = null;
+    }
     if (this.modalContainer) {
       this.modalContainer.remove();
       this.modalContainer = null;
     }
+  }
+
+  /**
+   * Checks whether the victory modal is actively open and visible.
+   */
+  public isModalOpen(): boolean {
+    return this.modalContainer !== null;
   }
 
   /**

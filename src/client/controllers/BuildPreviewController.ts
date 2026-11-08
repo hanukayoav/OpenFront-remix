@@ -45,6 +45,14 @@ export function shouldPreserveGhostAfterBuild(unitType: UnitType): boolean {
   );
 }
 
+function requiresMissileSilo(unitType: UnitType | null | undefined): boolean {
+  return (
+    unitType === UnitType.AtomBomb ||
+    unitType === UnitType.HydrogenBomb ||
+    unitType === UnitType.MIRV
+  );
+}
+
 // tSamIntercept value used to flag an untargetable (impassable) destination:
 // draws the red X marker essentially at the destination while leaving the
 // visible line unchanged (1.0 would mean "no marker").
@@ -204,19 +212,35 @@ export class BuildPreviewController implements Controller {
   tick() {
     // Re-query buildables periodically (world state can change — tiles may
     // become buildable as troops/territory move).
-    this.syncGhostState();
+    if (this.syncGhostState()) return;
     this.renderGhost();
   }
 
   /**
    * Reconcile our internal ghost state with uiState.ghostStructure. Other
    * UI bits (build menu, key bindings) toggle uiState; we mirror it here.
+   * @returns true when synchronization clears a ghost selection.
    */
-  private syncGhostState(): void {
+  private syncGhostState(): boolean {
+    const myPlayer = this.game.myPlayer();
+    if (myPlayer?.isAlive() === false) {
+      this.removeGhostStructure();
+      return true;
+    }
     const target = this.uiState.ghostStructure;
+    const ghostType = target ?? this.ghostUnit?.buildableUnit.type;
+    if (
+      myPlayer &&
+      requiresMissileSilo(ghostType) &&
+      myPlayer.units(UnitType.MissileSilo).length === 0
+    ) {
+      this.removeGhostStructure();
+      return true;
+    }
     if (this.ghostUnit) {
       if (target === null) {
         this.removeGhostStructure();
+        return true;
       } else if (target !== this.ghostUnit.buildableUnit.type) {
         this.clearGhostStructure();
         this.createGhostStructure(target);
@@ -224,6 +248,7 @@ export class BuildPreviewController implements Controller {
     } else if (target !== null) {
       this.createGhostStructure(target);
     }
+    return false;
   }
 
   renderGhost() {

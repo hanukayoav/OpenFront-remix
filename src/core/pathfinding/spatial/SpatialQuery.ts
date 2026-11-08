@@ -68,6 +68,7 @@ export class SpatialQuery {
 
     if (maxDist >= 0) {
       mark(from);
+      if (bestDist === 0) return best;
     }
     const visit = (n: TileRef) => {
       if (visited[n] !== gen && map.manhattanDist(from, n) <= maxDist) {
@@ -77,6 +78,7 @@ export class SpatialQuery {
     while (stack.length > 0) {
       const curr = stack.pop()!;
       map.forEachNeighbor(curr, visit);
+      if (bestDist <= 1) break;
     }
 
     return best;

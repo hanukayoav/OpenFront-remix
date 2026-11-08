@@ -45,12 +45,24 @@ export interface DynamicUnitItem {
   isSelected?: boolean;
 }
 
+export type SupplyDropAnimState = "descending" | "landing" | "idle" | "collected";
+
 export interface SupplyCrateItem {
   id: string | number;
   x: number;
   y: number;
   type: SupplyCrateType;
   collected?: boolean;
+  state?: SupplyDropAnimState;
+  altitude?: number;
+  swayAngle?: number;
+  visualX?: number;
+  visualY?: number;
+  planeProgress?: number;
+  tier?: "early" | "mid" | "late";
+  troops?: number;
+  gold?: number;
+  isHovered?: boolean;
 }
 
 export interface DynamicAvatarItem {
@@ -546,15 +558,89 @@ export class DualLayerEngine {
     for (const crate of this.crates.values()) {
       if (crate.collected) continue;
 
-      // Draw prerendered crate from AssetCache (no runtime gradients/shadowBlur)
-      const crateCanvas = this.assetCache.getSupplyCrate(crate.type);
-      const halfSize = (crateCanvas.width / 2) | 0;
+      const state = crate.state ?? "idle";
 
-      // Integer coordinate truncation
-      const dx = (crate.x - halfSize) | 0;
-      const dy = (crate.y - halfSize) | 0;
+      if (state === "descending") {
+        const alt = crate.altitude ?? 1.0;
+        const shadowW = Math.max(3, Math.round(10 * (1.1 - alt * 0.4)));
+        const shadowAlpha = Math.max(0.12, 0.45 * (1.0 - alt * 0.5));
+        ctx.fillStyle = `rgba(0, 0, 0, ${shadowAlpha})`;
+        ctx.beginPath();
+        ctx.ellipse(crate.x, crate.y + 2, shadowW, 2.5, 0, 0, Math.PI * 2);
+        ctx.fill();
 
-      ctx.drawImage(crateCanvas, dx, dy);
+        // Cargo aircraft flyby across top sky during early descent
+        if (crate.planeProgress !== undefined && crate.planeProgress < 1.0) {
+          const plane = this.assetCache.getCargoPlane();
+          const planeX = (crate.x - 50 + crate.planeProgress * 100) | 0;
+          const planeY = (crate.y - 65) | 0;
+          ctx.drawImage(plane, planeX - 13, planeY - 12);
+        }
+
+        // Falling crate suspended beneath parachute
+        const vx = crate.visualX ?? crate.x;
+        const vy = crate.visualY ?? (crate.y - alt * 60);
+        const sway = crate.swayAngle ?? 0;
+
+        ctx.save();
+        ctx.translate(vx, vy);
+        ctx.rotate(sway);
+
+        const chute = this.assetCache.getParachute(crate.type);
+        ctx.drawImage(chute, -13, -24);
+
+        const crateCanvas = this.assetCache.getSupplyCrate(crate.type);
+        ctx.drawImage(crateCanvas, -10, -10);
+        ctx.restore();
+      } else if (state === "landing") {
+        // Landing impact compression
+        const crateCanvas = this.assetCache.getSupplyCrate(crate.type);
+        ctx.save();
+        ctx.translate(crate.x, crate.y);
+        ctx.scale(1.2, 0.85);
+        ctx.drawImage(crateCanvas, -10, -10);
+        ctx.restore();
+      } else {
+        // Idle floating state
+        const idleBob = Math.sin(this.dynamicFrameCount * 0.05) * 0.8;
+        ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+        ctx.beginPath();
+        ctx.ellipse(crate.x, crate.y + 3, 6, 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        const crateCanvas = this.assetCache.getSupplyCrate(crate.type);
+        const dx = (crate.x - 10) | 0;
+        const dy = (crate.y - 10 + idleBob) | 0;
+        ctx.drawImage(crateCanvas, dx, dy);
+
+        // Hover highlight & reward tag
+        if (crate.isHovered) {
+          ctx.strokeStyle = "#38bdf8";
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(crate.x - 12, crate.y - 12 + idleBob, 24, 24);
+
+          // Draw tooltip badge
+          const fT = crate.troops ? (crate.troops >= 1000000 ? `${(crate.troops / 1000000).toFixed(1)}M` : `${Math.round(crate.troops / 1000)}k`) : "10k";
+          const fG = crate.gold ? (crate.gold >= 1000000 ? `${(crate.gold / 1000000).toFixed(1)}M` : `${Math.round(crate.gold / 1000)}k`) : "100k";
+          const tooltip = `📦 +${fT} ⚔️ | +${fG} 💰`;
+
+          ctx.font = "bold 9px monospace";
+          const textW = ctx.measureText(tooltip).width;
+          const bgX = (crate.x - textW / 2 - 4) | 0;
+          const bgY = (crate.y - 22 + idleBob) | 0;
+
+          ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+          ctx.fillRect(bgX, bgY, textW + 8, 14);
+          ctx.strokeStyle = "rgba(56, 189, 248, 0.6)";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(bgX, bgY, textW + 8, 14);
+
+          ctx.fillStyle = "#38bdf8";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(tooltip, crate.x, bgY + 7);
+        }
+      }
     }
   }
 

@@ -7,14 +7,16 @@
  * - Late Phase (300s+): 100k - 150k troops, 10M - 20M gold, Radiant Gold crate (#f59e0b)
  *
  * Features:
- * - 45s evaluation cycle, capped at 2 active crates.
- * - Pulsing beacon rings pulled from ObjectPool.
- * - Top-screen warning banner for Late Phase orbital drops.
- * - Instant award to node troops and player gold upon capture, with floating text over 1.5s.
+ * - Animated 4-phase delivery: Arrival flyby -> Parachute descent -> Dust puff landing -> Idle collection
+ * - Smaller, properly scaled vector crates (~20px) that do not clutter territories
+ * - Direct click/touch to claim with accurate hit testing & tile owner verification
+ * - Hover indicators with real-time reward tooltip preview
+ * - Pulsing beacon rings pulled from VisualFx ObjectPool
+ * - Instant award to node troops and player gold upon capture, with floating text over 1.5s
  */
 
 import { SupplyCrateType } from "./AssetCache";
-import { DualLayerEngine, SupplyCrateItem } from "./DualLayerEngine";
+import { DualLayerEngine, SupplyCrateItem, SupplyDropAnimState } from "./DualLayerEngine";
 import { VisualFxPools } from "./ObjectPool";
 
 export interface ActiveSupplyDrop extends SupplyCrateItem {
@@ -26,6 +28,15 @@ export interface ActiveSupplyDrop extends SupplyCrateItem {
   phase: "early" | "mid" | "late";
   spawnTimeMs: number;
   beaconTimerMs: number;
+  state: SupplyDropAnimState;
+  stateTimerMs: number;
+  descentDurationMs: number;
+  altitude: number;
+  swayAngle: number;
+  visualX: number;
+  visualY: number;
+  planeProgress: number;
+  isHovered: boolean;
 }
 
 export interface SupplyDropBanner {
@@ -39,6 +50,8 @@ export interface SupplyDropBanner {
 export class SupplyDropManager {
   public static readonly EVALUATION_INTERVAL_SEC = 45;
   public static readonly MAX_ACTIVE_CRATES = 2;
+  public static readonly DESCENT_DURATION_MS = 3000;
+  public static readonly CLAIM_RADIUS_TILES = 3.5;
 
   private readonly activeDrops = new Map<string | number, ActiveSupplyDrop>();
   private matchTimeMs = 0;
@@ -46,6 +59,7 @@ export class SupplyDropManager {
   private evaluationIntervalSec = SupplyDropManager.EVALUATION_INTERVAL_SEC;
   private maxActiveCrates = SupplyDropManager.MAX_ACTIVE_CRATES;
   private currentBanner: SupplyDropBanner | null = null;
+  private hoveredDropId: string | number | null = null;
 
   constructor(
     private readonly engine: DualLayerEngine,
@@ -83,6 +97,7 @@ export class SupplyDropManager {
    */
   public clear(): void {
     this.activeDrops.clear();
+    this.hoveredDropId = null;
     this.syncCratesWithEngine();
   }
 
@@ -97,7 +112,7 @@ export class SupplyDropManager {
   }
 
   /**
-   * Update match progression, evaluate spawn schedule, pulse beacons, and update banners.
+   * Update match progression, evaluate spawn schedule, pulse beacons, and update descent animations.
    */
   public update(
     deltaMs: number,
@@ -119,25 +134,64 @@ export class SupplyDropManager {
       }
     }
 
-    // 2. Pulse beacon rings at active crate locations
+    // 2. Update drop animation states and beacon rings
+    let syncNeeded = false;
     for (const drop of this.activeDrops.values()) {
-      drop.beaconTimerMs += deltaMs;
-      if (drop.beaconTimerMs >= 1000) {
-        drop.beaconTimerMs = 0;
-        let ringColor = "#3b82f6";
-        if (drop.tier === "mid") ringColor = "#a855f7";
-        if (drop.tier === "late") ringColor = "#f59e0b";
+      if (drop.state === "descending") {
+        drop.stateTimerMs += deltaMs;
+        const progress = Math.min(1.0, drop.stateTimerMs / drop.descentDurationMs);
+        drop.altitude = Math.max(0, 1.0 - Math.pow(progress, 1.35));
+        drop.swayAngle = Math.sin(drop.stateTimerMs * 0.005) * 0.16;
+        drop.visualX = drop.x + Math.sin(drop.stateTimerMs * 0.005) * (drop.altitude * 4);
+        drop.visualY = drop.y - drop.altitude * 60;
+        drop.planeProgress = Math.min(1.0, drop.stateTimerMs / 1200);
 
-        this.pools.spawnBeaconRing(drop.x, drop.y, ringColor, 6, 36, 1200, 2);
+        if (progress >= 1.0) {
+          drop.state = "landing";
+          drop.stateTimerMs = 0;
+          drop.altitude = 0;
+          drop.visualX = drop.x;
+          drop.visualY = drop.y;
+
+          // Landing impact fx: dust shockwave and ripple ring
+          this.pools.spawnBeaconRing(drop.x, drop.y, "#94a3b8", 2, 14, 450, 1.5);
+          let ringColor = "#3b82f6";
+          if (drop.tier === "mid") ringColor = "#a855f7";
+          if (drop.tier === "late") ringColor = "#f59e0b";
+          this.pools.spawnBeaconRing(drop.x, drop.y, ringColor, 4, 20, 600, 2);
+          this.engine.audioEngine?.playDropClaim?.();
+        }
+        syncNeeded = true;
+      } else if (drop.state === "landing") {
+        drop.stateTimerMs += deltaMs;
+        if (drop.stateTimerMs >= 300) {
+          drop.state = "idle";
+          drop.stateTimerMs = 0;
+          syncNeeded = true;
+        }
+      } else if (drop.state === "idle") {
+        drop.beaconTimerMs += deltaMs;
+        if (drop.beaconTimerMs >= 1500) {
+          drop.beaconTimerMs = 0;
+          let ringColor = "#3b82f6";
+          if (drop.tier === "mid") ringColor = "#a855f7";
+          if (drop.tier === "late") ringColor = "#f59e0b";
+
+          this.pools.spawnBeaconRing(drop.x, drop.y, ringColor, 6, 28, 1200, 1.8);
+        }
       }
 
-      // 3. Claim evaluation: Check if tile was captured by an active player
-      if (getOwnerAtTile) {
+      // Auto-claim on territorial conquest (evaluated in any active state)
+      if (getOwnerAtTile && drop.state !== "collected") {
         const currentOwner = getOwnerAtTile(drop.tile);
         if (currentOwner !== null && currentOwner.id !== drop.initialOwnerID) {
           this.claimDrop(drop, currentOwner, onDropClaimed);
         }
       }
+    }
+
+    if (syncNeeded) {
+      this.syncCratesWithEngine();
     }
 
     // 4. Update banner animation
@@ -157,7 +211,7 @@ export class SupplyDropManager {
   }
 
   /**
-   * Spawn a new progressive supply drop based on elapsed match time.
+   * Spawn a new progressive supply drop with falling parachute animation.
    */
   public spawnSupplyDrop(
     tile: number,
@@ -173,28 +227,27 @@ export class SupplyDropManager {
     let ringColor: string;
 
     if (elapsedSec < 120) {
-      // Early Phase (0 to 120 seconds): 8k - 12k troops, 80k - 120k gold, Electric Blue crate (#3b82f6)
+      // Early Phase: 8k - 12k troops, 80k - 120k gold
       tier = "early";
       crateType = "early";
       troops = Math.floor(8000 + Math.random() * 4000);
       gold = Math.floor(80000 + Math.random() * 40000);
       ringColor = "#3b82f6";
     } else if (elapsedSec < 300) {
-      // Mid Phase (120 to 300 seconds): 45k - 55k troops, 900k - 1.1M gold, Vibrant Purple crate (#a855f7)
+      // Mid Phase: 45k - 55k troops, 900k - 1.1M gold
       tier = "mid";
       crateType = "mid";
       troops = Math.floor(45000 + Math.random() * 10000);
       gold = Math.floor(900000 + Math.random() * 200000);
       ringColor = "#a855f7";
     } else {
-      // Late Phase (300 seconds onward): 100k - 150k troops, 10M - 20M gold, Radiant Gold crate (#f59e0b)
+      // Late Phase: 100k - 150k troops, 10M - 20M gold
       tier = "late";
       crateType = "late";
       troops = Math.floor(100000 + Math.random() * 50000);
       gold = Math.floor(10000000 + Math.random() * 10000000);
       ringColor = "#f59e0b";
 
-      // Trigger top screen banner
       this.triggerOrbitalAlert();
       this.engine.onOrbitalSupplyDropAlert?.();
     }
@@ -214,15 +267,130 @@ export class SupplyDropManager {
       spawnTimeMs: this.matchTimeMs,
       beaconTimerMs: 0,
       collected: false,
+      state: "descending",
+      stateTimerMs: 0,
+      descentDurationMs: SupplyDropManager.DESCENT_DURATION_MS,
+      altitude: 1.0,
+      swayAngle: 0,
+      visualX: x,
+      visualY: y - 60,
+      planeProgress: 0,
+      isHovered: false,
     };
 
     this.activeDrops.set(dropId, drop);
     this.syncCratesWithEngine();
 
-    // Initial pulsing beacon ring
-    this.pools.spawnBeaconRing(x, y, ringColor, 8, 48, 1400, 2.5);
+    // Initial subtle arrival ripple
+    this.pools.spawnBeaconRing(x, y, ringColor, 4, 24, 1000, 1.5);
 
     return drop;
+  }
+
+  /**
+   * Updates hovering drop state for tooltips and reticles.
+   */
+  public setHoverCoord(worldX: number, worldY: number): boolean {
+    let hovered: ActiveSupplyDrop | null = null;
+    let minDist = SupplyDropManager.CLAIM_RADIUS_TILES;
+
+    for (const drop of this.activeDrops.values()) {
+      if (drop.collected) continue;
+      const d = Math.hypot(drop.x - worldX, drop.y - worldY);
+      if (d <= minDist) {
+        minDist = d;
+        hovered = drop;
+      }
+    }
+
+    const nextHoveredId = hovered ? hovered.id : null;
+    if (this.hoveredDropId !== nextHoveredId) {
+      this.hoveredDropId = nextHoveredId;
+      for (const drop of this.activeDrops.values()) {
+        drop.isHovered = drop.id === this.hoveredDropId;
+      }
+      this.syncCratesWithEngine();
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Attempts to claim an active supply drop under cursor/tap.
+   */
+  public tryClaimAt(
+    worldX: number,
+    worldY: number,
+    claimingPlayer: { id: () => number | string; smallID: () => number; addGold?: (g: number) => void; addTroops?: (t: number) => void; isPlayer?: () => boolean } | null,
+    getOwnerAtTile?: (tile: number) => number | null,
+    onDropClaimed?: (drop: ActiveSupplyDrop, claimingPlayerId: number) => void,
+  ): { handled: boolean; success: boolean; message?: string } {
+    let targetDrop: ActiveSupplyDrop | null = null;
+    let minDist = SupplyDropManager.CLAIM_RADIUS_TILES;
+
+    for (const drop of this.activeDrops.values()) {
+      if (drop.collected) continue;
+      const d = Math.hypot(drop.x - worldX, drop.y - worldY);
+      if (d <= minDist) {
+        minDist = d;
+        targetDrop = drop;
+      }
+    }
+
+    if (!targetDrop) {
+      return { handled: false, success: false };
+    }
+
+    // Drop was clicked! Handle click event:
+    if (targetDrop.state === "descending") {
+      return {
+        handled: true,
+        success: false,
+        message: "Supply drop incoming... Wait for landing!",
+      };
+    }
+
+    if (!claimingPlayer) {
+      return { handled: true, success: false };
+    }
+
+    const mySmallId = claimingPlayer.smallID();
+    const tileOwnerId = getOwnerAtTile ? getOwnerAtTile(targetDrop.tile) : null;
+
+    // Check ownership eligibility: if tile is controlled by an enemy, cannot claim remotely
+    if (tileOwnerId !== null && tileOwnerId !== mySmallId) {
+      return {
+        handled: true,
+        success: false,
+        message: "Cannot claim: in enemy territory! Conquer tile first.",
+      };
+    }
+
+    // Eligible! Execute claim:
+    this.claimDrop(
+      targetDrop,
+      {
+        id: mySmallId,
+        addGold: claimingPlayer.addGold ? (g) => claimingPlayer.addGold!(g) : undefined,
+        addTroops: claimingPlayer.addTroops ? (t) => claimingPlayer.addTroops!(t) : undefined,
+      },
+      onDropClaimed,
+    );
+
+    const fTroops =
+      targetDrop.troops >= 1000000
+        ? `${(targetDrop.troops / 1000000).toFixed(1)}M`
+        : `${Math.round(targetDrop.troops / 1000)}k`;
+    const fGold =
+      targetDrop.gold >= 1000000
+        ? `${(targetDrop.gold / 1000000).toFixed(1)}M`
+        : `${Math.round(targetDrop.gold / 1000)}k`;
+
+    return {
+      handled: true,
+      success: true,
+      message: `+${fTroops} Troops  +${fGold} Gold`,
+    };
   }
 
   /**
@@ -239,7 +407,7 @@ export class SupplyDropManager {
   }
 
   /**
-   * Handles claiming a drop when a node is captured.
+   * Handles claiming a drop when clicked or captured.
    */
   public claimDrop(
     drop: ActiveSupplyDrop,
@@ -255,17 +423,30 @@ export class SupplyDropManager {
     }
 
     // 2. Animate troop and gold gains rising and fading over 1.5 seconds from ObjectPool
-    const formattedTroops = drop.troops >= 1000000 ? `${(drop.troops / 1000000).toFixed(1)}M` : `${Math.round(drop.troops / 1000)}k`;
-    const formattedGold = drop.gold >= 1000000 ? `${(drop.gold / 1000000).toFixed(1)}M` : `${Math.round(drop.gold / 1000)}k`;
+    const formattedTroops =
+      drop.troops >= 1000000
+        ? `${(drop.troops / 1000000).toFixed(1)}M`
+        : `${Math.round(drop.troops / 1000)}k`;
+    const formattedGold =
+      drop.gold >= 1000000
+        ? `${(drop.gold / 1000000).toFixed(1)}M`
+        : `${Math.round(drop.gold / 1000)}k`;
 
     this.pools.spawnFloatingText(`+${formattedTroops} Troops`, drop.x, drop.y - 12, "combat", "#60a5fa", 1500, 24, 13);
     this.pools.spawnFloatingText(`+${formattedGold} Gold`, drop.x, drop.y, "loot", "#facc15", 1500, 24, 13);
 
-    // 3. Remove from active drops
+    // 3. Shockwave & audio feedback
+    this.pools.spawnBeaconRing(drop.x, drop.y, "#facc15", 3, 20, 500, 2);
+    this.engine.audioEngine?.playDropClaim?.();
+
+    // 4. Remove from active drops
     this.activeDrops.delete(drop.id);
+    if (this.hoveredDropId === drop.id) {
+      this.hoveredDropId = null;
+    }
     this.syncCratesWithEngine();
 
-    // 4. Trigger callback for screen shake and victory animation
+    // 5. Trigger callback for screen shake and victory animation
     if (onDropClaimed) {
       onDropClaimed(drop, claimingOwner.id);
     } else {
@@ -285,6 +466,16 @@ export class SupplyDropManager {
         x: drop.x,
         y: drop.y,
         type: drop.type,
+        state: drop.state,
+        altitude: drop.altitude,
+        swayAngle: drop.swayAngle,
+        visualX: drop.visualX,
+        visualY: drop.visualY,
+        planeProgress: drop.planeProgress,
+        tier: drop.tier,
+        troops: drop.troops,
+        gold: drop.gold,
+        isHovered: drop.isHovered,
       });
     }
     this.engine.setSupplyCrates(list);
