@@ -20,10 +20,7 @@
 import { AssetCache, BoundaryGlowType, SupplyCrateType } from "./AssetCache";
 import { AvatarSystem } from "./AvatarSystem";
 import { MatchAnalytics } from "./MatchAnalytics";
-import {
-  FloatingTextMarker,
-  VisualFxPools,
-} from "./ObjectPool";
+import { FloatingTextMarker, VisualFxPools } from "./ObjectPool";
 import { SupplyDropManager } from "./SupplyDropManager";
 import { WebAudioEngine } from "./WebAudioEngine";
 
@@ -229,7 +226,9 @@ export class DualLayerEngine {
     this.cssHeight = height;
 
     // Clamp devicePixelRatio to protect integrated GPUs on school laptops
-    const rawDpr = this.customDpr ?? (typeof window !== "undefined" ? window.devicePixelRatio ?? 1 : 1);
+    const rawDpr =
+      this.customDpr ??
+      (typeof window !== "undefined" ? (window.devicePixelRatio ?? 1) : 1);
     this.dpr = Math.min(rawDpr, this.maxDpr);
 
     const pixelW = Math.max(1, Math.floor(this.cssWidth * this.dpr));
@@ -325,7 +324,10 @@ export class DualLayerEngine {
   /**
    * Applies shared camera transform to a canvas context.
    */
-  private applyCameraTransform(ctx: CanvasRenderingContext2D, applyShake = false): void {
+  private applyCameraTransform(
+    ctx: CanvasRenderingContext2D,
+    applyShake = false,
+  ): void {
     // Disable image smoothing for crisp pixelated map edges on low-spec screens
     ctx.imageSmoothingEnabled = false;
 
@@ -340,8 +342,14 @@ export class DualLayerEngine {
     // ScreenX = (WorldX - CameraX) * Scale + (Width / 2)
     // Scaled by DPR for physical pixels
     const s = this.cameraScale * this.dpr;
-    const tx = (((this.cssWidth * 0.5 - this.cameraX * this.cameraScale) + shakeX) * this.dpr) | 0;
-    const ty = (((this.cssHeight * 0.5 - this.cameraY * this.cameraScale) + shakeY) * this.dpr) | 0;
+    const tx =
+      ((this.cssWidth * 0.5 - this.cameraX * this.cameraScale + shakeX) *
+        this.dpr) |
+      0;
+    const ty =
+      ((this.cssHeight * 0.5 - this.cameraY * this.cameraScale + shakeY) *
+        this.dpr) |
+      0;
 
     ctx.setTransform(s, 0, 0, s, tx, ty);
   }
@@ -424,7 +432,11 @@ export class DualLayerEngine {
           const halfStamp = (stamp.width / 2) | 0;
           // Blit cached stamp at end points
           const endPt = stroke.points[stroke.points.length - 1];
-          c.drawImage(stamp, (endPt.x - halfStamp) | 0, (endPt.y - halfStamp) | 0);
+          c.drawImage(
+            stamp,
+            (endPt.x - halfStamp) | 0,
+            (endPt.y - halfStamp) | 0,
+          );
         }
       }
     });
@@ -559,24 +571,45 @@ export class DualLayerEngine {
       if (avatar.isLocalPlayer) {
         const halo = this.assetCache.getAvatarPart("haloRing");
         const halfHalo = (halo.width / 2) | 0;
-        ctx.drawImage(halo, (avatar.x - halfHalo) | 0, (avatar.y - halfHalo) | 0);
+        ctx.drawImage(
+          halo,
+          (avatar.x - halfHalo) | 0,
+          (avatar.y - halfHalo) | 0,
+        );
       }
 
       if (avatar.isBot) {
         const botIcon = this.assetCache.getAvatarPart("botIcon");
         const halfBot = (botIcon.width / 2) | 0;
-        ctx.drawImage(botIcon, (avatar.x - halfBot) | 0, (avatar.y - halfBot) | 0);
+        ctx.drawImage(
+          botIcon,
+          (avatar.x - halfBot) | 0,
+          (avatar.y - halfBot) | 0,
+        );
       } else {
         const shield = this.assetCache.getAvatarPart("crestShield");
         const halfShield = (shield.width / 2) | 0;
-        ctx.drawImage(shield, (avatar.x - halfShield) | 0, (avatar.y - halfShield) | 0);
+        ctx.drawImage(
+          shield,
+          (avatar.x - halfShield) | 0,
+          (avatar.y - halfShield) | 0,
+        );
       }
 
       // Queue name text for batched text pass
-      this.queueText(avatar.name, avatar.x, avatar.y - halfDisc - 6, "#ffffff", "bold 11px sans-serif");
+      this.queueText(
+        avatar.name,
+        avatar.x,
+        avatar.y - halfDisc - 6,
+        "#ffffff",
+        "bold 11px sans-serif",
+      );
     }
 
-    // 2. Troop Units
+    // 2. Dynamic Units / Troop numbers
+    // Note: Simulation entities (structures, ships, land units) are rendered with full
+    // GPU-accelerated sprites by WebGL (StructurePass, UnitPass).
+    // The 2D dynamic canvas overlay must NEVER draw opaque base circle placeholders over them.
     for (let i = 0; i < this.units.length; i++) {
       const unit = this.units[i];
       if (!unit.isActive) continue;
@@ -584,23 +617,28 @@ export class DualLayerEngine {
       const ux = (unit.x + 0.5) | 0;
       const uy = (unit.y + 0.5) | 0;
 
-      // Unit base circle
-      ctx.fillStyle = unit.color;
-      ctx.beginPath();
-      ctx.arc(ux, uy, 5, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Selection ring
+      // Selection ring (non-occluding stroke only)
       if (unit.isSelected) {
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(ux, uy, 6, 0, Math.PI * 2);
         ctx.stroke();
       }
 
-      // Queue troop count text for batching
+      // Queue troop count text for batching if present
       if (unit.troops > 0) {
-        const troopsText = unit.troops > 999 ? `${(unit.troops / 1000).toFixed(1)}k` : `${unit.troops}`;
-        this.queueText(troopsText, ux, uy - 9, "#f8fafc", "bold 10px sans-serif");
+        const troopsText =
+          unit.troops > 999
+            ? `${(unit.troops / 1000).toFixed(1)}k`
+            : `${unit.troops}`;
+        this.queueText(
+          troopsText,
+          ux,
+          uy - 9,
+          "#f8fafc",
+          "bold 10px sans-serif",
+        );
       }
     }
   }
@@ -690,8 +728,10 @@ export class DualLayerEngine {
           c.globalAlpha = item.alpha;
 
           // Convert world coordinates to screen coordinates
-          const screenX = (item.x - this.cameraX) * this.cameraScale + this.cssWidth * 0.5;
-          const screenY = (item.y - this.cameraY) * this.cameraScale + this.cssHeight * 0.5;
+          const screenX =
+            (item.x - this.cameraX) * this.cameraScale + this.cssWidth * 0.5;
+          const screenY =
+            (item.y - this.cameraY) * this.cameraScale + this.cssHeight * 0.5;
 
           // Snap to integer device pixels with bitwise OR
           const ix = (screenX + 0.5) | 0;
@@ -879,7 +919,16 @@ export class DualLayerEngine {
     riseDistance = 18,
     fontSize = 12,
   ): FloatingTextMarker | null {
-    return this.pools.spawnFloatingText(text, x, y, type, color, durationMs, riseDistance, fontSize);
+    return this.pools.spawnFloatingText(
+      text,
+      x,
+      y,
+      type,
+      color,
+      durationMs,
+      riseDistance,
+      fontSize,
+    );
   }
 
   public spawnBeaconRing(
@@ -891,6 +940,14 @@ export class DualLayerEngine {
     durationMs = 1200,
     lineWidth = 2,
   ) {
-    return this.pools.spawnBeaconRing(x, y, color, startRadius, maxRadius, durationMs, lineWidth);
+    return this.pools.spawnBeaconRing(
+      x,
+      y,
+      color,
+      startRadius,
+      maxRadius,
+      durationMs,
+      lineWidth,
+    );
   }
 }
