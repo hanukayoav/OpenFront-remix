@@ -1,11 +1,131 @@
-import { Execution, Game, Player, TankState, Unit, UnitType } from "../game/Game";
+import {
+  Execution,
+  Game,
+  Player,
+  TankState,
+  Unit,
+  UnitType,
+} from "../game/Game";
 import { TileRef } from "../game/GameMap";
 import { FlatBinaryHeap } from "./utils/FlatBinaryHeap";
 
 /**
- * A* over passable land. Uses a binary heap for the open set (the previous
- * version linearly scanned a Set for the min-F node, which was O(N^2) over up
- * to 10k expansions and ran for every moving tank every tick).
+ * Reusable zero-allocation A* pathfinding context for tanks.
+ * Uses generational stamping and flat typed arrays to eliminate heap churn.
+ */
+class FastTankAStar {
+  private stamp = 1;
+  private visitedStamp: Uint32Array = new Uint32Array(0);
+  private closedStamp: Uint32Array = new Uint32Array(0);
+  private gScore: Float32Array = new Float32Array(0);
+  private cameFrom: Int32Array = new Int32Array(0);
+  private open = new FlatBinaryHeap(512);
+  private nbuf: TileRef[] = [0, 0, 0, 0];
+  private capacity = 0;
+
+  private ensureCapacity(numTiles: number): void {
+    if (this.capacity >= numTiles) return;
+    this.capacity = numTiles;
+    this.visitedStamp = new Uint32Array(numTiles);
+    this.closedStamp = new Uint32Array(numTiles);
+    this.gScore = new Float32Array(numTiles);
+    this.cameFrom = new Int32Array(numTiles);
+  }
+
+  findPath(
+    mg: Game,
+    start: TileRef,
+    goal: TileRef,
+    owner: Player,
+  ): TileRef[] | null {
+    if (start === goal) return [start];
+    const map = mg.map();
+    const numTiles = map.width() * map.height();
+    this.ensureCapacity(numTiles);
+
+    const goalX = map.x(goal);
+    const goalY = map.y(goal);
+
+    this.stamp++;
+    if (this.stamp >= 0xffffffff) {
+      this.visitedStamp.fill(0);
+      this.closedStamp.fill(0);
+      this.stamp = 1;
+    }
+    const stamp = this.stamp;
+
+    this.open.clear();
+    this.gScore[start] = 0;
+    this.visitedStamp[start] = stamp;
+    this.cameFrom[start] = -1;
+
+    const h = (tile: TileRef) =>
+      Math.abs(map.x(tile) - goalX) + Math.abs(map.y(tile) - goalY);
+
+    this.open.enqueue(start, h(start));
+
+    let iterations = 0;
+    const maxIterations = 10000;
+
+    while (this.open.size() > 0 && iterations < maxIterations) {
+      const current = this.open.dequeue();
+      if (this.closedStamp[current] === stamp) continue;
+      iterations++;
+
+      if (current === goal) {
+        const path: TileRef[] = [goal];
+        let curr = goal;
+        while (this.cameFrom[curr] !== -1) {
+          curr = this.cameFrom[curr];
+          path.push(curr);
+        }
+        path.reverse();
+        return path;
+      }
+
+      this.closedStamp[current] = stamp;
+      const currentG = this.gScore[current];
+
+      const count = map.neighbors4(current, this.nbuf);
+      for (let i = 0; i < count; i++) {
+        const neighbor = this.nbuf[i];
+        if (this.closedStamp[neighbor] === stamp) continue;
+        if (map.isWater(neighbor) || map.isImpassable(neighbor)) {
+          continue;
+        }
+
+        let stepCost = 1;
+        const neighborOwner = mg.owner(neighbor);
+        if (neighborOwner.isPlayer()) {
+          if (!owner.isFriendly(neighborOwner)) {
+            stepCost = 10;
+          }
+        } else {
+          stepCost = 2;
+        }
+
+        const tentativeG = currentG + stepCost;
+        if (
+          this.visitedStamp[neighbor] !== stamp ||
+          tentativeG < this.gScore[neighbor]
+        ) {
+          this.cameFrom[neighbor] = current;
+          this.gScore[neighbor] = tentativeG;
+          this.visitedStamp[neighbor] = stamp;
+          this.open.enqueue(neighbor, tentativeG + h(neighbor));
+        }
+      }
+    }
+
+    return null;
+  }
+}
+
+const fastTankAStar = new FastTankAStar();
+
+/**
+ * A* over passable land. Uses generational stamped typed arrays and a reusable
+ * binary heap, eliminating per-call Map/Set/Heap heap allocations.
  */
 export function findTankPath(
   mg: Game,
@@ -13,74 +133,7 @@ export function findTankPath(
   goal: TileRef,
   owner: Player,
 ): TileRef[] | null {
-  if (start === goal) return [start];
-  const map = mg.map();
-  const goalX = map.x(goal);
-  const goalY = map.y(goal);
-
-  const h = (tile: TileRef) =>
-    Math.abs(map.x(tile) - goalX) + Math.abs(map.y(tile) - goalY);
-
-  const gScore = new Map<TileRef, number>();
-  const cameFrom = new Map<TileRef, TileRef>();
-  const closed = new Set<TileRef>();
-  const open = new FlatBinaryHeap(256);
-  gScore.set(start, 0);
-  open.enqueue(start, h(start));
-
-  const nbuf: TileRef[] = [0, 0, 0, 0];
-  let iterations = 0;
-  const maxIterations = 10000;
-
-  while (open.size() > 0 && iterations < maxIterations) {
-    const current = open.dequeue();
-    // Lazy deletion: a node can be queued several times as its g improves.
-    if (closed.has(current)) continue;
-    iterations++;
-
-    if (current === goal) {
-      const path: TileRef[] = [goal];
-      let curr = goal;
-      while (cameFrom.has(curr)) {
-        curr = cameFrom.get(curr)!;
-        path.push(curr);
-      }
-      path.reverse();
-      return path;
-    }
-
-    closed.add(current);
-    const currentG = gScore.get(current)!;
-
-    const count = map.neighbors4(current, nbuf);
-    for (let i = 0; i < count; i++) {
-      const neighbor = nbuf[i];
-      if (closed.has(neighbor)) continue;
-      if (map.isWater(neighbor) || map.isImpassable(neighbor)) {
-        continue;
-      }
-
-      let stepCost = 1;
-      const neighborOwner = mg.owner(neighbor);
-      if (neighborOwner.isPlayer()) {
-        if (!owner.isFriendly(neighborOwner)) {
-          stepCost = 10;
-        }
-      } else {
-        stepCost = 2;
-      }
-
-      const tentativeG = currentG + stepCost;
-      const prevG = gScore.get(neighbor);
-      if (prevG === undefined || tentativeG < prevG) {
-        cameFrom.set(neighbor, current);
-        gScore.set(neighbor, tentativeG);
-        open.enqueue(neighbor, tentativeG + h(neighbor));
-      }
-    }
-  }
-
-  return null;
+  return fastTankAStar.findPath(mg, start, goal, owner);
 }
 
 export function computeHostileBorderWaypoints(
@@ -99,13 +152,14 @@ export function computeHostileBorderWaypoints(
   const neutralBorders: TileRef[] = [];
   const coastalBorders: TileRef[] = [];
 
-  for (const b of borderTiles) {
+  for (let i = 0; i < borderTiles.length; i++) {
+    const b = borderTiles[i];
     let isEnemy = false;
     let isNeutral = false;
     let isCoast = false;
     const count = map.neighbors4(b, nbuf);
-    for (let i = 0; i < count; i++) {
-      const n = nbuf[i];
+    for (let j = 0; j < count; j++) {
+      const n = nbuf[j];
       if (map.isLand(n) && !map.isImpassable(n)) {
         const owner = mg.owner(n);
         if (owner.isPlayer()) {
@@ -138,28 +192,52 @@ export function computeHostileBorderWaypoints(
     return [];
   }
 
-  // 2. Order into connected chains
+  // 2. Order into connected chains in O(M) time
+  // Sort candidate tiles ascending for strict determinism
+  candidateTiles.sort((a, b) => a - b);
   const unvisited = new Set<TileRef>(candidateTiles);
   const ordered: TileRef[] = [];
 
-  while (unvisited.size > 0) {
-    let startNode: TileRef = -1;
-    let minDegree = 999;
-    let minCoord = 99999999;
+  // Precompute degrees of candidate tiles within the unvisited set
+  const degrees = new Map<TileRef, number>();
+  const endpoints: TileRef[] = [];
 
-    for (const tile of unvisited) {
-      let degree = 0;
-      const count = map.neighbors4(tile, nbuf);
-      for (let i = 0; i < count; i++) {
-        if (unvisited.has(nbuf[i])) degree++;
-      }
-      if (degree < minDegree || (degree === minDegree && tile < minCoord)) {
-        minDegree = degree;
-        minCoord = tile;
-        startNode = tile;
-        if (degree === 0) break; // isolated node cannot have lower degree
+  for (let i = 0; i < candidateTiles.length; i++) {
+    const tile = candidateTiles[i];
+    let deg = 0;
+    const count = map.neighbors4(tile, nbuf);
+    for (let j = 0; j < count; j++) {
+      if (unvisited.has(nbuf[j])) deg++;
+    }
+    degrees.set(tile, deg);
+    if (deg <= 1) {
+      endpoints.push(tile);
+    }
+  }
+
+  let endpointIdx = 0;
+  let candidateIdx = 0;
+
+  while (unvisited.size > 0) {
+    // Select start node: prefer endpoints (degree <= 1), else lowest coord
+    let startNode: TileRef = -1;
+    while (endpointIdx < endpoints.length) {
+      const ep = endpoints[endpointIdx++];
+      if (unvisited.has(ep)) {
+        startNode = ep;
+        break;
       }
     }
+    if (startNode === -1) {
+      while (candidateIdx < candidateTiles.length) {
+        const c = candidateTiles[candidateIdx++];
+        if (unvisited.has(c)) {
+          startNode = c;
+          break;
+        }
+      }
+    }
+    if (startNode === -1) break;
 
     let curr: TileRef | null = startNode;
     while (curr !== null) {
@@ -171,9 +249,13 @@ export function computeHostileBorderWaypoints(
       const count = map.neighbors4(curr, nbuf);
       for (let i = 0; i < count; i++) {
         const neighbor = nbuf[i];
-        if (unvisited.has(neighbor) && neighbor < nextCoord) {
-          nextCoord = neighbor;
-          next = neighbor;
+        if (unvisited.has(neighbor)) {
+          const d = degrees.get(neighbor) ?? 1;
+          degrees.set(neighbor, d - 1);
+          if (neighbor < nextCoord) {
+            nextCoord = neighbor;
+            next = neighbor;
+          }
         }
       }
       curr = next;
@@ -182,15 +264,22 @@ export function computeHostileBorderWaypoints(
 
   const N = ordered.length;
   if (numTanks >= N) {
-    return ordered.slice();
+    if (numTanks === N) {
+      return ordered.slice();
+    }
+    // Replicate waypoints evenly so all tanks receive an assigned waypoint
+    const waypoints: TileRef[] = [];
+    for (let i = 0; i < numTanks; i++) {
+      waypoints.push(ordered[i % N]);
+    }
+    return waypoints;
   }
 
   // 3. Spacing calculation
   // If rally point is set, prioritize section nearest rally point
   if (rallyTile !== undefined && mg.isValidRef(rallyTile)) {
     ordered.sort(
-      (a, b) =>
-        mg.manhattanDist(a, rallyTile) - mg.manhattanDist(b, rallyTile),
+      (a, b) => mg.manhattanDist(a, rallyTile) - mg.manhattanDist(b, rallyTile),
     );
     return ordered.slice(0, numTanks);
   }
@@ -274,21 +363,23 @@ export class TankExecution implements Execution {
     // 3. Periodic border slotting recalculation. Aligned to a global tick
     // boundary so all of a player's tanks re-slot on the same tick and share
     // one computation via slottingCache.
-    if (
+    const needsSlotting =
       (ticks % SLOTTING_INTERVAL === 0 && ticks !== this.lastSlottingTick) ||
-      this.targetWaypoint === null ||
-      !this.mg.hasOwner(this.targetWaypoint) ||
-      this.mg.owner(this.targetWaypoint) !== this.tank.owner()
-    ) {
+      (this.targetWaypoint === null && this.lastSlottingTick !== ticks) ||
+      (this.targetWaypoint !== null &&
+        (!this.mg.hasOwner(this.targetWaypoint) ||
+          this.mg.owner(this.targetWaypoint) !== this.tank.owner()));
+
+    if (needsSlotting) {
       this.lastSlottingTick = ticks;
       this.recalculateSlotting(ticks);
-      // Re-plan on the slotting cadence so routes adapt to territory changes
-      // (enemy land is costlier) without paying for A* every tick.
-      this.path = [];
     }
 
     // 4. Movement along path to target waypoint
-    if (this.targetWaypoint !== null && this.tank.tile() !== this.targetWaypoint) {
+    if (
+      this.targetWaypoint !== null &&
+      this.tank.tile() !== this.targetWaypoint
+    ) {
       if (this.tank.tankState() !== TankState.Reloading) {
         this.tank.setTankState(TankState.Deploying);
       }
@@ -300,7 +391,10 @@ export class TankExecution implements Execution {
           this.tank.setTankState(TankState.Patrolling);
         }
       }
-    } else if (this.targetWaypoint !== null && this.tank.tile() === this.targetWaypoint) {
+    } else if (
+      this.targetWaypoint !== null &&
+      this.tank.tile() === this.targetWaypoint
+    ) {
       if (this.tank.tankState() === TankState.Deploying) {
         this.tank.setTankState(TankState.Patrolling);
       }
@@ -363,7 +457,13 @@ export class TankExecution implements Execution {
 
     const chosen = assignment.get(this.tank.id());
     if (chosen !== undefined) {
-      this.targetWaypoint = chosen;
+      if (this.targetWaypoint !== chosen) {
+        this.targetWaypoint = chosen;
+        // Invalidate route only when destination actually changed
+        this.path = [];
+        this.pathGoal = null;
+        this.pathIdx = 0;
+      }
     }
   }
 
@@ -373,6 +473,7 @@ export class TankExecution implements Execution {
   ): Map<number, TileRef> {
     const assignment = new Map<number, TileRef>();
     const tanks = owner.units(UnitType.Tank).filter((u) => u.isActive());
+    if (tanks.length === 0) return assignment;
     tanks.sort((a, b) => a.id() - b.id());
 
     const waypoints = computeHostileBorderWaypoints(
@@ -386,20 +487,37 @@ export class TankExecution implements Execution {
       return assignment;
     }
 
-    // Deterministic greedy assignment
-    const available = [...waypoints];
-    for (const t of tanks) {
-      if (available.length === 0) break;
-      let closestIdx = 0;
+    // Deterministic greedy assignment using indexed flags to eliminate splice() overhead
+    const used = new Uint8Array(waypoints.length);
+    for (let tIdx = 0; tIdx < tanks.length; tIdx++) {
+      const t = tanks[tIdx];
+      const tTile = t.tile();
+      let closestIdx = -1;
       let closestDist = Infinity;
-      for (let i = 0; i < available.length; i++) {
-        const d = this.mg.manhattanDist(t.tile(), available[i]);
+      for (let i = 0; i < waypoints.length; i++) {
+        if (used[i]) continue;
+        const d = this.mg.manhattanDist(tTile, waypoints[i]);
         if (d < closestDist) {
           closestDist = d;
           closestIdx = i;
         }
       }
-      assignment.set(t.id(), available.splice(closestIdx, 1)[0]);
+      if (closestIdx !== -1) {
+        used[closestIdx] = 1;
+        assignment.set(t.id(), waypoints[closestIdx]);
+      } else {
+        // All distinct waypoints used; assign nearest even if shared
+        let fallbackIdx = 0;
+        let fallbackDist = Infinity;
+        for (let i = 0; i < waypoints.length; i++) {
+          const d = this.mg.manhattanDist(tTile, waypoints[i]);
+          if (d < fallbackDist) {
+            fallbackDist = d;
+            fallbackIdx = i;
+          }
+        }
+        assignment.set(t.id(), waypoints[fallbackIdx]);
+      }
     }
     return assignment;
   }

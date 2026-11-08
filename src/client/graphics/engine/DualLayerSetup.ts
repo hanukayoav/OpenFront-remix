@@ -165,8 +165,12 @@ export function setupDualLayerEngine(
       "fixed top-3 left-1/2 -translate-x-1/2 z-40 px-3.5 py-1 bg-slate-900/85 backdrop-blur-md border border-amber-500/40 rounded-full text-amber-300 font-mono text-xs flex items-center gap-2 shadow-xl select-none pointer-events-none transition-all duration-300";
     const minutes = Math.floor(mutators.suddenDeathTimer / 60);
     const seconds = mutators.suddenDeathTimer % 60;
-    const initialFormatted = String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
-    suddenDeathHudEl.innerHTML = '<span>⏱</span> <span class="font-bold tracking-wide uppercase text-[10px] text-white/70">Sudden Death:</span> <span id="openfront-sudden-death-timer-val" class="font-bold font-mono">' + initialFormatted + '</span>';
+    const initialFormatted =
+      String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
+    suddenDeathHudEl.innerHTML =
+      '<span>⏱</span> <span class="font-bold tracking-wide uppercase text-[10px] text-white/70">Sudden Death:</span> <span id="openfront-sudden-death-timer-val" class="font-bold font-mono">' +
+      initialFormatted +
+      "</span>";
     document.body.appendChild(suddenDeathHudEl);
   }
 
@@ -182,6 +186,11 @@ export function setupDualLayerEngine(
 
   let matchElapsedMs = 0;
   let suddenDeathTriggered = false;
+
+  // Preallocated units pool and throttled trail particle counter to prevent GC spikes
+  const activeUnitsPool: DynamicUnitItem[] = [];
+  const MAX_TRAIL_PARTICLES_PER_TICK = 6;
+  let trailParticlesSpawnedThisTick = 0;
 
   // 3. Simulation Synchronization routine (called on tick / game updates)
   let lastSyncTimeMs = performance.now();
@@ -227,17 +236,27 @@ export function setupDualLayerEngine(
     }
 
     // Sudden Death Limit evaluation - only during active gameplay, never during spawn phase
-    if (mutators.suddenDeathTimer > 0 && !suddenDeathTriggered && !gameView.inSpawnPhase()) {
+    if (
+      mutators.suddenDeathTimer > 0 &&
+      !suddenDeathTriggered &&
+      !gameView.inSpawnPhase()
+    ) {
       matchElapsedMs += rawDeltaMs * (mutators.matchPace || 1.0);
       const totalSec = mutators.suddenDeathTimer;
-      const remainingSec = Math.max(0, Math.ceil(totalSec - matchElapsedMs / 1000));
+      const remainingSec = Math.max(
+        0,
+        Math.ceil(totalSec - matchElapsedMs / 1000),
+      );
 
       if (suddenDeathHudEl) {
-        const timerValEl = suddenDeathHudEl.querySelector("#openfront-sudden-death-timer-val");
+        const timerValEl = suddenDeathHudEl.querySelector(
+          "#openfront-sudden-death-timer-val",
+        );
         if (timerValEl) {
           const m = Math.floor(remainingSec / 60);
           const s = remainingSec % 60;
-          timerValEl.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+          timerValEl.textContent =
+            String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
         }
         if (remainingSec <= 30) {
           suddenDeathHudEl.className =
@@ -247,7 +266,7 @@ export function setupDualLayerEngine(
 
       if (remainingSec === 0) {
         suddenDeathTriggered = true;
-        let winner = null as (ReturnType<GameView["players"]>[0]) | null;
+        let winner = null as ReturnType<GameView["players"]>[0] | null;
         let maxTiles = 0;
         if (allPlayers && allPlayers.length > 0) {
           for (let i = 0; i < allPlayers.length; i++) {
@@ -437,8 +456,9 @@ export function setupDualLayerEngine(
       },
     );
 
-    // Dynamic units sync and particle trails (capped at 120 particles across screen)
-    const activeUnits: DynamicUnitItem[] = [];
+    // Dynamic units sync and particle trails (throttled and pooled to eliminate GC churn)
+    trailParticlesSpawnedThisTick = 0;
+    let activeUnitCount = 0;
     const unitsMap = gameView.units();
     if (unitsMap && Array.isArray(unitsMap)) {
       for (let i = 0; i < unitsMap.length; i++) {
@@ -448,21 +468,38 @@ export function setupDualLayerEngine(
         const ux = gameView.x(u.tile());
         const uy = gameView.y(u.tile());
 
-        activeUnits.push({
-          id: u.id(),
-          x: ux,
-          y: uy,
-          troops: 0,
-          color: u.owner()?.territoryColor()?.toHex() ?? "#ffffff",
-          type: `${u.type()}`,
-          isActive: true,
-        });
+        let item = activeUnitsPool[activeUnitCount];
+        if (!item) {
+          item = {
+            id: u.id(),
+            x: ux,
+            y: uy,
+            troops: 0,
+            color: u.owner()?.territoryColor()?.toHex() ?? "#ffffff",
+            type: `${u.type()}`,
+            isActive: true,
+          };
+          activeUnitsPool[activeUnitCount] = item;
+        } else {
+          item.id = u.id();
+          item.x = ux;
+          item.y = uy;
+          item.troops = 0;
+          item.color = u.owner()?.territoryColor()?.toHex() ?? "#ffffff";
+          item.type = `${u.type()}`;
+          item.isActive = true;
+        }
+        activeUnitCount++;
 
         const isStructure = Structures.has(u.type());
 
-        // Spawn trail particle behind moving units (capped at 120 particles by spawnTrailParticle)
-        // Stationary structures (cities, factories, ports, defense posts, etc.) do not spawn motion trails
-        if (!isStructure && Math.random() < 0.35) {
+        // Spawn trail particle behind moving units, throttled to prevent CPU/GC spikes
+        if (
+          !isStructure &&
+          trailParticlesSpawnedThisTick < MAX_TRAIL_PARTICLES_PER_TICK &&
+          Math.random() < 0.2
+        ) {
+          trailParticlesSpawnedThisTick++;
           engine.spawnTrailParticle(
             ux,
             uy,
@@ -475,7 +512,8 @@ export function setupDualLayerEngine(
         }
       }
     }
-    engine.setUnits(activeUnits);
+    activeUnitsPool.length = activeUnitCount;
+    engine.setUnits(activeUnitsPool);
 
     // Sample territory percentages and troop totals every 5 seconds into ring buffer
     engine.analytics.update(deltaMs, () => {
