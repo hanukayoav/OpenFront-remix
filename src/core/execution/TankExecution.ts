@@ -1,4 +1,11 @@
-import { Execution, Game, Player, TankState, Unit, UnitType } from "../game/Game";
+import {
+  Execution,
+  Game,
+  Player,
+  TankState,
+  Unit,
+  UnitType,
+} from "../game/Game";
 import { TileRef } from "../game/GameMap";
 import { FlatBinaryHeap } from "./utils/FlatBinaryHeap";
 
@@ -272,8 +279,7 @@ export function computeHostileBorderWaypoints(
   // If rally point is set, prioritize section nearest rally point
   if (rallyTile !== undefined && mg.isValidRef(rallyTile)) {
     ordered.sort(
-      (a, b) =>
-        mg.manhattanDist(a, rallyTile) - mg.manhattanDist(b, rallyTile),
+      (a, b) => mg.manhattanDist(a, rallyTile) - mg.manhattanDist(b, rallyTile),
     );
     return ordered.slice(0, numTanks);
   }
@@ -370,7 +376,10 @@ export class TankExecution implements Execution {
     }
 
     // 4. Movement along path to target waypoint
-    if (this.targetWaypoint !== null && this.tank.tile() !== this.targetWaypoint) {
+    if (
+      this.targetWaypoint !== null &&
+      this.tank.tile() !== this.targetWaypoint
+    ) {
       if (this.tank.tankState() !== TankState.Reloading) {
         this.tank.setTankState(TankState.Deploying);
       }
@@ -382,7 +391,10 @@ export class TankExecution implements Execution {
           this.tank.setTankState(TankState.Patrolling);
         }
       }
-    } else if (this.targetWaypoint !== null && this.tank.tile() === this.targetWaypoint) {
+    } else if (
+      this.targetWaypoint !== null &&
+      this.tank.tile() === this.targetWaypoint
+    ) {
       if (this.tank.tankState() === TankState.Deploying) {
         this.tank.setTankState(TankState.Patrolling);
       }

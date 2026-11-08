@@ -4,11 +4,7 @@ import {
   TankExecution,
 } from "../src/core/execution/TankExecution";
 import { TankFactoryExecution } from "../src/core/execution/TankFactoryExecution";
-import {
-  PlayerInfo,
-  PlayerType,
-  UnitType,
-} from "../src/core/game/Game";
+import { PlayerInfo, PlayerType, UnitType } from "../src/core/game/Game";
 import { setup } from "./util/Setup";
 
 describe("LargeScaleOptimization Regression Suite (v1.0.3)", () => {

@@ -165,8 +165,12 @@ export function setupDualLayerEngine(
       "fixed top-3 left-1/2 -translate-x-1/2 z-40 px-3.5 py-1 bg-slate-900/85 backdrop-blur-md border border-amber-500/40 rounded-full text-amber-300 font-mono text-xs flex items-center gap-2 shadow-xl select-none pointer-events-none transition-all duration-300";
     const minutes = Math.floor(mutators.suddenDeathTimer / 60);
     const seconds = mutators.suddenDeathTimer % 60;
-    const initialFormatted = String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
-    suddenDeathHudEl.innerHTML = '<span>⏱</span> <span class="font-bold tracking-wide uppercase text-[10px] text-white/70">Sudden Death:</span> <span id="openfront-sudden-death-timer-val" class="font-bold font-mono">' + initialFormatted + '</span>';
+    const initialFormatted =
+      String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
+    suddenDeathHudEl.innerHTML =
+      '<span>⏱</span> <span class="font-bold tracking-wide uppercase text-[10px] text-white/70">Sudden Death:</span> <span id="openfront-sudden-death-timer-val" class="font-bold font-mono">' +
+      initialFormatted +
+      "</span>";
     document.body.appendChild(suddenDeathHudEl);
   }
 
@@ -232,17 +236,27 @@ export function setupDualLayerEngine(
     }
 
     // Sudden Death Limit evaluation - only during active gameplay, never during spawn phase
-    if (mutators.suddenDeathTimer > 0 && !suddenDeathTriggered && !gameView.inSpawnPhase()) {
+    if (
+      mutators.suddenDeathTimer > 0 &&
+      !suddenDeathTriggered &&
+      !gameView.inSpawnPhase()
+    ) {
       matchElapsedMs += rawDeltaMs * (mutators.matchPace || 1.0);
       const totalSec = mutators.suddenDeathTimer;
-      const remainingSec = Math.max(0, Math.ceil(totalSec - matchElapsedMs / 1000));
+      const remainingSec = Math.max(
+        0,
+        Math.ceil(totalSec - matchElapsedMs / 1000),
+      );
 
       if (suddenDeathHudEl) {
-        const timerValEl = suddenDeathHudEl.querySelector("#openfront-sudden-death-timer-val");
+        const timerValEl = suddenDeathHudEl.querySelector(
+          "#openfront-sudden-death-timer-val",
+        );
         if (timerValEl) {
           const m = Math.floor(remainingSec / 60);
           const s = remainingSec % 60;
-          timerValEl.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+          timerValEl.textContent =
+            String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
         }
         if (remainingSec <= 30) {
           suddenDeathHudEl.className =
@@ -252,7 +266,7 @@ export function setupDualLayerEngine(
 
       if (remainingSec === 0) {
         suddenDeathTriggered = true;
-        let winner = null as (ReturnType<GameView["players"]>[0]) | null;
+        let winner = null as ReturnType<GameView["players"]>[0] | null;
         let maxTiles = 0;
         if (allPlayers && allPlayers.length > 0) {
           for (let i = 0; i < allPlayers.length; i++) {

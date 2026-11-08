@@ -45,7 +45,11 @@ export interface DynamicUnitItem {
   isSelected?: boolean;
 }
 
-export type SupplyDropAnimState = "descending" | "landing" | "idle" | "collected";
+export type SupplyDropAnimState =
+  | "descending"
+  | "landing"
+  | "idle"
+  | "collected";
 
 export interface SupplyCrateItem {
   id: string | number;
@@ -579,7 +583,7 @@ export class DualLayerEngine {
 
         // Falling crate suspended beneath parachute
         const vx = crate.visualX ?? crate.x;
-        const vy = crate.visualY ?? (crate.y - alt * 60);
+        const vy = crate.visualY ?? crate.y - alt * 60;
         const sway = crate.swayAngle ?? 0;
 
         ctx.save();
@@ -620,8 +624,16 @@ export class DualLayerEngine {
           ctx.strokeRect(crate.x - 12, crate.y - 12 + idleBob, 24, 24);
 
           // Draw tooltip badge
-          const fT = crate.troops ? (crate.troops >= 1000000 ? `${(crate.troops / 1000000).toFixed(1)}M` : `${Math.round(crate.troops / 1000)}k`) : "10k";
-          const fG = crate.gold ? (crate.gold >= 1000000 ? `${(crate.gold / 1000000).toFixed(1)}M` : `${Math.round(crate.gold / 1000)}k`) : "100k";
+          const fT = crate.troops
+            ? crate.troops >= 1000000
+              ? `${(crate.troops / 1000000).toFixed(1)}M`
+              : `${Math.round(crate.troops / 1000)}k`
+            : "10k";
+          const fG = crate.gold
+            ? crate.gold >= 1000000
+              ? `${(crate.gold / 1000000).toFixed(1)}M`
+              : `${Math.round(crate.gold / 1000)}k`
+            : "100k";
           const tooltip = `📦 +${fT} ⚔️ | +${fG} 💰`;
 
           ctx.font = "bold 9px monospace";
