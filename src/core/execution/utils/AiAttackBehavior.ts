@@ -1,5 +1,6 @@
 import {
   Difficulty,
+  Execution,
   Game,
   GameMode,
   GameType,
@@ -39,6 +40,26 @@ const NEIGHBOR_SCRATCH: TileRef[] = [0, 0, 0, 0];
 
 export class AiAttackBehavior {
   private botAttackTroopsSent: number = 0;
+  private sentThisTick: { tick: number; troops: number } | null = null;
+
+  /** Our troops once everything we sent this tick has left. */
+  protected homeTroops(): number {
+    const troops = this.player.troops();
+    const sent = this.sentThisTick;
+    if (sent === null || sent.tick !== this.game.ticks()) return troops;
+    return Math.max(0, troops - sent.troops);
+  }
+
+  protected send(exec: Execution, troops: number): void {
+    const tick = this.game.ticks();
+    const sent =
+      this.sentThisTick?.tick === tick ? this.sentThisTick.troops : 0;
+    this.sentThisTick = {
+      tick,
+      troops: sent + Math.min(troops, this.homeTroops()),
+    };
+    this.game.addExecution(exec);
+  }
 
   constructor(
     private random: PseudoRandom,
@@ -403,13 +424,13 @@ export class AiAttackBehavior {
 
   private hasReserveRatioTroops(): boolean {
     const maxTroops = this.game.config().maxTroops(this.player);
-    const ratio = this.player.troops() / maxTroops;
+    const ratio = this.homeTroops() / maxTroops;
     return ratio >= this.reserveRatio;
   }
 
   private hasTriggerRatioTroops(): boolean {
     const maxTroops = this.game.config().maxTroops(this.player);
-    const ratio = this.player.troops() / maxTroops;
+    const ratio = this.homeTroops() / maxTroops;
     return ratio >= this.triggerRatio;
   }
 
@@ -1031,18 +1052,19 @@ export class AiAttackBehavior {
   private sendLandAttack(target: Player | TerraNullius): boolean {
     const troops = this.calculateAttackTroops(
       target,
-      (targetTroops) => this.player.troops() - targetTroops,
+      (targetTroops) => this.homeTroops() - targetTroops,
     );
     if (troops === null) {
       return false;
     }
 
-    this.game.addExecution(
+    this.send(
       new AttackExecution(
         troops,
         this.player,
         target.isPlayer() ? target.id() : this.game.terraNullius().id(),
       ),
+      troops,
     );
     return true;
   }
@@ -1067,14 +1089,15 @@ export class AiAttackBehavior {
 
     const troops = this.calculateAttackTroops(
       target,
-      () => this.player.troops() / 5,
+      () => this.homeTroops() / 5,
     );
     if (troops === null) {
       return false;
     }
 
-    this.game.addExecution(
+    this.send(
       new TransportShipExecution(this.player, closest.y, troops),
+      troops,
     );
     return true;
   }

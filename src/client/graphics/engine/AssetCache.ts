@@ -23,6 +23,8 @@ export interface BoundaryStampOptions {
 export class AssetCache {
   private readonly boundaryStamps = new Map<string, HTMLCanvasElement>();
   private readonly supplyCrates = new Map<SupplyCrateType, HTMLCanvasElement>();
+  private readonly parachutes = new Map<SupplyCrateType, HTMLCanvasElement>();
+  private cargoPlane: HTMLCanvasElement | null = null;
   private readonly avatarParts = new Map<string, HTMLCanvasElement>();
   private readonly genericStamps = new Map<string, HTMLCanvasElement>();
 
@@ -157,12 +159,12 @@ export class AssetCache {
   // ============================================================
 
   private prerenderSupplyCrates(): void {
-    this.supplyCrates.set("standard", this.bakeSupplyCrate("standard"));
-    this.supplyCrates.set("gold", this.bakeSupplyCrate("gold"));
-    this.supplyCrates.set("troops", this.bakeSupplyCrate("troops"));
-    this.supplyCrates.set("early", this.bakeSupplyCrate("early"));
-    this.supplyCrates.set("mid", this.bakeSupplyCrate("mid"));
-    this.supplyCrates.set("late", this.bakeSupplyCrate("late"));
+    const types: SupplyCrateType[] = ["standard", "gold", "troops", "early", "mid", "late"];
+    for (const t of types) {
+      this.supplyCrates.set(t, this.bakeSupplyCrate(t));
+      this.parachutes.set(t, this.bakeParachute(t));
+    }
+    this.cargoPlane = this.bakeCargoPlane();
   }
 
   /**
@@ -170,10 +172,10 @@ export class AssetCache {
    * reinforcement rivets, and type emblems onto an offscreen canvas surface.
    */
   private bakeSupplyCrate(type: SupplyCrateType): HTMLCanvasElement {
-    const size = 40;
+    const size = 20;
     const { canvas, ctx } = AssetCache.createOffscreenCanvas(size, size);
 
-    const pad = 4;
+    const pad = 2;
     const boxSize = size - pad * 2;
     const bx = pad;
     const by = pad;
@@ -245,46 +247,39 @@ export class AssetCache {
       ctx.strokeRect(bx, by, boxSize, boxSize);
 
       // 5. Corner reinforcement brackets
-      const corner = 7;
+      const corner = 3;
       ctx.fillStyle = metalHighlight;
-      // Top-left
-      ctx.fillRect(bx, by, corner, 2);
-      ctx.fillRect(bx, by, 2, corner);
-      // Top-right
-      ctx.fillRect(bx + boxSize - corner, by, corner, 2);
-      ctx.fillRect(bx + boxSize - 2, by, 2, corner);
-      // Bottom-left
-      ctx.fillRect(bx, by + boxSize - 2, corner, 2);
-      ctx.fillRect(bx, by + boxSize - corner, 2, corner);
-      // Bottom-right
-      ctx.fillRect(bx + boxSize - corner, by + boxSize - 2, corner, 2);
-      ctx.fillRect(bx + boxSize - 2, by + boxSize - corner, 2, corner);
+      ctx.fillRect(bx, by, corner, 1);
+      ctx.fillRect(bx, by, 1, corner);
+      ctx.fillRect(bx + boxSize - corner, by, corner, 1);
+      ctx.fillRect(bx + boxSize - 1, by, 1, corner);
+      ctx.fillRect(bx, by + boxSize - 1, corner, 1);
+      ctx.fillRect(bx, by + boxSize - corner, 1, corner);
+      ctx.fillRect(bx + boxSize - corner, by + boxSize - 1, corner, 1);
+      ctx.fillRect(bx + boxSize - 1, by + boxSize - corner, 1, corner);
 
-      // 6. Corner rivets (little 1px dots)
+      // 6. Corner rivets (1px dots)
       ctx.fillStyle = "#ffffff";
-      ctx.fillRect(bx + 2, by + 2, 1, 1);
-      ctx.fillRect(bx + boxSize - 3, by + 2, 1, 1);
-      ctx.fillRect(bx + 2, by + boxSize - 3, 1, 1);
-      ctx.fillRect(bx + boxSize - 3, by + boxSize - 3, 1, 1);
+      ctx.fillRect(bx + 1, by + 1, 1, 1);
+      ctx.fillRect(bx + boxSize - 2, by + 1, 1, 1);
+      ctx.fillRect(bx + 1, by + boxSize - 2, 1, 1);
+      ctx.fillRect(bx + boxSize - 2, by + boxSize - 2, 1, 1);
 
       // 7. Center emblem badge
       const cx = size / 2;
       const cy = size / 2;
       ctx.fillStyle = emblemColor;
       if (type === "gold" || type === "late") {
-        // Star emblem
-        this.drawStar(ctx, cx, cy, 5, 5, 2.5);
+        this.drawStar(ctx, cx, cy, 5, 3, 1.5);
       } else if (type === "troops" || type === "early") {
-        // Cross / Chevron emblem
-        ctx.fillRect(cx - 1.5, cy - 4.5, 3, 9);
-        ctx.fillRect(cx - 4.5, cy - 1.5, 9, 3);
+        ctx.fillRect(cx - 1, cy - 2.5, 2, 5);
+        ctx.fillRect(cx - 2.5, cy - 1, 5, 2);
       } else {
-        // Diamond emblem for mid/standard
         ctx.beginPath();
-        ctx.moveTo(cx, cy - 4);
-        ctx.lineTo(cx + 4, cy);
-        ctx.lineTo(cx, cy + 4);
-        ctx.lineTo(cx - 4, cy);
+        ctx.moveTo(cx, cy - 2.5);
+        ctx.lineTo(cx + 2.5, cy);
+        ctx.lineTo(cx, cy + 2.5);
+        ctx.lineTo(cx - 2.5, cy);
         ctx.closePath();
         ctx.fill();
       }
@@ -331,6 +326,110 @@ export class AssetCache {
     const cached = this.supplyCrates.get(type);
     if (cached) return cached;
     return this.supplyCrates.get("standard")!;
+  }
+
+  /**
+   * Retrieve a prerendered parachute canvas matching crate tier.
+   */
+  public getParachute(type: SupplyCrateType = "standard"): HTMLCanvasElement {
+    const cached = this.parachutes.get(type);
+    if (cached) return cached;
+    return this.parachutes.get("standard")!;
+  }
+
+  /**
+   * Retrieve the prerendered cargo plane canvas for arrival flyby.
+   */
+  public getCargoPlane(): HTMLCanvasElement {
+    return (this.cargoPlane ??= this.bakeCargoPlane());
+  }
+
+  /**
+   * Bakes a stylized, lightweight parachute canopy with suspension lines.
+   */
+  private bakeParachute(type: SupplyCrateType): HTMLCanvasElement {
+    const w = 26;
+    const h = 22;
+    const { canvas, ctx } = AssetCache.createOffscreenCanvas(w, h);
+
+    let canopyColor = "#3b82f6";
+    let canopyHighlight = "#60a5fa";
+    if (type === "gold" || type === "late") {
+      canopyColor = "#d97706";
+      canopyHighlight = "#fde047";
+    } else if (type === "mid") {
+      canopyColor = "#7e22ce";
+      canopyHighlight = "#c084fc";
+    }
+
+    ctx.save();
+    try {
+      // Canopy dome
+      const grad = ctx.createLinearGradient(0, 0, 0, 11);
+      grad.addColorStop(0, canopyHighlight);
+      grad.addColorStop(1, canopyColor);
+      ctx.fillStyle = grad;
+
+      ctx.beginPath();
+      ctx.arc(13, 11, 10, Math.PI, 0);
+      ctx.bezierCurveTo(21, 10, 16, 12, 13, 11);
+      ctx.bezierCurveTo(10, 12, 5, 10, 3, 11);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.25)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Cords / suspension lines converging to bottom center hook
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(4, 11); ctx.lineTo(13, 21);
+      ctx.moveTo(9, 11.5); ctx.lineTo(13, 21);
+      ctx.moveTo(17, 11.5); ctx.lineTo(13, 21);
+      ctx.moveTo(22, 11); ctx.lineTo(13, 21);
+      ctx.stroke();
+    } finally {
+      ctx.restore();
+    }
+    return canvas;
+  }
+
+  /**
+   * Bakes a small transport aircraft silhouette for supply drop arrival.
+   */
+  private bakeCargoPlane(): HTMLCanvasElement {
+    const size = 26;
+    const { canvas, ctx } = AssetCache.createOffscreenCanvas(size, size);
+    ctx.save();
+    try {
+      ctx.fillStyle = "#334155";
+      // Fuselage
+      ctx.beginPath();
+      ctx.ellipse(13, 13, 2.5, 9, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Wings
+      ctx.beginPath();
+      ctx.moveTo(13, 10);
+      ctx.lineTo(2, 16);
+      ctx.lineTo(5, 17);
+      ctx.lineTo(13, 13);
+      ctx.lineTo(21, 17);
+      ctx.lineTo(24, 16);
+      ctx.closePath();
+      ctx.fill();
+      // Tail
+      ctx.beginPath();
+      ctx.moveTo(13, 20);
+      ctx.lineTo(8, 23);
+      ctx.lineTo(18, 23);
+      ctx.closePath();
+      ctx.fill();
+    } finally {
+      ctx.restore();
+    }
+    return canvas;
   }
 
   // ============================================================

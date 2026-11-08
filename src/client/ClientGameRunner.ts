@@ -1111,6 +1111,32 @@ export class ClientGameRunner {
       if (myPlayer === null) return;
       this.myPlayer = myPlayer;
     }
+
+    // Intercept clicks on active supply crates to claim directly without attacking
+    if (this.dualLayerHandle) {
+      const claimResult = this.dualLayerHandle.engine.supplyDropManager.tryClaimAt(
+        cell.x,
+        cell.y,
+        this.myPlayer,
+        (t) => this.gameView.ownerID(t),
+      );
+      if (claimResult.handled) {
+        if (!claimResult.success && claimResult.message) {
+          this.dualLayerHandle.engine.pools.spawnFloatingText(
+            claimResult.message,
+            cell.x,
+            cell.y,
+            "combat",
+            "#f87171",
+            1600,
+            20,
+            12,
+          );
+        }
+        return;
+      }
+    }
+
     this.myPlayer.actions(tile, [UnitType.TransportShip]).then((actions) => {
       if (actions.canAttack) {
         this.eventBus.emit(
@@ -1424,6 +1450,13 @@ export class ClientGameRunner {
 
   private onMouseMove(event: MouseMoveEvent) {
     this.lastMousePosition = { x: event.x, y: event.y };
+    if (this.dualLayerHandle) {
+      const cell = this.renderer.transformHandler.screenToWorldCoordinates(
+        event.x,
+        event.y,
+      );
+      this.dualLayerHandle.engine.supplyDropManager.setHoverCoord(cell.x, cell.y);
+    }
   }
 
   private onConnectionCheck() {

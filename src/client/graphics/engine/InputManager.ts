@@ -297,7 +297,32 @@ export class InputManager {
     if (!this.gameView || !this.transformHandler) return false;
 
     const cell = this.transformHandler.screenToWorldCoordinates(screenX, screenY);
-    if (!this.gameView.isValidCoord(cell.x, cell.y)) return false;
+    if (!cell || !this.gameView.isValidCoord(cell.x, cell.y)) return false;
+
+    // Check direct tap to claim active supply drop
+    if (this.engine.supplyDropManager?.tryClaimAt) {
+      const claimResult = this.engine.supplyDropManager.tryClaimAt(
+        cell.x,
+        cell.y,
+        this.gameView.myPlayer(),
+        (t) => this.gameView!.ownerID(t),
+      );
+      if (claimResult?.handled) {
+        if (!claimResult.success && claimResult.message) {
+          this.engine.pools.spawnFloatingText(
+            claimResult.message,
+            cell.x,
+            cell.y,
+            "combat",
+            "#f87171",
+            1600,
+            20,
+            12,
+          );
+        }
+        return true;
+      }
+    }
 
     const tile = this.gameView.ref(cell.x, cell.y);
     if (this.gameView.isWater(tile)) return false;
