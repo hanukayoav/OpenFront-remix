@@ -183,6 +183,11 @@ export function setupDualLayerEngine(
   let matchElapsedMs = 0;
   let suddenDeathTriggered = false;
 
+  // Preallocated units pool and throttled trail particle counter to prevent GC spikes
+  const activeUnitsPool: DynamicUnitItem[] = [];
+  const MAX_TRAIL_PARTICLES_PER_TICK = 6;
+  let trailParticlesSpawnedThisTick = 0;
+
   // 3. Simulation Synchronization routine (called on tick / game updates)
   let lastSyncTimeMs = performance.now();
 
@@ -437,8 +442,9 @@ export function setupDualLayerEngine(
       },
     );
 
-    // Dynamic units sync and particle trails (capped at 120 particles across screen)
-    const activeUnits: DynamicUnitItem[] = [];
+    // Dynamic units sync and particle trails (throttled and pooled to eliminate GC churn)
+    trailParticlesSpawnedThisTick = 0;
+    let activeUnitCount = 0;
     const unitsMap = gameView.units();
     if (unitsMap && Array.isArray(unitsMap)) {
       for (let i = 0; i < unitsMap.length; i++) {
@@ -448,21 +454,38 @@ export function setupDualLayerEngine(
         const ux = gameView.x(u.tile());
         const uy = gameView.y(u.tile());
 
-        activeUnits.push({
-          id: u.id(),
-          x: ux,
-          y: uy,
-          troops: 0,
-          color: u.owner()?.territoryColor()?.toHex() ?? "#ffffff",
-          type: `${u.type()}`,
-          isActive: true,
-        });
+        let item = activeUnitsPool[activeUnitCount];
+        if (!item) {
+          item = {
+            id: u.id(),
+            x: ux,
+            y: uy,
+            troops: 0,
+            color: u.owner()?.territoryColor()?.toHex() ?? "#ffffff",
+            type: `${u.type()}`,
+            isActive: true,
+          };
+          activeUnitsPool[activeUnitCount] = item;
+        } else {
+          item.id = u.id();
+          item.x = ux;
+          item.y = uy;
+          item.troops = 0;
+          item.color = u.owner()?.territoryColor()?.toHex() ?? "#ffffff";
+          item.type = `${u.type()}`;
+          item.isActive = true;
+        }
+        activeUnitCount++;
 
         const isStructure = Structures.has(u.type());
 
-        // Spawn trail particle behind moving units (capped at 120 particles by spawnTrailParticle)
-        // Stationary structures (cities, factories, ports, defense posts, etc.) do not spawn motion trails
-        if (!isStructure && Math.random() < 0.35) {
+        // Spawn trail particle behind moving units, throttled to prevent CPU/GC spikes
+        if (
+          !isStructure &&
+          trailParticlesSpawnedThisTick < MAX_TRAIL_PARTICLES_PER_TICK &&
+          Math.random() < 0.2
+        ) {
+          trailParticlesSpawnedThisTick++;
           engine.spawnTrailParticle(
             ux,
             uy,
@@ -475,7 +498,8 @@ export function setupDualLayerEngine(
         }
       }
     }
-    engine.setUnits(activeUnits);
+    activeUnitsPool.length = activeUnitCount;
+    engine.setUnits(activeUnitsPool);
 
     // Sample territory percentages and troop totals every 5 seconds into ring buffer
     engine.analytics.update(deltaMs, () => {

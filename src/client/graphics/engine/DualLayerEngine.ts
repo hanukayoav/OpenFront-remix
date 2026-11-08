@@ -700,6 +700,9 @@ export class DualLayerEngine {
       const unit = this.units[i];
       if (!unit.isActive) continue;
 
+      // Fast path: skip units without selection or troop badge to eliminate canvas context ops
+      if (!unit.isSelected && unit.troops <= 0) continue;
+
       const ux = (unit.x + 0.5) | 0;
       const uy = (unit.y + 0.5) | 0;
 

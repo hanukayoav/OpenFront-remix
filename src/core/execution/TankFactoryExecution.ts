@@ -25,8 +25,15 @@ export class TankFactoryExecution implements Execution {
       return;
     }
 
-    // Filter out destroyed tanks to allow auto-replacement
-    this.tanks = this.tanks.filter((t) => t.isActive());
+    // Compact active tanks in-place to avoid per-tick array allocations
+    let activeCount = 0;
+    for (let i = 0; i < this.tanks.length; i++) {
+      const t = this.tanks[i];
+      if (t.isActive()) {
+        this.tanks[activeCount++] = t;
+      }
+    }
+    this.tanks.length = activeCount;
 
     const maxTanks = this.game.config().tankMaxPerFactory();
     const goldCost = this.game.config().tankProductionGoldCost();
