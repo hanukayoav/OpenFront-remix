@@ -9,13 +9,9 @@
  */
 
 import { EventBus } from "../../../core/EventBus";
-import { GameUpdateType } from "../../../core/game/GameUpdates";
-import { GameView } from "../../view/GameView";
-import { TransformHandler } from "../../TransformHandler";
-import { MoveWarshipIntentEvent, SendAttackIntentEvent } from "../../Transport";
 import { BotAI } from "../../../core/execution/utils/BotAI";
-import { loadAvatarConfig } from "./AvatarSystem";
-import { InputManager } from "./InputManager";
+import { Structures } from "../../../core/game/Game";
+import { GameUpdateType } from "../../../core/game/GameUpdates";
 import {
   getDropIntervalSec,
   getMaxActiveDrops,
@@ -23,12 +19,17 @@ import {
   loadMutators,
   MatchMutators,
 } from "../../components/LobbySettings";
+import { TransformHandler } from "../../TransformHandler";
+import { MoveWarshipIntentEvent, SendAttackIntentEvent } from "../../Transport";
+import { GameView } from "../../view/GameView";
+import { loadAvatarConfig } from "./AvatarSystem";
 import {
   DualLayerEngine,
   DualLayerEngineConfig,
   DynamicUnitItem,
   StaticTerrainData,
 } from "./DualLayerEngine";
+import { InputManager } from "./InputManager";
 
 export interface DualLayerSetupOptions extends Partial<DualLayerEngineConfig> {
   gameView?: GameView;
@@ -117,7 +118,10 @@ export function setupDualLayerEngine(
         targetY = gameView.y(e.targetTile);
       } else if (e.targetID !== null && e.targetID !== undefined) {
         const targetPlayer = gameView.player(e.targetID);
-        if (targetPlayer?.state?.spawnTile !== undefined && targetPlayer.state.spawnTile !== null) {
+        if (
+          targetPlayer?.state?.spawnTile !== undefined &&
+          targetPlayer.state.spawnTile !== null
+        ) {
           targetX = gameView.x(targetPlayer.state.spawnTile);
           targetY = gameView.y(targetPlayer.state.spawnTile);
         }
@@ -173,7 +177,11 @@ export function setupDualLayerEngine(
 
     // Register local player's capital avatar once spawned
     const myPlayer = gameView.myPlayer();
-    if (myPlayer && myPlayer.state?.spawnTile !== undefined && myPlayer.state?.spawnTile !== null) {
+    if (
+      myPlayer &&
+      myPlayer.state?.spawnTile !== undefined &&
+      myPlayer.state?.spawnTile !== null
+    ) {
       const capTile = myPlayer.state.spawnTile;
       const cx = gameView.x(capTile);
       const cy = gameView.y(capTile);
@@ -232,12 +240,8 @@ export function setupDualLayerEngine(
 
     // Camera synchronization from TransformHandler (when running standalone without an external frame loop)
     if (transformHandler && options.autoStart !== false) {
-      const centerX =
-        transformHandler.offsetX +
-        gameView.width() / 2;
-      const centerY =
-        transformHandler.offsetY +
-        gameView.height() / 2;
+      const centerX = transformHandler.offsetX + gameView.width() / 2;
+      const centerY = transformHandler.offsetY + gameView.height() / 2;
       engine.setCamera(centerX, centerY, transformHandler.scale);
     }
 
@@ -307,11 +311,25 @@ export function setupDualLayerEngine(
           const y = gameView.y(b.tile);
           if (b.gold !== 0) {
             const prefix = b.gold > 0 ? "+" : "";
-            engine.spawnFloatingText(`${prefix}${b.gold} Gold`, x, y, "loot", "#facc15", 1000);
+            engine.spawnFloatingText(
+              `${prefix}${b.gold} Gold`,
+              x,
+              y,
+              "loot",
+              "#facc15",
+              1000,
+            );
           }
           if (b.troops !== 0) {
             const prefix = b.troops > 0 ? "+" : "";
-            engine.spawnFloatingText(`${prefix}${b.troops} Troops`, x, y - 6, "combat", "#60a5fa", 1000);
+            engine.spawnFloatingText(
+              `${prefix}${b.troops} Troops`,
+              x,
+              y - 6,
+              "combat",
+              "#60a5fa",
+              1000,
+            );
           }
         }
       }
@@ -363,14 +381,20 @@ export function setupDualLayerEngine(
         engine.audioEngine.playExplosionShake();
         engine.audioEngine.playDropClaim();
 
-        const claimer = gameView.playerBySmallID ? gameView.playerBySmallID(claimingPlayerId) : null;
+        const claimer = gameView.playerBySmallID
+          ? gameView.playerBySmallID(claimingPlayerId)
+          : null;
         let claimerName = `Player ${claimingPlayerId}`;
         let claimerColor = "#3b82f6";
         if (claimer && "isPlayer" in claimer && claimer.isPlayer()) {
           claimerName = claimer.displayName();
           claimerColor = claimer.territoryColor()?.toHex() ?? "#3b82f6";
         }
-        engine.analytics.recordCrateSecured(claimingPlayerId, claimerName, claimerColor);
+        engine.analytics.recordCrateSecured(
+          claimingPlayerId,
+          claimerName,
+          claimerColor,
+        );
 
         if (myPlayer && claimingPlayerId === myPlayer.smallID()) {
           engine.avatarSystem.triggerVictory(myPlayer.id(), 2500);
@@ -399,8 +423,11 @@ export function setupDualLayerEngine(
           isActive: true,
         });
 
+        const isStructure = Structures.has(u.type());
+
         // Spawn trail particle behind moving units (capped at 120 particles by spawnTrailParticle)
-        if (Math.random() < 0.35) {
+        // Stationary structures (cities, factories, ports, defense posts, etc.) do not spawn motion trails
+        if (!isStructure && Math.random() < 0.35) {
           engine.spawnTrailParticle(
             ux,
             uy,
@@ -428,7 +455,8 @@ export function setupDualLayerEngine(
         if (!p || !p.isPlayer() || !p.isAlive()) continue;
 
         const tileCount = p.numTilesOwned();
-        const territoryPercent = totalTiles > 0 ? (tileCount / totalTiles) * 100 : 0;
+        const territoryPercent =
+          totalTiles > 0 ? (tileCount / totalTiles) * 100 : 0;
         const troops = p.troops();
 
         snapshots.push({

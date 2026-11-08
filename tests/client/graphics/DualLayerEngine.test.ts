@@ -257,9 +257,30 @@ describe("OpenFront Dual-Layer Graphics Engine", () => {
     it("batches text operations to avoid repeated context font switching", () => {
       const engine = new DualLayerEngine({ container });
 
-      const textMarker1 = engine.pools.spawnFloatingText("500", 100, 100, "combat", "#ef4444", 1000);
-      const textMarker2 = engine.pools.spawnFloatingText("1000", 120, 120, "combat", "#ef4444", 1000);
-      const textMarker3 = engine.pools.spawnFloatingText("DROP", 200, 200, "loot", "#f59e0b", 1000);
+      const textMarker1 = engine.pools.spawnFloatingText(
+        "500",
+        100,
+        100,
+        "combat",
+        "#ef4444",
+        1000,
+      );
+      const textMarker2 = engine.pools.spawnFloatingText(
+        "1000",
+        120,
+        120,
+        "combat",
+        "#ef4444",
+        1000,
+      );
+      const textMarker3 = engine.pools.spawnFloatingText(
+        "DROP",
+        200,
+        200,
+        "loot",
+        "#f59e0b",
+        1000,
+      );
 
       expect(textMarker1).not.toBeNull();
       expect(textMarker2).not.toBeNull();
@@ -595,6 +616,111 @@ describe("OpenFront Dual-Layer Graphics Engine", () => {
   });
 
   // ============================================================
+  // SPECIFICATION: OBJECT RENDERING AND OCCLUSION PREVENTION
+  // ============================================================
+
+  describe("Object Rendering and Occlusion Prevention", () => {
+    it("does not render opaque base circles over dynamic units to prevent occluding WebGL sprites", () => {
+      const engine = new DualLayerEngine({ container });
+
+      engine.setUnits([
+        {
+          id: 1,
+          x: 100,
+          y: 100,
+          troops: 0,
+          color: "#ff0000",
+          type: "City",
+          isActive: true,
+        },
+        {
+          id: 2,
+          x: 150,
+          y: 150,
+          troops: 0,
+          color: "#00ff00",
+          type: "Trade Ship",
+          isActive: true,
+        },
+        {
+          id: 3,
+          x: 200,
+          y: 200,
+          troops: 0,
+          color: "#0000ff",
+          type: "Warship",
+          isActive: true,
+        },
+      ]);
+
+      const fillSpy = vi.spyOn(engine.dynamicCtx, "fill");
+      const arcSpy = vi.spyOn(engine.dynamicCtx, "arc");
+
+      engine.renderDynamicLayer(16.6);
+
+      // Must not call ctx.fill() or ctx.arc() for unit base circles
+      // (avoids occluding WebGL StructurePass / UnitPass sprites)
+      expect(fillSpy).not.toHaveBeenCalled();
+      expect(arcSpy).not.toHaveBeenCalled();
+
+      engine.destroy();
+    });
+
+    it("renders selection outlines with stroke only without filling base circles", () => {
+      const engine = new DualLayerEngine({ container });
+
+      engine.setUnits([
+        {
+          id: 1,
+          x: 100,
+          y: 100,
+          troops: 0,
+          color: "#ff0000",
+          type: "Warship",
+          isActive: true,
+          isSelected: true,
+        },
+      ]);
+
+      const strokeSpy = vi.spyOn(engine.dynamicCtx, "stroke");
+      const fillSpy = vi.spyOn(engine.dynamicCtx, "fill");
+
+      engine.renderDynamicLayer(16.6);
+
+      // Selection ring strokes outline
+      expect(strokeSpy).toHaveBeenCalled();
+      // But never fills an opaque circle
+      expect(fillSpy).not.toHaveBeenCalled();
+
+      engine.destroy();
+    });
+
+    it("queues troop count text when troops > 0 without drawing base circle", () => {
+      const engine = new DualLayerEngine({ container });
+
+      engine.setUnits([
+        {
+          id: 1,
+          x: 100,
+          y: 100,
+          troops: 1500,
+          color: "#ff0000",
+          type: "Troop",
+          isActive: true,
+        },
+      ]);
+
+      const fillSpy = vi.spyOn(engine.dynamicCtx, "fill");
+
+      engine.renderDynamicLayer(16.6);
+
+      expect(fillSpy).not.toHaveBeenCalled();
+
+      engine.destroy();
+    });
+  });
+
+  // ============================================================
   // SETUP SCRIPT & LIFECYCLE
   // ============================================================
 
@@ -605,8 +731,12 @@ describe("OpenFront Dual-Layer Graphics Engine", () => {
       });
 
       expect(handle.engine).toBeDefined();
-      expect(container.querySelector(".openfront-static-canvas")).not.toBeNull();
-      expect(container.querySelector(".openfront-dynamic-canvas")).not.toBeNull();
+      expect(
+        container.querySelector(".openfront-static-canvas"),
+      ).not.toBeNull();
+      expect(
+        container.querySelector(".openfront-dynamic-canvas"),
+      ).not.toBeNull();
 
       handle.syncWithSimulation();
 
@@ -614,6 +744,71 @@ describe("OpenFront Dual-Layer Graphics Engine", () => {
       handle.dispose();
       expect(container.querySelector(".openfront-static-canvas")).toBeNull();
       expect(container.querySelector(".openfront-dynamic-canvas")).toBeNull();
+    });
+    it("does not spawn motion trail particles for stationary structures during simulation sync", () => {
+      const mockGameView = {
+        width: () => 100,
+        height: () => 100,
+        myPlayer: () => null,
+        players: () => [],
+        updatesSinceLastTick: () => null,
+        units: () => [
+          {
+            isActive: () => true,
+            type: () => "City",
+            tile: () => 50,
+            owner: () => ({
+              territoryColor: () => ({ toHex: () => "#ff0000" }),
+            }),
+            id: () => 1,
+          },
+          {
+            isActive: () => true,
+            type: () => "Factory",
+            tile: () => 51,
+            owner: () => ({
+              territoryColor: () => ({ toHex: () => "#ff0000" }),
+            }),
+            id: () => 2,
+          },
+          {
+            isActive: () => true,
+            type: () => "Port",
+            tile: () => 52,
+            owner: () => ({
+              territoryColor: () => ({ toHex: () => "#ff0000" }),
+            }),
+            id: () => 3,
+          },
+          {
+            isActive: () => true,
+            type: () => "Defense Post",
+            tile: () => 53,
+            owner: () => ({
+              territoryColor: () => ({ toHex: () => "#ff0000" }),
+            }),
+            id: () => 4,
+          },
+        ],
+        x: (tile: number) => tile,
+        y: (tile: number) => tile,
+      } as any;
+
+      const handle = setupDualLayerEngine(container, {
+        gameView: mockGameView,
+        autoStart: false,
+      });
+
+      const particleSpy = vi.spyOn(handle.engine, "spawnTrailParticle");
+
+      for (let i = 0; i < 20; i++) {
+        handle.syncWithSimulation();
+      }
+
+      // No motion trails spawned for stationary structures
+      expect(particleSpy).not.toHaveBeenCalled();
+
+      handle.dispose();
     });
   });
 });
