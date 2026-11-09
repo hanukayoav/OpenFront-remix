@@ -2,8 +2,8 @@ import { LitElement, html } from "lit";
 import { customElement } from "lit/decorators.js";
 import { assetUrl } from "../../core/AssetUrls";
 import { crazyGamesSDK } from "../CrazyGamesSDK";
-import "./CosmeticBackground";
 import "./AvatarCustomizer";
+import "./CosmeticBackground";
 import "./LobbySettings";
 import "./NewsBox";
 import "./SteamWishlist";
@@ -60,8 +60,8 @@ export class PlayPage extends LitElement {
               class="col-start-2 flex items-center justify-center text-malibu-blue min-w-0"
             >
               <img
-                src=${assetUrl("images/OpenFrontLogo.svg")}
-                alt="OpenFront"
+                src=${assetUrl("images/FrontierXLogo.svg")}
+                alt="FrontierX"
                 class="h-full w-auto"
               />
             </div>
