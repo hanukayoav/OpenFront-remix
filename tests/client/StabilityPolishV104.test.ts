@@ -1,17 +1,17 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { EventBus } from "../../src/core/EventBus";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ContextMenuEvent,
   InputHandler,
   MouseUpEvent,
-  ContextMenuEvent,
 } from "../../src/client/InputHandler";
+import type { TransformHandler } from "../../src/client/TransformHandler";
+import type { UIState } from "../../src/client/UIState";
 import { GameRenderer } from "../../src/client/hud/GameRenderer";
 import { GameLeftSidebar } from "../../src/client/hud/layers/GameLeftSidebar";
-import type { GameView } from "../../src/client/view";
-import { GameMode } from "../../src/core/game/Game";
-import type { UIState } from "../../src/client/UIState";
-import type { TransformHandler } from "../../src/client/TransformHandler";
 import type { PerformanceOverlay } from "../../src/client/hud/layers/PerformanceOverlay";
+import type { GameView } from "../../src/client/view";
+import { EventBus } from "../../src/core/EventBus";
+import { GameMode } from "../../src/core/game/Game";
 
 describe("Stability and Polish v1.0.4 Regressions", () => {
   beforeEach(() => {
@@ -84,7 +84,10 @@ describe("Stability and Polish v1.0.4 Regressions", () => {
         contextMenuFired = true;
       });
 
-      const downEvt = new Event("pointerdown", { bubbles: true, cancelable: true });
+      const downEvt = new Event("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+      });
       Object.assign(downEvt, {
         pointerId: 1,
         pointerType: "touch",
@@ -137,7 +140,10 @@ describe("Stability and Polish v1.0.4 Regressions", () => {
         contextMenuFired = true;
       });
 
-      const downEvt = new Event("pointerdown", { bubbles: true, cancelable: true });
+      const downEvt = new Event("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+      });
       Object.assign(downEvt, {
         pointerId: 1,
         pointerType: "touch",
@@ -239,7 +245,9 @@ describe("Stability and Polish v1.0.4 Regressions", () => {
       sidebar.init();
       await sidebar.updateComplete;
 
-      const playerStats = sidebar.querySelector("player-stats") as HTMLElement & {
+      const playerStats = sidebar.querySelector(
+        "player-stats",
+      ) as HTMLElement & {
         visible: boolean;
       };
       expect(playerStats.visible).toBe(true);
@@ -263,7 +271,9 @@ describe("Stability and Polish v1.0.4 Regressions", () => {
       sidebar.init();
       await sidebar.updateComplete;
 
-      const playerStats = sidebar.querySelector("player-stats") as HTMLElement & {
+      const playerStats = sidebar.querySelector(
+        "player-stats",
+      ) as HTMLElement & {
         visible: boolean;
       };
       expect(playerStats.visible).toBe(false);
