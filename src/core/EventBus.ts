@@ -41,4 +41,8 @@ export class EventBus {
       }
     }
   }
+
+  clear(): void {
+    this.listeners.clear();
+  }
 }

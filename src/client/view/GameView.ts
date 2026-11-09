@@ -280,6 +280,10 @@ export class GameView implements GameMap {
     this._unitsByOwnerStale = true;
 
     this.toDelete.forEach((id) => {
+      const u = this._unitStates.get(id);
+      if (u && STRUCTURE_TYPES.has(u.unitType)) {
+        this._structuresDirty = true;
+      }
       this._units.delete(id);
       this._unitStates.delete(id);
     });

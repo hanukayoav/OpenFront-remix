@@ -355,6 +355,7 @@ export function createRenderer(
 
 export class GameRenderer {
   private layerTickState = new Map<Controller, { lastTickAtMs: number }>();
+  private onResize: (() => void) | null = null;
 
   constructor(
     public transformHandler: TransformHandler,
@@ -370,9 +371,8 @@ export class GameRenderer {
 
     this.layers.forEach((l) => l.init?.());
 
-    window.addEventListener("resize", () =>
-      this.transformHandler.updateCanvasBoundingRect(),
-    );
+    this.onResize = () => this.transformHandler.updateCanvasBoundingRect();
+    window.addEventListener("resize", this.onResize);
 
     //show whole map on startup
     this.transformHandler.centerAll(0.9);
@@ -414,5 +414,32 @@ export class GameRenderer {
     if (shouldProfileTick) {
       this.performanceOverlay.updateTickLayerMetrics(tickLayerDurations);
     }
+  }
+
+  destroy(): void {
+    if (this.onResize !== null) {
+      window.removeEventListener("resize", this.onResize);
+      this.onResize = null;
+    }
+    if (this.layers) {
+      for (const layer of this.layers) {
+        if (
+          "destroy" in layer &&
+          typeof (layer as { destroy?: () => void }).destroy === "function"
+        ) {
+          (layer as { destroy: () => void }).destroy();
+        } else if (
+          "dispose" in layer &&
+          typeof (layer as { dispose?: () => void }).dispose === "function"
+        ) {
+          (layer as { dispose: () => void }).dispose();
+        }
+      }
+    }
+    this.layerTickState.clear();
+  }
+
+  dispose(): void {
+    this.destroy();
   }
 }

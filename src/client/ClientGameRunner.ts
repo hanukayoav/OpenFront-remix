@@ -51,11 +51,6 @@ import {
 } from "./InputHandler";
 import { endGame, startGame, startTime } from "./LocalPersistantStats";
 import { terrainMapFileLoader } from "./TerrainMapFileLoader";
-import {
-  DualLayerEngine,
-  DualLayerEngineHandle,
-  setupDualLayerEngine,
-} from "./graphics/engine";
 import { GoToPlayerEvent } from "./TransformHandler";
 import {
   MoveWarshipIntentEvent,
@@ -73,6 +68,11 @@ import {
 import { createCanvas } from "./Utils";
 import { WebGLFrameBuilder } from "./WebGLFrameBuilder";
 import { MapLayerController } from "./controllers/MapLayerController";
+import {
+  DualLayerEngine,
+  DualLayerEngineHandle,
+  setupDualLayerEngine,
+} from "./graphics/engine";
 import { createRenderer, GameRenderer } from "./hud/GameRenderer";
 import {
   applyGraphicsOverrides,
@@ -715,7 +715,9 @@ async function createClientGame(
       transformHandler: gameRenderer.transformHandler,
       autoStart: false,
     });
-    (window as unknown as { dualLayerEngine?: DualLayerEngine }).dualLayerEngine = dualLayerHandle.engine;
+    (
+      window as unknown as { dualLayerEngine?: DualLayerEngine }
+    ).dualLayerEngine = dualLayerHandle.engine;
 
     const { builder: webglBuilder, stopFrameLoop } = mountWebGLFrameLoop(
       gameMap,
@@ -742,7 +744,8 @@ async function createClientGame(
       inputOverlay.remove();
       dualLayerHandle.dispose();
       dualLayerContainer.remove();
-      delete (window as unknown as { dualLayerEngine?: DualLayerEngine }).dualLayerEngine;
+      delete (window as unknown as { dualLayerEngine?: DualLayerEngine })
+        .dualLayerEngine;
     };
 
     console.log(
@@ -1065,6 +1068,9 @@ export class ClientGameRunner {
     this.soundManager.dispose();
     this.graphicsListenerAbort?.abort();
     this.disposeRenderer?.();
+    this.input.destroy();
+    this.renderer.destroy();
+    this.eventBus.clear();
     if (!this.isActive) return;
 
     this.isActive = false;
@@ -1114,12 +1120,13 @@ export class ClientGameRunner {
 
     // Intercept clicks on active supply crates to claim directly without attacking
     if (this.dualLayerHandle) {
-      const claimResult = this.dualLayerHandle.engine.supplyDropManager.tryClaimAt(
-        cell.x,
-        cell.y,
-        this.myPlayer,
-        (t) => this.gameView.ownerID(t),
-      );
+      const claimResult =
+        this.dualLayerHandle.engine.supplyDropManager.tryClaimAt(
+          cell.x,
+          cell.y,
+          this.myPlayer,
+          (t) => this.gameView.ownerID(t),
+        );
       if (claimResult.handled) {
         if (!claimResult.success && claimResult.message) {
           this.dualLayerHandle.engine.pools.spawnFloatingText(
@@ -1455,7 +1462,10 @@ export class ClientGameRunner {
         event.x,
         event.y,
       );
-      this.dualLayerHandle.engine.supplyDropManager.setHoverCoord(cell.x, cell.y);
+      this.dualLayerHandle.engine.supplyDropManager.setHoverCoord(
+        cell.x,
+        cell.y,
+      );
     }
   }
 
