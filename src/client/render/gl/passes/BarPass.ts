@@ -208,7 +208,9 @@ export class BarPass {
       gl.bufferSubData(
         gl.ARRAY_BUFFER,
         0,
-        this.healthData.subarray(0, this.healthCount * FLOATS_PER_INSTANCE),
+        this.healthData,
+        0,
+        this.healthCount * FLOATS_PER_INSTANCE,
       );
       gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, this.healthCount);
     }
@@ -221,7 +223,9 @@ export class BarPass {
       gl.bufferSubData(
         gl.ARRAY_BUFFER,
         0,
-        this.progressData.subarray(0, this.progressCount * FLOATS_PER_INSTANCE),
+        this.progressData,
+        0,
+        this.progressCount * FLOATS_PER_INSTANCE,
       );
       gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, this.progressCount);
     }
@@ -241,10 +245,9 @@ export class BarPass {
       gl.bufferSubData(
         gl.ARRAY_BUFFER,
         0,
-        this.veterancyData.subarray(
-          0,
-          this.veterancyCount * FLOATS_PER_INSTANCE,
-        ),
+        this.veterancyData,
+        0,
+        this.veterancyCount * FLOATS_PER_INSTANCE,
       );
       gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, this.veterancyCount);
     }

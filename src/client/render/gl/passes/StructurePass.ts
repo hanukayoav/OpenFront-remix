@@ -100,6 +100,8 @@ export class StructurePass {
   private uIconDarken: WebGLUniformLocation;
   private uTime: WebGLUniformLocation;
   private uHoverOwner: WebGLUniformLocation;
+  private readonly cachedScales = new Float32Array(ATLAS_COLS);
+  private readonly cachedFills = new Float32Array(ATLAS_COLS);
   // Anchored at construction so the uniform stays small (float32 precision).
   private readonly startTime = performance.now();
   /** smallID of the hovered territory's owner (0 = none) — gates the effect. */
@@ -387,15 +389,13 @@ export class StructurePass {
     gl.uniform1f(this.uIconGrowZoom, ss.iconGrowZoom);
 
     // Build per-structure uniform arrays from settings, ordered by atlas column
-    const scales = new Float32Array(ATLAS_COLS);
-    const fills = new Float32Array(ATLAS_COLS);
     for (let i = 0; i < STRUCTURE_ORDER.length; i++) {
       const cfg = ss.shapes[STRUCTURE_ORDER[i]];
-      scales[i] = cfg?.scale ?? 1.0;
-      fills[i] = cfg?.iconFill ?? 0.6;
+      this.cachedScales[i] = cfg?.scale ?? 1.0;
+      this.cachedFills[i] = cfg?.iconFill ?? 0.6;
     }
-    gl.uniform1fv(this.uShapeScales, scales);
-    gl.uniform1fv(this.uIconFills, fills);
+    gl.uniform1fv(this.uShapeScales, this.cachedScales);
+    gl.uniform1fv(this.uIconFills, this.cachedFills);
 
     gl.uniform1i(
       this.uAltView,

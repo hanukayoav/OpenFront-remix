@@ -127,6 +127,8 @@ export class BuildPreviewController implements Controller {
     directionUp: boolean;
     sams: SAMInfo[];
   } | null = null;
+  private cursorLoopRunning = false;
+  private cursorRafId: number | null = null;
 
   constructor(
     private game: GameView,
@@ -153,60 +155,59 @@ export class BuildPreviewController implements Controller {
     // The shader treats (tileX + 0.5, tileY + 0.5) as the icon center (so an
     // integer tile coord centers on that tile), so we subtract 0.5 here to
     // place the icon exactly under the cursor.
-    const cursorLoop = () => {
-      const ghost = this.lastGhostData;
-      const traj = this.nukeTrajectoryStatic;
-      if (ghost !== null || traj !== null) {
-        const w = this.transformHandler.screenToWorldCoordinatesFloat(
-          this.mousePos.x,
-          this.mousePos.y,
-        );
-        if (ghost !== null) {
-          // The range circle (defense post / SAM / nuke radius) normally
-          // follows the cursor, so smooth it the same way as the icon. When
-          // upgrading, the circle is anchored to the existing structure's tile
-          // (stationary, correctly snapped) — leave it alone in that case.
-          const radiusFollowsCursor = !(
-            ghost.canUpgrade && ghost.upgradeTargetTile !== null
-          );
-          this.view.updateGhostPreview({
-            ...ghost,
-            tileX: w.x - 0.5,
-            tileY: w.y - 0.5,
-            ...(radiusFollowsCursor
-              ? { radiusTileX: w.x - 0.5, radiusTileY: w.y - 0.5 }
-              : {}),
-          });
-        }
-        if (traj !== null) {
-          // Rebuild the arc with the live cursor as the destination (same
-          // tile-center convention as the icon: shader adds +0.5).
-          const data = buildNukeTrajectory(
-            traj.srcX,
-            traj.srcY,
-            w.x - 0.5,
-            w.y - 0.5,
-            this.game.height(),
-            traj.directionUp,
-            traj.sams,
-          );
-          // Impassable terrain can't be targeted (nukeSpawn rejects it)
-          // even though nukes fly over it — mark the destination with the
-          // blocked X. Checked per frame so the X tracks the live cursor.
-          const tx = Math.floor(w.x);
-          const ty = Math.floor(w.y);
-          if (
-            this.game.isValidCoord(tx, ty) &&
-            this.game.isImpassable(this.game.ref(tx, ty))
-          ) {
-            data.tSamIntercept = Math.min(data.tSamIntercept, T_BLOCKED_DST);
-          }
-          this.view.updateNukeTrajectory(data);
-        }
+  }
+
+  private ensureCursorLoop(): void {
+    if (this.cursorLoopRunning) return;
+    this.cursorLoopRunning = true;
+    this.cursorRafId = requestAnimationFrame(this.cursorLoop);
+  }
+
+  private cursorLoop = (): void => {
+    const ghost = this.lastGhostData;
+    const traj = this.nukeTrajectoryStatic;
+    if (ghost === null && traj === null) {
+      this.cursorLoopRunning = false;
+      return;
+    }
+    const w = this.transformHandler.screenToWorldCoordinatesFloat(
+      this.mousePos.x,
+      this.mousePos.y,
+    );
+    if (ghost !== null) {
+      const radiusFollowsCursor = !(
+        ghost.canUpgrade && ghost.upgradeTargetTile !== null
+      );
+      this.view.updateGhostPreview({
+        ...ghost,
+        tileX: w.x - 0.5,
+        tileY: w.y - 0.5,
+        ...(radiusFollowsCursor
+          ? { radiusTileX: w.x - 0.5, radiusTileY: w.y - 0.5 }
+          : {}),
+      });
+    }
+    if (traj !== null) {
+      const data = buildNukeTrajectory(
+        traj.srcX,
+        traj.srcY,
+        w.x - 0.5,
+        w.y - 0.5,
+        this.game.height(),
+        traj.directionUp,
+        traj.sams,
+      );
+      const tx = Math.floor(w.x);
+      const ty = Math.floor(w.y);
+      if (
+        this.game.isValidCoord(tx, ty) &&
+        this.game.isImpassable(this.game.ref(tx, ty))
+      ) {
+        data.tSamIntercept = Math.min(data.tSamIntercept, T_BLOCKED_DST);
       }
-      requestAnimationFrame(cursorLoop);
-    };
-    requestAnimationFrame(cursorLoop);
+      this.view.updateNukeTrajectory(data);
+    }
+    this.cursorRafId = requestAnimationFrame(this.cursorLoop);
   }
 
   tick() {
@@ -360,6 +361,7 @@ export class BuildPreviewController implements Controller {
       this.view.updateGhostPreview(null);
     } else {
       this.lastGhostData = data;
+      this.ensureCursorLoop();
     }
     // The trajectory target is tracked separately from the ghost tile:
     // impassable terrain voids the ghost but still gets a trajectory arc.
@@ -488,6 +490,7 @@ export class BuildPreviewController implements Controller {
       directionUp,
       sams,
     };
+    this.ensureCursorLoop();
   }
 
   private clearNukeTrajectory(): void {

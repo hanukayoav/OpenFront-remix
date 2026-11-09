@@ -186,6 +186,7 @@ export function setupDualLayerEngine(
 
   let matchElapsedMs = 0;
   let suddenDeathTriggered = false;
+  const assignedBotPersonalities = new Set<string | number>();
 
   // Preallocated units pool and throttled trail particle counter to prevent GC spikes
   const activeUnitsPool: DynamicUnitItem[] = [];
@@ -230,8 +231,12 @@ export function setupDualLayerEngine(
       for (let i = 0; i < allPlayers.length; i++) {
         const p = allPlayers[i];
         if (!p || !p.isAlive()) continue;
-        if (myPlayer && p.id() === myPlayer.id()) continue;
-        BotAI.assignPersonality(p.id());
+        const pid = p.id();
+        if (myPlayer && pid === myPlayer.id()) continue;
+        if (!assignedBotPersonalities.has(pid)) {
+          assignedBotPersonalities.add(pid);
+          BotAI.assignPersonality(pid);
+        }
       }
     }
 

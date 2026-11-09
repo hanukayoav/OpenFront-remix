@@ -70,6 +70,9 @@ export class AttackingTroopsController implements Controller {
   private alternateView = false;
   /** Reused buffer pushed to the view each frame. */
   private labelBuf: AttackTroopLabel[] = [];
+  private isDriving = false;
+  private driveRafId: number | null = null;
+  private disposed = false;
 
   constructor(
     private readonly game: GameView,
@@ -81,13 +84,11 @@ export class AttackingTroopsController implements Controller {
   init() {
     this.eventBus.on(AlternateViewEvent, (e) => {
       this.alternateView = e.alternateView;
+      if (this.alternateView && this.labelBuf.length > 0) {
+        this.labelBuf.length = 0;
+        this.view.setAttackTroopLabels(this.labelBuf);
+      }
     });
-
-    const drive = () => {
-      this.pushLabels();
-      requestAnimationFrame(drive);
-    };
-    requestAnimationFrame(drive);
   }
 
   getTickIntervalMs() {
@@ -133,6 +134,11 @@ export class AttackingTroopsController implements Controller {
 
     for (const id of this.attacks.keys()) {
       if (!activeIDs.has(id)) this.attacks.delete(id);
+    }
+
+    if (this.attacks.size > 0 && !this.isDriving && !this.disposed && !this.alternateView) {
+      this.isDriving = true;
+      this.scheduleDrive();
     }
 
     // Single worker request per tick; skip if the previous one is still in flight.
@@ -224,17 +230,28 @@ export class AttackingTroopsController implements Controller {
     }
   }
 
+  private scheduleDrive(): void {
+    if (!this.isDriving || this.disposed) return;
+    this.driveRafId = requestAnimationFrame(() => {
+      this.pushLabels();
+      if (this.isDriving && !this.disposed) {
+        this.scheduleDrive();
+      }
+    });
+  }
+
   private pushLabels(): void {
     if (this.alternateView || this.attacks.size === 0) {
       if (this.labelBuf.length > 0) {
-        this.labelBuf = [];
+        this.labelBuf.length = 0;
         this.view.setAttackTroopLabels(this.labelBuf);
       }
+      this.isDriving = false;
       return;
     }
 
     const now = performance.now();
-    const out: AttackTroopLabel[] = [];
+    let labelIdx = 0;
 
     for (const entry of this.attacks.values()) {
       const r = entry.isIncoming ? INCOMING_R : OUTGOING_R;
@@ -244,18 +261,41 @@ export class AttackingTroopsController implements Controller {
         const t = Math.min(1, (now - slot.startMs) / ANIM_MS);
         slot.curX = slot.srcX + (slot.dstX - slot.srcX) * t;
         slot.curY = slot.srcY + (slot.dstY - slot.srcY) * t;
-        out.push({
-          x: slot.curX,
-          y: slot.curY,
-          text: entry.text,
-          colorR: r,
-          colorG: g,
-          colorB: b,
-        });
+        let item = this.labelBuf[labelIdx];
+        if (!item) {
+          item = {
+            x: slot.curX,
+            y: slot.curY,
+            text: entry.text,
+            colorR: r,
+            colorG: g,
+            colorB: b,
+          };
+          this.labelBuf[labelIdx] = item;
+        } else {
+          item.x = slot.curX;
+          item.y = slot.curY;
+          item.text = entry.text;
+          item.colorR = r;
+          item.colorG = g;
+          item.colorB = b;
+        }
+        labelIdx++;
       }
     }
 
-    this.labelBuf = out;
-    this.view.setAttackTroopLabels(out);
+    this.labelBuf.length = labelIdx;
+    this.view.setAttackTroopLabels(this.labelBuf);
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.isDriving = false;
+    if (this.driveRafId !== null) {
+      cancelAnimationFrame(this.driveRafId);
+      this.driveRafId = null;
+    }
+    this.attacks.clear();
+    this.labelBuf.length = 0;
   }
 }

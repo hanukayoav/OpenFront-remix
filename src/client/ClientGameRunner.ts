@@ -411,6 +411,7 @@ function mountWebGLFrameLoop(
   gameView: GameView,
   eventBus: EventBus,
   dualLayerHandle?: DualLayerEngineHandle,
+  userSettings?: UserSettings,
 ): { builder: WebGLFrameBuilder; stopFrameLoop: () => void } {
   const gameMap = terrainMap.gameMap;
   const mapWidth = gameMap.width();
@@ -473,9 +474,30 @@ function mountWebGLFrameLoop(
   // synchronized camera-update + WebGL render.
   let rafId: number | null = null;
   let lastDriveTime = performance.now();
+  let lastRenderTime = performance.now();
+  const maxFps = userSettings ? userSettings.maxFps() : 60;
+  const minIntervalMs = maxFps > 0 ? 1000 / maxFps : 0;
+
   const driveFrame = (time: number): void => {
+    // 1. Skip rendering if document is hidden to eliminate background CPU/GPU duty cycle
+    if (typeof document !== "undefined" && document.hidden) {
+      rafId = requestAnimationFrame(driveFrame);
+      return;
+    }
+
+    // 2. Frame pacing: clamp to target cadence (default 60 FPS) to eliminate fan noise
+    if (minIntervalMs > 0) {
+      const elapsedSinceRender = time - lastRenderTime;
+      if (elapsedSinceRender < minIntervalMs - 1.5) {
+        rafId = requestAnimationFrame(driveFrame);
+        return;
+      }
+    }
+
     const deltaMs = Math.min(time - lastDriveTime, 100);
     lastDriveTime = time;
+    lastRenderTime = time;
+
     syncCamera();
     dualLayerHandle?.engine.step(deltaMs, time);
     rafId = requestAnimationFrame(driveFrame);
@@ -728,6 +750,7 @@ async function createClientGame(
       gameView,
       eventBus,
       dualLayerHandle,
+      userSettings,
     );
 
     // Releases all WebGL/DOM resources this game created. Without it, stopping

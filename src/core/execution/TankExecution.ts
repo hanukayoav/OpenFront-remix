@@ -136,6 +136,45 @@ export function findTankPath(
   return fastTankAStar.findPath(mg, start, goal, owner);
 }
 
+class BorderWaypointContext {
+  private stamp = 1;
+  private unvisitedStamp: Uint32Array = new Uint32Array(0);
+  private degrees: Int16Array = new Int16Array(0);
+  private capacity = 0;
+
+  public enemyBorders: TileRef[] = [];
+  public neutralBorders: TileRef[] = [];
+  public coastalBorders: TileRef[] = [];
+  public endpoints: TileRef[] = [];
+  public ordered: TileRef[] = [];
+
+  ensureCapacity(numTiles: number): void {
+    if (this.capacity >= numTiles) return;
+    this.capacity = numTiles;
+    this.unvisitedStamp = new Uint32Array(numTiles);
+    this.degrees = new Int16Array(numTiles);
+  }
+
+  nextStamp(): number {
+    this.stamp++;
+    if (this.stamp >= 0xffffffff) {
+      this.unvisitedStamp.fill(0);
+      this.stamp = 1;
+    }
+    return this.stamp;
+  }
+
+  getUnvisitedStamp(): Uint32Array {
+    return this.unvisitedStamp;
+  }
+
+  getDegrees(): Int16Array {
+    return this.degrees;
+  }
+}
+
+const borderWaypointCtx = new BorderWaypointContext();
+
 export function computeHostileBorderWaypoints(
   mg: Game,
   player: Player,
@@ -144,16 +183,22 @@ export function computeHostileBorderWaypoints(
 ): TileRef[] {
   if (numTanks <= 0) return [];
   const map = mg.map();
-  const borderTiles = Array.from(player.borderTiles());
+  const numTiles = map.width() * map.height();
+  borderWaypointCtx.ensureCapacity(numTiles);
+  const stamp = borderWaypointCtx.nextStamp();
+  const unvisitedStamp = borderWaypointCtx.getUnvisitedStamp();
+  const degrees = borderWaypointCtx.getDegrees();
+
+  const enemyBorders = borderWaypointCtx.enemyBorders;
+  const neutralBorders = borderWaypointCtx.neutralBorders;
+  const coastalBorders = borderWaypointCtx.coastalBorders;
+  enemyBorders.length = 0;
+  neutralBorders.length = 0;
+  coastalBorders.length = 0;
+
   const nbuf: TileRef[] = [0, 0, 0, 0];
 
-  // 1. Filter hostile/contested border tiles
-  const enemyBorders: TileRef[] = [];
-  const neutralBorders: TileRef[] = [];
-  const coastalBorders: TileRef[] = [];
-
-  for (let i = 0; i < borderTiles.length; i++) {
-    const b = borderTiles[i];
+  for (const b of player.borderTiles()) {
     let isEnemy = false;
     let isNeutral = false;
     let isCoast = false;
@@ -195,21 +240,21 @@ export function computeHostileBorderWaypoints(
   // 2. Order into connected chains in O(M) time
   // Sort candidate tiles ascending for strict determinism
   candidateTiles.sort((a, b) => a - b);
-  const unvisited = new Set<TileRef>(candidateTiles);
-  const ordered: TileRef[] = [];
+  for (let i = 0; i < candidateTiles.length; i++) {
+    unvisitedStamp[candidateTiles[i]] = stamp;
+  }
 
-  // Precompute degrees of candidate tiles within the unvisited set
-  const degrees = new Map<TileRef, number>();
-  const endpoints: TileRef[] = [];
+  const endpoints = borderWaypointCtx.endpoints;
+  endpoints.length = 0;
 
   for (let i = 0; i < candidateTiles.length; i++) {
     const tile = candidateTiles[i];
     let deg = 0;
     const count = map.neighbors4(tile, nbuf);
     for (let j = 0; j < count; j++) {
-      if (unvisited.has(nbuf[j])) deg++;
+      if (unvisitedStamp[nbuf[j]] === stamp) deg++;
     }
-    degrees.set(tile, deg);
+    degrees[tile] = deg;
     if (deg <= 1) {
       endpoints.push(tile);
     }
@@ -217,13 +262,16 @@ export function computeHostileBorderWaypoints(
 
   let endpointIdx = 0;
   let candidateIdx = 0;
+  let unvisitedCount = candidateTiles.length;
+  const ordered = borderWaypointCtx.ordered;
+  ordered.length = 0;
 
-  while (unvisited.size > 0) {
+  while (unvisitedCount > 0) {
     // Select start node: prefer endpoints (degree <= 1), else lowest coord
     let startNode: TileRef = -1;
     while (endpointIdx < endpoints.length) {
       const ep = endpoints[endpointIdx++];
-      if (unvisited.has(ep)) {
+      if (unvisitedStamp[ep] === stamp) {
         startNode = ep;
         break;
       }
@@ -231,7 +279,7 @@ export function computeHostileBorderWaypoints(
     if (startNode === -1) {
       while (candidateIdx < candidateTiles.length) {
         const c = candidateTiles[candidateIdx++];
-        if (unvisited.has(c)) {
+        if (unvisitedStamp[c] === stamp) {
           startNode = c;
           break;
         }
@@ -241,7 +289,8 @@ export function computeHostileBorderWaypoints(
 
     let curr: TileRef | null = startNode;
     while (curr !== null) {
-      unvisited.delete(curr);
+      unvisitedStamp[curr] = 0;
+      unvisitedCount--;
       ordered.push(curr);
 
       let next: TileRef | null = null;
@@ -249,9 +298,8 @@ export function computeHostileBorderWaypoints(
       const count = map.neighbors4(curr, nbuf);
       for (let i = 0; i < count; i++) {
         const neighbor = nbuf[i];
-        if (unvisited.has(neighbor)) {
-          const d = degrees.get(neighbor) ?? 1;
-          degrees.set(neighbor, d - 1);
+        if (unvisitedStamp[neighbor] === stamp) {
+          degrees[neighbor]--;
           if (neighbor < nextCoord) {
             nextCoord = neighbor;
             next = neighbor;
