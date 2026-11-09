@@ -61,9 +61,26 @@ export class GameLeftSidebar extends LitElement implements Controller {
     if (this.isTeamGame) {
       this.isPlayerTeamLabelVisible = true;
     }
-    // Make it visible by default on large screens
-    if (Platform.isDesktopWidth) {
-      this.showPlayerStatsAfterSpawn = true;
+    // Restore persisted preference or default to visible on desktop
+    try {
+      const savedPlayerStats = localStorage.getItem(
+        "openfront_leaderboard_open",
+      );
+      if (savedPlayerStats !== null) {
+        this.isPlayerStatsShown = savedPlayerStats === "true";
+      } else if (Platform.isDesktopWidth) {
+        this.showPlayerStatsAfterSpawn = true;
+      }
+      const savedTeamStats = localStorage.getItem(
+        "openfront_team_leaderboard_open",
+      );
+      if (savedTeamStats !== null) {
+        this.isTeamStatsShown = savedTeamStats === "true";
+      }
+    } catch {
+      if (Platform.isDesktopWidth) {
+        this.showPlayerStatsAfterSpawn = true;
+      }
     }
   }
 
@@ -83,6 +100,11 @@ export class GameLeftSidebar extends LitElement implements Controller {
     if (this.showPlayerStatsAfterSpawn && !this.game.inSpawnPhase()) {
       this.showPlayerStatsAfterSpawn = false;
       this.isPlayerStatsShown = true;
+      try {
+        localStorage.setItem("openfront_leaderboard_open", "true");
+      } catch {
+        // Ignore storage errors
+      }
     }
 
     if (!this.game.inSpawnPhase() && this.isPlayerTeamLabelVisible) {
@@ -98,11 +120,28 @@ export class GameLeftSidebar extends LitElement implements Controller {
   }
 
   private togglePlayerStats(): void {
+    this.showPlayerStatsAfterSpawn = false;
     this.isPlayerStatsShown = !this.isPlayerStatsShown;
+    try {
+      localStorage.setItem(
+        "openfront_leaderboard_open",
+        String(this.isPlayerStatsShown),
+      );
+    } catch {
+      // Ignore storage errors
+    }
   }
 
   private toggleTeamStats(): void {
     this.isTeamStatsShown = !this.isTeamStatsShown;
+    try {
+      localStorage.setItem(
+        "openfront_team_leaderboard_open",
+        String(this.isTeamStatsShown),
+      );
+    } catch {
+      // Ignore storage errors
+    }
   }
 
   private get isTeamGame(): boolean {

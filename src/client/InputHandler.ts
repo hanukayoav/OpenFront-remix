@@ -260,6 +260,19 @@ export class InputHandler {
   private readonly LONG_PRESS_MS = 800;
 
   private moveInterval: NodeJS.Timeout | null = null;
+  private cleanupFns: Array<() => void> = [];
+
+  private addDomListener(
+    target: EventTarget,
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | AddEventListenerOptions,
+  ): void {
+    target.addEventListener(type, listener, options);
+    this.cleanupFns.push(() =>
+      target.removeEventListener(type, listener, options),
+    );
+  }
   private activeKeys = new Set<string>();
   private keybinds: Record<string, string> = {};
   private keybindAndEvent: Array<[string, KeybindEntry]> = [];
@@ -461,55 +474,68 @@ export class InputHandler {
       }
     });
 
-    this.canvas.addEventListener("pointerdown", (e) => this.onPointerDown(e));
-    window.addEventListener("pointerup", (e) => this.onPointerUp(e));
-    window.addEventListener("pointercancel", (e) => this.onPointerUp(e));
-    this.canvas.addEventListener(
+    this.addDomListener(this.canvas, "pointerdown", (e) =>
+      this.onPointerDown(e as PointerEvent),
+    );
+    this.addDomListener(window, "pointerup", (e) =>
+      this.onPointerUp(e as PointerEvent),
+    );
+    this.addDomListener(window, "pointercancel", (e) =>
+      this.onPointerUp(e as PointerEvent),
+    );
+    this.addDomListener(
+      this.canvas,
       "wheel",
-      (e) => {
+      ((e: WheelEvent) => {
         this.onScroll(e);
         this.onShiftScroll(e);
         e.preventDefault();
-      },
+      }) as EventListener,
       { passive: false },
     );
     // Safari trackpad pinch, which fires no ctrl+wheel event.
-    this.canvas.addEventListener(
+    this.addDomListener(
+      this.canvas,
       "gesturestart",
-      (e) => {
+      ((e: Event) => {
         e.preventDefault();
         this.lastGestureScale = (e as WebKitGestureEvent).scale;
-      },
+      }) as EventListener,
       { passive: false },
     );
-    this.canvas.addEventListener(
+    this.addDomListener(
+      this.canvas,
       "gesturechange",
-      (e) => {
+      ((e: Event) => {
         e.preventDefault();
         this.onGestureChange(e as WebKitGestureEvent);
-      },
+      }) as EventListener,
       { passive: false },
     );
-    this.canvas.addEventListener(
+    this.addDomListener(
+      this.canvas,
       "gestureend",
-      (e) => {
+      ((e: Event) => {
         e.preventDefault();
         this.lastGestureScale = null;
-      },
+      }) as EventListener,
       { passive: false },
     );
-    window.addEventListener("pointermove", this.onPointerMove.bind(this));
-    this.canvas.addEventListener("contextmenu", (e) => this.onContextMenu(e));
-    window.addEventListener("mousemove", (e) => {
+    const pointerMoveHandler = (e: Event) =>
+      this.onPointerMove(e as PointerEvent);
+    this.addDomListener(window, "pointermove", pointerMoveHandler);
+    this.addDomListener(this.canvas, "contextmenu", ((e: MouseEvent) =>
+      this.onContextMenu(e)) as EventListener);
+    this.addDomListener(window, "mousemove", ((e: MouseEvent) => {
       if (e.movementX || e.movementY) {
         this.eventBus.emit(new MouseMoveEvent(e.clientX, e.clientY));
       }
-    });
+    }) as EventListener);
     // Clear all tracked keys when the window loses focus so keys that had
     // their keyup swallowed by the browser (e.g. cmd+zoom) don't stay stuck.
     // Also release the hold-to-view state and any active pointer/drag state
     // so the alternate view and drags aren't left latched when focus returns.
-    window.addEventListener("blur", () => {
+    this.addDomListener(window, "blur", () => {
       this.activeKeys.clear();
       if (this.alternateView) {
         this.alternateView = false;
@@ -586,7 +612,7 @@ export class InputHandler {
       }
     }, 1);
 
-    window.addEventListener("keydown", (e) => {
+    this.addDomListener(window, "keydown", ((e: KeyboardEvent) => {
       const isTextInput = this.isTextInputTarget(e.target);
       if (isTextInput && e.code !== "Escape") {
         return;
@@ -702,8 +728,8 @@ export class InputHandler {
         }
         this.canvas.style.cursor = "crosshair";
       }
-    });
-    window.addEventListener("keyup", (e) => {
+    }) as EventListener);
+    this.addDomListener(window, "keyup", ((e: KeyboardEvent) => {
       const isTextInput = this.isTextInputTarget(e.target);
       if (isTextInput && !this.activeKeys.has(e.code)) {
         return;
@@ -748,7 +774,7 @@ export class InputHandler {
       ) {
         this.canvas.style.cursor = "";
       }
-    });
+    }) as EventListener);
   }
 
   private onPointerDown(event: PointerEvent) {
@@ -829,10 +855,11 @@ export class InputHandler {
     this.longPressActive = false;
     if (wasLongPress) {
       this.canvas.style.cursor = "";
-      // If long-press fired but no drag happened (selectionBoxActive is false),
-      // suppress the tap so we don't emit a spurious TouchEvent
+      // If long-press fired on touch without drag, open the radial menu (mobile right-click)
       if (!this.selectionBoxActive) {
         this.suppressNextTap = true;
+        this.eventBus.emit(new ContextMenuEvent(event.clientX, event.clientY));
+        return;
       }
     }
 
@@ -878,6 +905,17 @@ export class InputHandler {
           return;
         }
         this.eventBus.emit(new TouchEvent(event.x, event.y));
+        if (
+          !this.userSettings.leftClickOpensMenu() ||
+          this.uiState.ghostStructure !== null ||
+          this.gameView.inSpawnPhase()
+        ) {
+          this.eventBus.emit(new MouseUpEvent(event.x, event.y));
+        } else {
+          this.eventBus.emit(
+            new ContextMenuEvent(event.clientX, event.clientY),
+          );
+        }
         event.preventDefault();
         return;
       }
@@ -1206,9 +1244,23 @@ export class InputHandler {
   destroy() {
     if (this.moveInterval !== null) {
       clearInterval(this.moveInterval);
+      this.moveInterval = null;
     }
+    if (this.longPressTimer !== null) {
+      clearTimeout(this.longPressTimer);
+      this.longPressTimer = null;
+    }
+    for (const cleanup of this.cleanupFns) {
+      cleanup();
+    }
+    this.cleanupFns = [];
     this.activeKeys.clear();
+    this.pointers.clear();
     this.lastGestureScale = null;
     this.keybindAndEvent = [];
+  }
+
+  dispose() {
+    this.destroy();
   }
 }

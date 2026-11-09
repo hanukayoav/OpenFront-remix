@@ -5,7 +5,6 @@ import { TileRef } from "../../core/game/GameMap";
 import { Controller } from "../Controller";
 import {
   CloseViewEvent,
-  ContextMenuEvent,
   MouseUpEvent,
   SelectAllWarshipsEvent,
   TouchEvent,
@@ -208,8 +207,8 @@ export class WarshipSelectionController implements Controller {
   }
 
   /**
-   * Touch handler mirroring mouse-up. On dry land with no selection, falls
-   * back to opening the radial menu.
+   * Touch handler mirroring mouse-up for water/naval operations only.
+   * Land actions and attacks are handled by standard MouseUpEvent flow.
    */
   private onTouch(event: TouchEvent) {
     const cell = this.transformHandler.screenToWorldCoordinates(
@@ -219,14 +218,7 @@ export class WarshipSelectionController implements Controller {
     if (!this.game.isValidCoord(cell.x, cell.y)) return;
 
     const clickRef = this.game.ref(cell.x, cell.y);
-    if (this.game.inSpawnPhase()) {
-      if (!this.game.isWater(clickRef)) {
-        this.eventBus.emit(new MouseUpEvent(event.x, event.y));
-      }
-      return;
-    }
-    if (!this.game.isWater(clickRef)) {
-      this.eventBus.emit(new ContextMenuEvent(event.x, event.y));
+    if (this.game.inSpawnPhase() || !this.game.isWater(clickRef)) {
       return;
     }
     if (this.selectedUnit || this.multiSelectedWarships.length > 0) {
@@ -240,8 +232,6 @@ export class WarshipSelectionController implements Controller {
         clickRef,
         nearbyWarships,
       );
-    } else {
-      this.eventBus.emit(new ContextMenuEvent(event.x, event.y));
     }
   }
 
