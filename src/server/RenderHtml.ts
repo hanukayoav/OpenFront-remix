@@ -42,11 +42,15 @@ export async function renderHtmlContent(htmlPath: string): Promise<string> {
       cdnBase,
     ),
     desktopLogoImageUrl: buildAssetUrl(
-      "images/OpenFront.png",
+      "images/FrontierXLogo.svg",
       assetManifest,
       cdnBase,
     ),
-    mobileLogoImageUrl: buildAssetUrl("images/OF.png", assetManifest, cdnBase),
+    mobileLogoImageUrl: buildAssetUrl(
+      "images/FrontierXEmblem.svg",
+      assetManifest,
+      cdnBase,
+    ),
   });
 }
 

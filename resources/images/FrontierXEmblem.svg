@@ -1,0 +1,292 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Glow -->
+    <radialGradient id="ca-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#00c8ff" stop-opacity="0.3"/>
+      <stop offset="60%" stop-color="#0084d1" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#0084d1" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Outer Armor Shield Gradients -->
+    <linearGradient id="ca-shield-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3fa9f5"/>
+      <stop offset="40%" stop-color="#0084d1"/>
+      <stop offset="80%" stop-color="#0a2540"/>
+      <stop offset="100%" stop-color="#00c8ff"/>
+    </linearGradient>
+
+    <linearGradient id="ca-shield-plate" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#14243b"/>
+      <stop offset="60%" stop-color="#0c1827"/>
+      <stop offset="100%" stop-color="#060c14"/>
+    </linearGradient>
+
+    <linearGradient id="ca-shield-inner-bevel" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1a3556"/>
+      <stop offset="50%" stop-color="#244873"/>
+      <stop offset="100%" stop-color="#0e1d30"/>
+    </linearGradient>
+
+    <!-- Globe Gradients -->
+    <radialGradient id="ca-globe-bg" cx="40%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#122a4a"/>
+      <stop offset="45%" stop-color="#09182d"/>
+      <stop offset="85%" stop-color="#040b16"/>
+      <stop offset="100%" stop-color="#0084d1" stop-opacity="0.8"/>
+    </radialGradient>
+
+    <linearGradient id="ca-landmass" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00c8ff"/>
+      <stop offset="60%" stop-color="#0084d1"/>
+      <stop offset="100%" stop-color="#005891"/>
+    </linearGradient>
+
+    <linearGradient id="ca-grid" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3fa9f5" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#0084d1" stop-opacity="0.2"/>
+    </linearGradient>
+
+    <!-- Tactical X Gradients (Faceted 3D) -->
+    <linearGradient id="ca-x-top-left-light" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="25%" stop-color="#7cd6ff"/>
+      <stop offset="70%" stop-color="#0084d1"/>
+      <stop offset="100%" stop-color="#005a94"/>
+    </linearGradient>
+    <linearGradient id="ca-x-top-left-dark" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00375c"/>
+      <stop offset="100%" stop-color="#006eb3"/>
+    </linearGradient>
+
+    <linearGradient id="ca-x-top-right-light" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="30%" stop-color="#56c7ff"/>
+      <stop offset="80%" stop-color="#0084d1"/>
+      <stop offset="100%" stop-color="#004c7d"/>
+    </linearGradient>
+    <linearGradient id="ca-x-top-right-dark" x1="100%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#003152"/>
+      <stop offset="100%" stop-color="#005e99"/>
+    </linearGradient>
+
+    <linearGradient id="ca-x-bot-left-light" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00c8ff"/>
+      <stop offset="50%" stop-color="#0084d1"/>
+      <stop offset="100%" stop-color="#004470"/>
+    </linearGradient>
+    <linearGradient id="ca-x-bot-left-dark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#002d4a"/>
+      <stop offset="100%" stop-color="#005387"/>
+    </linearGradient>
+
+    <linearGradient id="ca-x-bot-right-light" x1="100%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#00c8ff"/>
+      <stop offset="50%" stop-color="#0084d1"/>
+      <stop offset="100%" stop-color="#004470"/>
+    </linearGradient>
+    <linearGradient id="ca-x-bot-right-dark" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#002842"/>
+      <stop offset="100%" stop-color="#004e7e"/>
+    </linearGradient>
+
+    <!-- Core Diamond / Hex Accent -->
+    <radialGradient id="ca-core-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="35%" stop-color="#00c8ff"/>
+      <stop offset="75%" stop-color="#0084d1"/>
+      <stop offset="100%" stop-color="#0084d1" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Filters -->
+    <filter id="ca-glow-filter" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+    <filter id="ca-intense-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="14" result="blur1"/>
+      <feGaussianBlur stdDeviation="4" result="blur2"/>
+      <feMerge>
+        <feMergeNode in="blur1"/>
+        <feMergeNode in="blur2"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Clip Path for Globe Interior -->
+    <clipPath id="ca-globe-clip">
+      <circle cx="256" cy="205" r="95"/>
+    </clipPath>
+  </defs>
+
+  <!-- Ambient Shield Glow -->
+  <path d="M256 34 L408 66 L442 108 L432 290 L256 478 L80 290 L70 108 L104 66 Z" fill="url(#ca-glow)" opacity="0.6"/>
+
+  <!-- Outer Tactical Guide Marks / Frame Brackets -->
+  <g stroke="#3fa9f5" stroke-width="1.5" opacity="0.4" fill="none">
+    <!-- Top cardinal tick -->
+    <line x1="256" y1="12" x2="256" y2="28"/>
+    <!-- Bottom cardinal tick -->
+    <line x1="256" y1="486" x2="256" y2="502"/>
+    <!-- Left tick -->
+    <line x1="42" y1="256" x2="58" y2="256"/>
+    <!-- Right tick -->
+    <line x1="454" y1="256" x2="470" y2="256"/>
+    <!-- Corner Framing Reticles -->
+    <path d="M50 80 L50 50 L80 50"/>
+    <path d="M462 80 L462 50 L432 50"/>
+    <path d="M50 432 L50 462 L80 462"/>
+    <path d="M462 432 L462 462 L432 462"/>
+  </g>
+
+  <!-- ==================== SHIELD ARMOR BODY ==================== -->
+  <!-- Outer Bezel Base -->
+  <path d="M256 42 L398 72 L430 112 L420 286 L256 468 L92 286 L82 112 L114 72 Z"
+        fill="#0b1726" stroke="url(#ca-shield-rim)" stroke-width="3.5" stroke-linejoin="round"/>
+
+  <!-- Outer Chamfer Bevel Ring -->
+  <path d="M256 50 L388 78 L418 116 L408 280 L256 452 L104 280 L94 116 L124 78 Z"
+        fill="url(#ca-shield-inner-bevel)" opacity="0.85"/>
+
+  <!-- Inner Plate (Dark Command Basin) -->
+  <path d="M256 60 L378 84 L406 120 L396 274 L256 438 L116 274 L106 120 L134 84 Z"
+        fill="url(#ca-shield-plate)" stroke="#00c8ff" stroke-width="1.2" stroke-opacity="0.4"/>
+
+  <!-- Tactical Hex Pattern in Lower Shield (Watermark) -->
+  <g stroke="#0084d1" stroke-width="0.8" stroke-opacity="0.18" fill="none">
+    <polygon points="256,360 274,370 274,392 256,402 238,392 238,370"/>
+    <polygon points="220,340 238,350 238,372 220,382 202,372 202,350"/>
+    <polygon points="292,340 310,350 310,372 292,382 274,372 274,350"/>
+    <polygon points="256,318 274,328 274,350 256,360 238,350 238,328"/>
+    <polygon points="184,320 202,330 202,352 184,362 166,352 166,330"/>
+    <polygon points="328,320 346,330 346,352 328,362 310,352 310,330"/>
+  </g>
+
+  <!-- ==================== GLOBE / MAP GRID CORE ==================== -->
+  <!-- Globe Outer Glow / Atmosphere Ring -->
+  <circle cx="256" cy="205" r="99" fill="none" stroke="#00c8ff" stroke-width="1.5" stroke-opacity="0.35"/>
+  <circle cx="256" cy="205" r="96" fill="none" stroke="#0084d1" stroke-width="2.5" stroke-opacity="0.8"/>
+
+  <!-- Globe Basin -->
+  <circle cx="256" cy="205" r="95" fill="url(#ca-globe-bg)"/>
+
+  <!-- Clipped Globe Elements -->
+  <g clip-path="url(#ca-globe-clip)">
+    <!-- Latitude Curves -->
+    <!-- +55 deg -->
+    <ellipse cx="256" cy="155" rx="76" ry="18" fill="none" stroke="url(#ca-grid)" stroke-width="1.2"/>
+    <!-- +25 deg -->
+    <ellipse cx="256" cy="180" rx="90" ry="24" fill="none" stroke="url(#ca-grid)" stroke-width="1.2"/>
+    <!-- Equator 0 deg -->
+    <ellipse cx="256" cy="205" rx="95" ry="28" fill="none" stroke="#00c8ff" stroke-width="1.5" stroke-opacity="0.6"/>
+    <!-- -25 deg -->
+    <ellipse cx="256" cy="230" rx="90" ry="24" fill="none" stroke="url(#ca-grid)" stroke-width="1.2"/>
+    <!-- -55 deg -->
+    <ellipse cx="256" cy="255" rx="76" ry="18" fill="none" stroke="url(#ca-grid)" stroke-width="1.2"/>
+
+    <!-- Longitude Meridians -->
+    <!-- Central Meridian -->
+    <line x1="256" y1="110" x2="256" y2="300" stroke="#00c8ff" stroke-width="1.5" stroke-opacity="0.6"/>
+    <!-- 30 West -->
+    <ellipse cx="256" cy="205" rx="38" ry="95" fill="none" stroke="url(#ca-grid)" stroke-width="1.2"/>
+    <!-- 60 West -->
+    <ellipse cx="256" cy="205" rx="70" ry="95" fill="none" stroke="url(#ca-grid)" stroke-width="1.2"/>
+
+    <!-- Tactical Strategy Landmasses (Stylized Vector Continents) -->
+    <!-- North American Sector -->
+    <path d="M192 142 L206 140 L218 150 L226 146 L234 158 L222 170 L210 166 L202 178 L194 172 L186 156 Z"
+          fill="url(#ca-landmass)" opacity="0.9" stroke="#7cd6ff" stroke-width="0.8"/>
+    <!-- Eurasian Sector -->
+    <path d="M246 132 L268 130 L292 136 L314 144 L328 158 L320 168 L296 164 L282 174 L266 166 L254 150 Z"
+          fill="url(#ca-landmass)" opacity="0.9" stroke="#7cd6ff" stroke-width="0.8"/>
+    <!-- African / Mediterranean Sector -->
+    <path d="M248 180 L272 178 L284 190 L280 216 L264 234 L252 226 L244 200 Z"
+          fill="url(#ca-landmass)" opacity="0.85" stroke="#7cd6ff" stroke-width="0.8"/>
+    <!-- South American Sector -->
+    <path d="M208 196 L224 194 L232 208 L228 232 L216 244 L204 220 Z"
+          fill="url(#ca-landmass)" opacity="0.85" stroke="#7cd6ff" stroke-width="0.8"/>
+    <!-- East Asian / Pacific Arc -->
+    <path d="M304 184 L322 188 L330 204 L318 214 L306 200 Z"
+          fill="url(#ca-landmass)" opacity="0.85" stroke="#7cd6ff" stroke-width="0.8"/>
+
+    <!-- Territory Nodes / Outpost Pulses -->
+    <circle cx="218" cy="154" r="2.8" fill="#ffffff" filter="url(#ca-glow-filter)"/>
+    <circle cx="282" cy="148" r="3.2" fill="#00c8ff" filter="url(#ca-glow-filter)"/>
+    <circle cx="264" cy="198" r="2.8" fill="#ffffff"/>
+    <circle cx="220" cy="214" r="2.5" fill="#3fa9f5"/>
+    <circle cx="316" cy="196" r="2.5" fill="#00c8ff"/>
+
+    <!-- Tactical Target Crosshair on Globe Prime Meridian -->
+    <circle cx="256" cy="205" r="14" fill="none" stroke="#00c8ff" stroke-width="1" stroke-dasharray="3 2" opacity="0.7"/>
+    <line x1="240" y1="205" x2="272" y2="205" stroke="#00c8ff" stroke-width="1" opacity="0.7"/>
+    <line x1="256" y1="189" x2="256" y2="221" stroke="#00c8ff" stroke-width="1" opacity="0.7"/>
+
+    <!-- Atmospheric Limb Highlight (Right Edge Crescent) -->
+    <path d="M256 110 A 95 95 0 0 1 351 205 A 95 95 0 0 1 256 300 A 95 95 0 0 0 341 205 A 95 95 0 0 0 256 110 Z"
+          fill="#3fa9f5" opacity="0.35"/>
+  </g>
+
+  <!-- Globe Exterior Orbit Ring Segment (Tactical Caliper) -->
+  <path d="M152 205 A 108 108 0 0 1 360 205" fill="none" stroke="#3fa9f5" stroke-width="1.8" stroke-dasharray="8 4" opacity="0.5"/>
+  <circle cx="152" cy="205" r="3" fill="#00c8ff"/>
+  <circle cx="360" cy="205" r="3" fill="#00c8ff"/>
+
+  <!-- ==================== THE FACETED TACTICAL "X" ==================== -->
+  <!-- X Shadow / Rim Glow Behind -->
+  <g filter="url(#ca-glow-filter)" opacity="0.5">
+    <!-- Top-Left to Bottom-Right Stroke -->
+    <polygon points="128,138 184,116 384,374 328,396" fill="#0084d1"/>
+    <!-- Top-Right to Bottom-Left Stroke -->
+    <polygon points="384,138 328,116 128,374 184,396" fill="#0084d1"/>
+  </g>
+
+  <!-- --- Branch 1: Top-Left Arm --- -->
+  <!-- Light Facet -->
+  <polygon points="256,268 256,242 168,132 136,150"
+           fill="url(#ca-x-top-left-light)" stroke="#ffffff" stroke-width="0.8" stroke-opacity="0.5"/>
+  <!-- Dark Facet -->
+  <polygon points="256,268 232,286 148,184 136,150"
+           fill="url(#ca-x-top-left-dark)" stroke="#0084d1" stroke-width="0.8"/>
+
+  <!-- --- Branch 2: Top-Right Arm --- -->
+  <!-- Light Facet -->
+  <polygon points="256,268 256,242 344,132 376,150"
+           fill="url(#ca-x-top-right-light)" stroke="#ffffff" stroke-width="0.8" stroke-opacity="0.5"/>
+  <!-- Dark Facet -->
+  <polygon points="256,268 280,286 364,184 376,150"
+           fill="url(#ca-x-top-right-dark)" stroke="#0084d1" stroke-width="0.8"/>
+
+  <!-- --- Branch 3: Bottom-Left Arm (Anchoring into Chevron) --- -->
+  <!-- Light Facet -->
+  <polygon points="256,268 232,286 160,378 178,398 256,310"
+           fill="url(#ca-x-bot-left-light)" stroke="#00c8ff" stroke-width="0.8"/>
+  <!-- Dark Facet -->
+  <polygon points="256,310 178,398 214,418 256,346"
+           fill="url(#ca-x-bot-left-dark)" stroke="#005080" stroke-width="0.8"/>
+
+  <!-- --- Branch 4: Bottom-Right Arm (Anchoring into Chevron) --- -->
+  <!-- Light Facet -->
+  <polygon points="256,268 280,286 352,378 334,398 256,310"
+           fill="url(#ca-x-bot-right-light)" stroke="#00c8ff" stroke-width="0.8"/>
+  <!-- Dark Facet -->
+  <polygon points="256,310 334,398 298,418 256,346"
+           fill="url(#ca-x-bot-right-dark)" stroke="#005080" stroke-width="0.8"/>
+
+  <!-- Center Keystone / Command Hex-Diamond -->
+  <polygon points="256,242 278,268 256,294 234,268"
+           fill="#06121f" stroke="#00c8ff" stroke-width="2.5"/>
+  <polygon points="256,248 272,268 256,288 240,268"
+           fill="url(#ca-core-glow)"/>
+  <circle cx="256" cy="268" r="4" fill="#ffffff" filter="url(#ca-glow-filter)"/>
+
+  <!-- Lower Chevron Armor Reinforcement (Locks X to Shield Tip) -->
+  <polygon points="256,442 228,406 256,368 284,406"
+           fill="#0c1b2c" stroke="#3fa9f5" stroke-width="1.5"/>
+  <polygon points="256,432 238,406 256,380 274,406"
+           fill="url(#ca-shield-plate)" stroke="#00c8ff" stroke-width="0.8"/>
+  <circle cx="256" cy="406" r="3" fill="#00c8ff"/>
+
+  <!-- Specular Edge Razor Highlights on Shield & X -->
+  <line x1="256" y1="44" x2="394" y2="73" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" opacity="0.7"/>
+  <line x1="136" y1="150" x2="168" y2="132" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+  <line x1="376" y1="150" x2="344" y2="132" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</svg>

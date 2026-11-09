@@ -1,0 +1,320 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 220" width="100%" height="100%">
+  <defs>
+    <!-- Background Glow -->
+    <radialGradient id="ca-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#00c8ff" stop-opacity="0.3"/>
+      <stop offset="60%" stop-color="#0084d1" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#0084d1" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Outer Armor Shield Gradients -->
+    <linearGradient id="ca-shield-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3fa9f5"/>
+      <stop offset="40%" stop-color="#0084d1"/>
+      <stop offset="80%" stop-color="#0a2540"/>
+      <stop offset="100%" stop-color="#00c8ff"/>
+    </linearGradient>
+
+    <linearGradient id="ca-shield-plate" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#14243b"/>
+      <stop offset="60%" stop-color="#0c1827"/>
+      <stop offset="100%" stop-color="#060c14"/>
+    </linearGradient>
+
+    <linearGradient id="ca-shield-inner-bevel" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1a3556"/>
+      <stop offset="50%" stop-color="#244873"/>
+      <stop offset="100%" stop-color="#0e1d30"/>
+    </linearGradient>
+
+    <!-- Globe Gradients -->
+    <radialGradient id="ca-globe-bg" cx="40%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#122a4a"/>
+      <stop offset="45%" stop-color="#09182d"/>
+      <stop offset="85%" stop-color="#040b16"/>
+      <stop offset="100%" stop-color="#0084d1" stop-opacity="0.8"/>
+    </radialGradient>
+
+    <linearGradient id="ca-landmass" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00c8ff"/>
+      <stop offset="60%" stop-color="#0084d1"/>
+      <stop offset="100%" stop-color="#005891"/>
+    </linearGradient>
+
+    <linearGradient id="ca-grid" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3fa9f5" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#0084d1" stop-opacity="0.2"/>
+    </linearGradient>
+
+    <!-- Tactical X Gradients (Faceted 3D) -->
+    <linearGradient id="ca-x-top-left-light" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="25%" stop-color="#7cd6ff"/>
+      <stop offset="70%" stop-color="#0084d1"/>
+      <stop offset="100%" stop-color="#005a94"/>
+    </linearGradient>
+    <linearGradient id="ca-x-top-left-dark" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00375c"/>
+      <stop offset="100%" stop-color="#006eb3"/>
+    </linearGradient>
+
+    <linearGradient id="ca-x-top-right-light" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="30%" stop-color="#56c7ff"/>
+      <stop offset="80%" stop-color="#0084d1"/>
+      <stop offset="100%" stop-color="#004c7d"/>
+    </linearGradient>
+    <linearGradient id="ca-x-top-right-dark" x1="100%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#003152"/>
+      <stop offset="100%" stop-color="#005e99"/>
+    </linearGradient>
+
+    <linearGradient id="ca-x-bot-left-light" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00c8ff"/>
+      <stop offset="50%" stop-color="#0084d1"/>
+      <stop offset="100%" stop-color="#004470"/>
+    </linearGradient>
+    <linearGradient id="ca-x-bot-left-dark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#002d4a"/>
+      <stop offset="100%" stop-color="#005387"/>
+    </linearGradient>
+
+    <linearGradient id="ca-x-bot-right-light" x1="100%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#00c8ff"/>
+      <stop offset="50%" stop-color="#0084d1"/>
+      <stop offset="100%" stop-color="#004470"/>
+    </linearGradient>
+    <linearGradient id="ca-x-bot-right-dark" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#002842"/>
+      <stop offset="100%" stop-color="#004e7e"/>
+    </linearGradient>
+
+    <!-- Typography Gradients -->
+    <linearGradient id="ca-type-white" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="70%" stop-color="#e2e8f0"/>
+      <stop offset="100%" stop-color="#94a3b8"/>
+    </linearGradient>
+
+    <linearGradient id="ca-type-x" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f0ff"/>
+      <stop offset="40%" stop-color="#00c8ff"/>
+      <stop offset="80%" stop-color="#0084d1"/>
+      <stop offset="100%" stop-color="#005285"/>
+    </linearGradient>
+
+    <!-- Core Diamond / Hex Accent -->
+    <radialGradient id="ca-core-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="35%" stop-color="#00c8ff"/>
+      <stop offset="75%" stop-color="#0084d1"/>
+      <stop offset="100%" stop-color="#0084d1" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Filters -->
+    <filter id="ca-glow-filter" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <clipPath id="ca-globe-clip-sm">
+      <circle cx="256" cy="205" r="95"/>
+    </clipPath>
+  </defs>
+
+  <!-- ==================== EMBLEM (LEFT ANCHOR, SCALED & CENTERED AT X:110, Y:110) ==================== -->
+  <g transform="translate(10, 10) scale(0.39)">
+    <!-- Ambient Shield Glow -->
+    <path d="M256 34 L408 66 L442 108 L432 290 L256 478 L80 290 L70 108 L104 66 Z" fill="url(#ca-glow)" opacity="0.6"/>
+
+    <!-- Outer Tactical Guide Marks / Frame Brackets -->
+    <g stroke="#3fa9f5" stroke-width="2" opacity="0.4" fill="none">
+      <line x1="256" y1="12" x2="256" y2="28"/>
+      <line x1="256" y1="486" x2="256" y2="502"/>
+      <line x1="42" y1="256" x2="58" y2="256"/>
+      <line x1="454" y1="256" x2="470" y2="256"/>
+      <path d="M50 80 L50 50 L80 50"/>
+      <path d="M462 80 L462 50 L432 50"/>
+      <path d="M50 432 L50 462 L80 462"/>
+      <path d="M462 432 L462 462 L432 462"/>
+    </g>
+
+    <!-- Outer Bezel Base -->
+    <path d="M256 42 L398 72 L430 112 L420 286 L256 468 L92 286 L82 112 L114 72 Z"
+          fill="#0b1726" stroke="url(#ca-shield-rim)" stroke-width="4" stroke-linejoin="round"/>
+
+    <!-- Outer Chamfer Bevel Ring -->
+    <path d="M256 50 L388 78 L418 116 L408 280 L256 452 L104 280 L94 116 L124 78 Z"
+          fill="url(#ca-shield-inner-bevel)" opacity="0.85"/>
+
+    <!-- Inner Plate -->
+    <path d="M256 60 L378 84 L406 120 L396 274 L256 438 L116 274 L106 120 L134 84 Z"
+          fill="url(#ca-shield-plate)" stroke="#00c8ff" stroke-width="1.5" stroke-opacity="0.5"/>
+
+    <!-- Globe Ring & Basin -->
+    <circle cx="256" cy="205" r="99" fill="none" stroke="#00c8ff" stroke-width="1.8" stroke-opacity="0.4"/>
+    <circle cx="256" cy="205" r="96" fill="none" stroke="#0084d1" stroke-width="3" stroke-opacity="0.9"/>
+    <circle cx="256" cy="205" r="95" fill="url(#ca-globe-bg)"/>
+
+    <!-- Clipped Globe Content -->
+    <g clip-path="url(#ca-globe-clip-sm)">
+      <!-- Latitude Grids -->
+      <ellipse cx="256" cy="155" rx="76" ry="18" fill="none" stroke="url(#ca-grid)" stroke-width="1.5"/>
+      <ellipse cx="256" cy="180" rx="90" ry="24" fill="none" stroke="url(#ca-grid)" stroke-width="1.5"/>
+      <ellipse cx="256" cy="205" rx="95" ry="28" fill="none" stroke="#00c8ff" stroke-width="1.8" stroke-opacity="0.6"/>
+      <ellipse cx="256" cy="230" rx="90" ry="24" fill="none" stroke="url(#ca-grid)" stroke-width="1.5"/>
+      <ellipse cx="256" cy="255" rx="76" ry="18" fill="none" stroke="url(#ca-grid)" stroke-width="1.5"/>
+
+      <!-- Longitudes -->
+      <line x1="256" y1="110" x2="256" y2="300" stroke="#00c8ff" stroke-width="2" stroke-opacity="0.6"/>
+      <ellipse cx="256" cy="205" rx="38" ry="95" fill="none" stroke="url(#ca-grid)" stroke-width="1.5"/>
+      <ellipse cx="256" cy="205" rx="70" ry="95" fill="none" stroke="url(#ca-grid)" stroke-width="1.5"/>
+
+      <!-- Continents -->
+      <path d="M192 142 L206 140 L218 150 L226 146 L234 158 L222 170 L210 166 L202 178 L194 172 L186 156 Z"
+            fill="url(#ca-landmass)" opacity="0.95" stroke="#7cd6ff" stroke-width="1"/>
+      <path d="M246 132 L268 130 L292 136 L314 144 L328 158 L320 168 L296 164 L282 174 L266 166 L254 150 Z"
+            fill="url(#ca-landmass)" opacity="0.95" stroke="#7cd6ff" stroke-width="1"/>
+      <path d="M248 180 L272 178 L284 190 L280 216 L264 234 L252 226 L244 200 Z"
+            fill="url(#ca-landmass)" opacity="0.9" stroke="#7cd6ff" stroke-width="1"/>
+      <path d="M208 196 L224 194 L232 208 L228 232 L216 244 L204 220 Z"
+            fill="url(#ca-landmass)" opacity="0.9" stroke="#7cd6ff" stroke-width="1"/>
+      <path d="M304 184 L322 188 L330 204 L318 214 L306 200 Z"
+            fill="url(#ca-landmass)" opacity="0.9" stroke="#7cd6ff" stroke-width="1"/>
+
+      <!-- Tactical Nodes -->
+      <circle cx="218" cy="154" r="3.5" fill="#ffffff" filter="url(#ca-glow-filter)"/>
+      <circle cx="282" cy="148" r="4" fill="#00c8ff" filter="url(#ca-glow-filter)"/>
+      <circle cx="264" cy="198" r="3.5" fill="#ffffff"/>
+
+      <!-- Target reticle -->
+      <circle cx="256" cy="205" r="16" fill="none" stroke="#00c8ff" stroke-width="1.2" stroke-dasharray="4 2" opacity="0.8"/>
+      <line x1="236" y1="205" x2="276" y2="205" stroke="#00c8ff" stroke-width="1.2"/>
+      <line x1="256" y1="185" x2="256" y2="225" stroke="#00c8ff" stroke-width="1.2"/>
+
+      <!-- Limb light -->
+      <path d="M256 110 A 95 95 0 0 1 351 205 A 95 95 0 0 1 256 300 A 95 95 0 0 0 341 205 A 95 95 0 0 0 256 110 Z"
+            fill="#3fa9f5" opacity="0.4"/>
+    </g>
+
+    <!-- Orbit Caliper -->
+    <path d="M152 205 A 108 108 0 0 1 360 205" fill="none" stroke="#3fa9f5" stroke-width="2" stroke-dasharray="8 4" opacity="0.6"/>
+    <circle cx="152" cy="205" r="3.5" fill="#00c8ff"/>
+    <circle cx="360" cy="205" r="3.5" fill="#00c8ff"/>
+
+    <!-- THE FACETED TACTICAL X -->
+    <!-- X Shadow -->
+    <g filter="url(#ca-glow-filter)" opacity="0.55">
+      <polygon points="128,138 184,116 384,374 328,396" fill="#0084d1"/>
+      <polygon points="384,138 328,116 128,374 184,396" fill="#0084d1"/>
+    </g>
+
+    <!-- Top-Left -->
+    <polygon points="256,268 256,242 168,132 136,150" fill="url(#ca-x-top-left-light)" stroke="#ffffff" stroke-width="1"/>
+    <polygon points="256,268 232,286 148,184 136,150" fill="url(#ca-x-top-left-dark)" stroke="#0084d1" stroke-width="1"/>
+
+    <!-- Top-Right -->
+    <polygon points="256,268 256,242 344,132 376,150" fill="url(#ca-x-top-right-light)" stroke="#ffffff" stroke-width="1"/>
+    <polygon points="256,268 280,286 364,184 376,150" fill="url(#ca-x-top-right-dark)" stroke="#0084d1" stroke-width="1"/>
+
+    <!-- Bottom-Left -->
+    <polygon points="256,268 232,286 160,378 178,398 256,310" fill="url(#ca-x-bot-left-light)" stroke="#00c8ff" stroke-width="1"/>
+    <polygon points="256,310 178,398 214,418 256,346" fill="url(#ca-x-bot-left-dark)" stroke="#005080" stroke-width="1"/>
+
+    <!-- Bottom-Right -->
+    <polygon points="256,268 280,286 352,378 334,398 256,310" fill="url(#ca-x-bot-right-light)" stroke="#00c8ff" stroke-width="1"/>
+    <polygon points="256,310 334,398 298,418 256,346" fill="url(#ca-x-bot-right-dark)" stroke="#005080" stroke-width="1"/>
+
+    <!-- Center Keystone -->
+    <polygon points="256,242 278,268 256,294 234,268" fill="#06121f" stroke="#00c8ff" stroke-width="3"/>
+    <polygon points="256,248 272,268 256,288 240,268" fill="url(#ca-core-glow)"/>
+    <circle cx="256" cy="268" r="4.5" fill="#ffffff" filter="url(#ca-glow-filter)"/>
+
+    <!-- Lower Chevron Armor -->
+    <polygon points="256,442 228,406 256,368 284,406" fill="#0c1b2c" stroke="#3fa9f5" stroke-width="2"/>
+    <polygon points="256,432 238,406 256,380 274,406" fill="url(#ca-shield-plate)" stroke="#00c8ff" stroke-width="1"/>
+    <circle cx="256" cy="406" r="3.5" fill="#00c8ff"/>
+
+    <!-- Razor Highlights -->
+    <line x1="256" y1="44" x2="394" y2="73" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+    <line x1="136" y1="150" x2="168" y2="132" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="376" y1="150" x2="344" y2="132" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- ==================== WORDMARK "FRONTIER" + "X" ==================== -->
+  <g transform="translate(230, 42)">
+    <!-- Tactical Category Tag / Top Accent Line -->
+    <g transform="translate(4, 18)">
+      <!-- Line with corner notch -->
+      <line x1="0" y1="0" x2="48" y2="0" stroke="#0084d1" stroke-width="2"/>
+      <circle cx="56" cy="0" r="2.5" fill="#00c8ff"/>
+      <text x="70" y="3.5" font-family="'Inter', 'Segoe UI', system-ui, sans-serif" font-size="11" font-weight="800"
+            letter-spacing="0.32em" fill="#3fa9f5" text-transform="uppercase">TACTICAL STRATEGY COMBAT</text>
+      <line x1="340" y1="0" x2="440" y2="0" stroke="#1e3a5f" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <!-- Status Badge -->
+      <rect x="450" y="-8" width="46" height="15" rx="3" fill="#0084d1" fill-opacity="0.2" stroke="#00c8ff" stroke-width="1"/>
+      <text x="473" y="3.5" font-family="'Inter', sans-serif" font-size="8.5" font-weight="900" fill="#00f0ff" text-anchor="middle" letter-spacing="0.1em">v1.0.5</text>
+    </g>
+
+    <!-- Main Title "FRONTIER" (Crisp Geometric Vector Glyphs) -->
+    <!-- Base text rendering with custom SVG paths for ultra-sharp letterforms -->
+    <g transform="translate(0, 84)">
+      <!-- Letter F -->
+      <path d="M0,0 L52,0 L52,14 L17,14 L17,29 L46,29 L46,43 L17,43 L17,72 L0,72 Z" fill="url(#ca-type-white)"/>
+      <!-- Letter R -->
+      <path d="M62,0 L99,0 C114,0 123,8 123,22 C123,32 116,39 105,42 L125,72 L105,72 L87,44 L79,44 L79,72 L62,72 Z M79,14 L97,14 C103,14 106,17 106,22 C106,28 103,31 97,31 L79,31 Z" fill="url(#ca-type-white)"/>
+      <!-- Letter O -->
+      <path d="M158,0 C182,0 197,16 197,36 C197,56 182,72 158,72 C134,72 119,56 119,36 C119,16 134,0 158,0 Z M158,14 C145,14 136,23 136,36 C136,49 145,58 158,58 C171,58 180,49 180,36 C180,23 171,14 158,14 Z" fill="url(#ca-type-white)"/>
+      <!-- Letter N -->
+      <path d="M208,0 L226,0 L260,47 L260,0 L276,0 L276,72 L258,72 L224,25 L224,72 L208,72 Z" fill="url(#ca-type-white)"/>
+      <!-- Letter T -->
+      <path d="M285,0 L336,0 L336,14 L319,14 L319,72 L302,72 L302,14 L285,14 Z" fill="url(#ca-type-white)"/>
+      <!-- Letter I -->
+      <path d="M346,0 L363,0 L363,72 L346,72 Z" fill="url(#ca-type-white)"/>
+      <!-- Letter E -->
+      <path d="M375,0 L425,0 L425,14 L392,14 L392,29 L420,29 L420,43 L392,43 L392,58 L426,58 L426,72 L375,72 Z" fill="url(#ca-type-white)"/>
+      <!-- Letter R -->
+      <path d="M437,0 L474,0 C489,0 498,8 498,22 C498,32 491,39 480,42 L500,72 L480,72 L462,44 L454,44 L454,72 L437,72 Z M454,14 L472,14 C478,14 481,17 481,22 C481,28 478,31 472,31 L454,31 Z" fill="url(#ca-type-white)"/>
+    </g>
+
+    <!-- The Hero Glyph "X" -->
+    <!-- Glowing Accent Behind X -->
+    <g transform="translate(515, 78)">
+      <polygon points="12,-6 38,-6 86,78 60,78" fill="#0084d1" filter="url(#ca-glow-filter)" opacity="0.6"/>
+      <polygon points="60,-6 86,-6 38,78 12,78" fill="#00c8ff" filter="url(#ca-glow-filter)" opacity="0.6"/>
+
+      <!-- Left-to-Right Stroke (Solid Facet) -->
+      <polygon points="10,-2 32,-2 82,74 60,74" fill="url(#ca-type-x)" stroke="#00f0ff" stroke-width="1.2"/>
+      <!-- Highlight spine on Left-to-Right Stroke -->
+      <line x1="21" y1="-2" x2="71" y2="74" stroke="#ffffff" stroke-width="1.5" stroke-opacity="0.8"/>
+
+      <!-- Right-to-Left Stroke (Layered with Precision Negative-Space Gap) -->
+      <!-- Upper part -->
+      <polygon points="62,-2 84,-2 54,40 38,32" fill="url(#ca-type-x)" stroke="#00f0ff" stroke-width="1.2"/>
+      <!-- Lower part with sleek gap cut -->
+      <polygon points="34,48 48,56 36,74 14,74" fill="url(#ca-type-x)" stroke="#00f0ff" stroke-width="1.2"/>
+
+      <!-- Micro Tech Accents on X -->
+      <circle cx="84" cy="-2" r="2.5" fill="#ffffff" filter="url(#ca-glow-filter)"/>
+      <circle cx="14" cy="74" r="2.5" fill="#00c8ff"/>
+    </g>
+
+    <!-- Subtitle / Motto Bar -->
+    <g transform="translate(4, 116)">
+      <line x1="0" y1="0" x2="600" y2="0" stroke="#162c47" stroke-width="1.5"/>
+      <line x1="0" y1="0" x2="110" y2="0" stroke="#0084d1" stroke-width="1.5"/>
+
+      <!-- Tag text -->
+      <text x="0" y="16" font-family="'Inter', 'Segoe UI', system-ui, sans-serif" font-size="9.5" font-weight="700"
+            letter-spacing="0.38em" fill="#94a3b8" text-transform="uppercase">GLOBAL EXPANSION • REAL-TIME MULTIPLAYER</text>
+
+      <!-- Technical micro-indicators -->
+      <g transform="translate(460, 9)" fill="#3fa9f5" opacity="0.7">
+        <rect x="0" y="0" width="8" height="6" rx="1"/>
+        <rect x="12" y="0" width="8" height="6" rx="1"/>
+        <rect x="24" y="0" width="8" height="6" rx="1"/>
+        <rect x="36" y="0" width="16" height="6" rx="1" fill="#00c8ff"/>
+      </g>
+    </g>
+  </g>
+</svg>
