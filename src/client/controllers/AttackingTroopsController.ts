@@ -136,7 +136,12 @@ export class AttackingTroopsController implements Controller {
       if (!activeIDs.has(id)) this.attacks.delete(id);
     }
 
-    if (this.attacks.size > 0 && !this.isDriving && !this.disposed && !this.alternateView) {
+    if (
+      this.attacks.size > 0 &&
+      !this.isDriving &&
+      !this.disposed &&
+      !this.alternateView
+    ) {
       this.isDriving = true;
       this.scheduleDrive();
     }

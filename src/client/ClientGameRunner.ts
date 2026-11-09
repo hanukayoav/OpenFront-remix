@@ -474,9 +474,19 @@ function mountWebGLFrameLoop(
   // synchronized camera-update + WebGL render.
   let rafId: number | null = null;
   let lastDriveTime = performance.now();
-  let lastRenderTime = performance.now();
-  const maxFps = userSettings ? userSettings.maxFps() : 60;
-  const minIntervalMs = maxFps > 0 ? 1000 / maxFps : 0;
+  let lastPaceCheckTime = performance.now();
+  let frameAccumulator = 0;
+
+  // Render submission telemetry for truthful instrumentation & profiling
+  const renderStats = {
+    webglFrames: 0,
+    lastWebglDrawTime: performance.now(),
+    webglIntervals: [] as number[],
+    maxIntervalHistory: 300,
+  };
+  (
+    window as unknown as { __frontierxRenderStats?: typeof renderStats }
+  ).__frontierxRenderStats = renderStats;
 
   const driveFrame = (time: number): void => {
     // 1. Skip rendering if document is hidden to eliminate background CPU/GPU duty cycle
@@ -485,18 +495,45 @@ function mountWebGLFrameLoop(
       return;
     }
 
-    // 2. Frame pacing: clamp to target cadence (default 60 FPS) to eliminate fan noise
-    if (minIntervalMs > 0) {
-      const elapsedSinceRender = time - lastRenderTime;
-      if (elapsedSinceRender < minIntervalMs - 1.5) {
+    const maxFps = userSettings ? userSettings.maxFps() : 0;
+
+    // 2. Frame pacing: when maxFps > 0, pace via accumulator with drift correction.
+    // When maxFps === 0 (default), sync directly to native display refresh rate (VSync)
+    // without artificial throttling, preventing cadence aliasing at 144Hz/90Hz/etc.
+    if (maxFps > 0) {
+      const targetInterval = 1000 / maxFps;
+      const deltaSinceLastCheck = Math.min(time - lastPaceCheckTime, 100);
+      lastPaceCheckTime = time;
+      frameAccumulator += deltaSinceLastCheck;
+
+      // 1.0ms slack prevents browser RAF timer jitter from dropping frames
+      if (frameAccumulator < targetInterval - 1.0) {
         rafId = requestAnimationFrame(driveFrame);
         return;
       }
+
+      // Carry forward remainder to prevent cadence aliasing (e.g. 144Hz -> 48fps drop)
+      frameAccumulator -= targetInterval;
+      if (frameAccumulator > targetInterval) {
+        frameAccumulator = 0; // Prevent burst catches after lag spikes
+      }
+    } else {
+      lastPaceCheckTime = time;
+      frameAccumulator = 0;
     }
 
     const deltaMs = Math.min(time - lastDriveTime, 100);
     lastDriveTime = time;
-    lastRenderTime = time;
+
+    // Track WebGL frame submission telemetry
+    const now = performance.now();
+    const dt = now - renderStats.lastWebglDrawTime;
+    renderStats.lastWebglDrawTime = now;
+    renderStats.webglFrames++;
+    renderStats.webglIntervals.push(dt);
+    if (renderStats.webglIntervals.length > renderStats.maxIntervalHistory) {
+      renderStats.webglIntervals.shift();
+    }
 
     syncCamera();
     dualLayerHandle?.engine.step(deltaMs, time);

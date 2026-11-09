@@ -623,10 +623,13 @@ export class UserSettings {
   }
 
   maxFps(): number {
-    return this.getFloat(MAX_FPS_KEY, 60);
+    const val = this.getFloat(MAX_FPS_KEY, 0);
+    return Number.isFinite(val) && val >= 0 ? val : 0;
   }
 
   setMaxFps(value: number): void {
-    this.setFloat(MAX_FPS_KEY, value);
+    const sanitized =
+      Number.isFinite(value) && value >= 0 ? Math.round(value) : 0;
+    this.setFloat(MAX_FPS_KEY, sanitized);
   }
 }

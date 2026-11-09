@@ -47,7 +47,7 @@ export async function getRepoPermission(
     });
     return data.permission;
   } catch (err) {
-    if (isStatus(err, 404)) return "none";
+    if (isStatus(err, 404) || isStatus(err, 403)) return "none";
     throw err;
   }
 }
