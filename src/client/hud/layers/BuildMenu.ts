@@ -166,6 +166,13 @@ export class BuildMenu extends LitElement implements Controller {
     this.eventBus.on(MouseDownEvent, () => this.hideMenu());
   }
 
+  destroy() {
+    this._hidden = true;
+    this.playerBuildables = null;
+    this.filteredBuildTable = buildTable;
+    this.requestUpdate();
+  }
+
   tick() {
     if (!this._hidden) {
       this.refresh();

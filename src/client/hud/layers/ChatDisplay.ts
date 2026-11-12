@@ -73,6 +73,14 @@ export class ChatDisplay extends LitElement implements Controller {
 
   init() {}
 
+  destroy() {
+    this.active = false;
+    this.chatEvents = [];
+    this.newEvents = 0;
+    this._hidden = false;
+    this.requestUpdate();
+  }
+
   tick() {
     // this.active = true;
     const updates = this.game.updatesSinceLastTick();

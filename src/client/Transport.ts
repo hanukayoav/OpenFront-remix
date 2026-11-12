@@ -219,6 +219,12 @@ export class Transport {
   private onmessage: (msg: ServerMessage) => void;
 
   private pingInterval: number | null = null;
+  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempts = 0;
+  private isStopped = false;
+  private static readonly MAX_RECONNECT_ATTEMPTS = 10;
+  private static readonly BASE_RECONNECT_DELAY_MS = 500;
+  private static readonly MAX_RECONNECT_DELAY_MS = 15000;
   public readonly isLocal: boolean;
 
   constructor(
@@ -330,10 +336,19 @@ export class Transport {
     }
   }
 
+  private clearReconnectTimeout() {
+    if (this.reconnectTimeout !== null) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+  }
+
   public connect(
     onconnect: () => void,
     onmessage: (message: ServerMessage) => void,
   ) {
+    this.isStopped = false;
+    this.clearReconnectTimeout();
     if (this.isLocal) {
       this.connectLocal(onconnect, onmessage);
     } else {
@@ -370,6 +385,7 @@ export class Transport {
     onconnect: () => void,
     onmessage: (message: ServerMessage) => void,
   ) {
+    this.clearReconnectTimeout();
     this.startPing();
     this.killExistingSocket();
     // WS origin comes from ClientEnv (same-origin on web, audience-derived on
@@ -384,9 +400,13 @@ export class Transport {
         console.error("socket is null");
         return;
       }
+      this.reconnectAttempts = 0;
       while (this.buffer.length > 0) {
+        if (this.socket.readyState !== WebSocket.OPEN) {
+          break;
+        }
         console.log("sending dropped message");
-        const msg = this.buffer.pop();
+        const msg = this.buffer.shift();
         if (msg === undefined) {
           console.warn("msg is undefined");
           continue;
@@ -425,14 +445,40 @@ export class Transport {
             reason: event.reason,
           }),
         );
-      } else if (event.code !== 1000) {
-        console.log(`received error code ${event.code}, reconnecting`);
-        this.reconnect();
+      } else if (event.code !== 1000 && !this.isStopped) {
+        console.log(`received error code ${event.code}, scheduling reconnect`);
+        this.scheduleReconnect();
       }
     };
   }
 
+  private scheduleReconnect() {
+    if (this.isStopped || this.reconnectTimeout !== null) return;
+    if (this.reconnectAttempts >= Transport.MAX_RECONNECT_ATTEMPTS) {
+      console.error(
+        `Max reconnect attempts (${Transport.MAX_RECONNECT_ATTEMPTS}) reached`,
+      );
+      showInGameAlert(
+        translateText("error_modal.connection_refused", {
+          reason: "Connection lost",
+        }),
+      );
+      return;
+    }
+    const delayMs = Math.min(
+      Transport.MAX_RECONNECT_DELAY_MS,
+      Transport.BASE_RECONNECT_DELAY_MS * 2 ** this.reconnectAttempts,
+    );
+    this.reconnectAttempts++;
+    this.reconnectTimeout = setTimeout(() => {
+      this.reconnectTimeout = null;
+      if (this.isStopped) return;
+      this.reconnect();
+    }, delayMs);
+  }
+
   public reconnect() {
+    this.clearReconnectTimeout();
     this.connect(this.onconnect, this.onmessage);
   }
 
@@ -466,6 +512,9 @@ export class Transport {
   }
 
   leaveGame() {
+    this.isStopped = true;
+    this.clearReconnectTimeout();
+    this.buffer = [];
     if (this.isLocal) {
       this.localServer.endGame();
       return;
@@ -480,7 +529,6 @@ export class Transport {
         "WebSocket is not open. Current state:",
         this.socket.readyState,
       );
-      console.error("attempting reconnect");
       this.killExistingSocket();
     }
   }
@@ -699,7 +747,9 @@ export class Transport {
     });
   }
 
-  private onSendSetTankRallyPointIntent(event: SendSetTankRallyPointIntentEvent) {
+  private onSendSetTankRallyPointIntent(
+    event: SendSetTankRallyPointIntentEvent,
+  ) {
     this.sendIntent({
       type: "set_tank_rally_point",
       rallyTile: event.rallyTile,
@@ -751,13 +801,17 @@ export class Transport {
       return;
     }
     const str = JSON.stringify(msg, replacer);
-    if (this.socket.readyState === WebSocket.CLOSED) {
-      // Buffer message
-      console.warn("socket not ready, closing and trying later");
-      this.socket.close();
-      this.socket = null;
-      this.connectRemote(this.onconnect, this.onmessage);
+    if (this.socket.readyState === WebSocket.CONNECTING) {
+      // Socket handshake still in progress: queue without recreating socket
       this.buffer.push(str);
+    } else if (this.socket.readyState !== WebSocket.OPEN) {
+      // Buffer message and recover from CLOSING/CLOSED sockets without throwing
+      console.warn("socket not ready, closing and trying later");
+      this.killExistingSocket();
+      this.buffer.push(str);
+      if (!this.isStopped) {
+        this.connectRemote(this.onconnect, this.onmessage);
+      }
     } else {
       // Send the message directly
       this.socket.send(str);

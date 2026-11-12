@@ -51,6 +51,14 @@ export class ReplayPanel extends LitElement implements Controller {
     }
   }
 
+  destroy() {
+    this.visible = false;
+    this.isSingleplayer = false;
+    this.game = undefined;
+    this.eventBus = undefined;
+    this.requestUpdate();
+  }
+
   getTickIntervalMs() {
     return 1000;
   }

@@ -39,10 +39,7 @@ import { GameView } from "../view";
 
 /** True for nuke types (AtomBomb, HydrogenBomb): ghost is preserved after placement so user can place multiple or keep selection (Enter/key confirm). */
 export function shouldPreserveGhostAfterBuild(unitType: UnitType): boolean {
-  return (
-    unitType === UnitType.AtomBomb ||
-    unitType === UnitType.HydrogenBomb
-  );
+  return unitType === UnitType.AtomBomb || unitType === UnitType.HydrogenBomb;
 }
 
 function requiresMissileSilo(unitType: UnitType | null | undefined): boolean {
@@ -127,6 +124,8 @@ export class BuildPreviewController implements Controller {
     directionUp: boolean;
     sams: SAMInfo[];
   } | null = null;
+  private cursorRafId: number | null = null;
+  private destroyed = false;
 
   constructor(
     private game: GameView,
@@ -154,6 +153,7 @@ export class BuildPreviewController implements Controller {
     // integer tile coord centers on that tile), so we subtract 0.5 here to
     // place the icon exactly under the cursor.
     const cursorLoop = () => {
+      if (this.destroyed) return;
       const ghost = this.lastGhostData;
       const traj = this.nukeTrajectoryStatic;
       if (ghost !== null || traj !== null) {
@@ -204,9 +204,27 @@ export class BuildPreviewController implements Controller {
           this.view.updateNukeTrajectory(data);
         }
       }
-      requestAnimationFrame(cursorLoop);
+      if (!this.destroyed) {
+        this.cursorRafId = requestAnimationFrame(cursorLoop);
+      }
     };
-    requestAnimationFrame(cursorLoop);
+    this.destroyed = false;
+    this.cursorRafId = requestAnimationFrame(cursorLoop);
+  }
+
+  destroy(): void {
+    this.destroyed = true;
+    if (this.cursorRafId !== null) {
+      cancelAnimationFrame(this.cursorRafId);
+      this.cursorRafId = null;
+    }
+    this.lastGhostData = null;
+    this.nukeTrajectoryStatic = null;
+    this.ghostUnit = null;
+  }
+
+  dispose(): void {
+    this.destroy();
   }
 
   tick() {
@@ -283,8 +301,7 @@ export class BuildPreviewController implements Controller {
     if (
       tileRef &&
       myPlayer &&
-      (nukeType === UnitType.AtomBomb ||
-        nukeType === UnitType.HydrogenBomb)
+      (nukeType === UnitType.AtomBomb || nukeType === UnitType.HydrogenBomb)
     ) {
       this.connectedAllySmallIds.clear();
       const allies = myPlayer.allies();
@@ -379,10 +396,7 @@ export class BuildPreviewController implements Controller {
       return;
     }
     const type = this.ghostUnit.buildableUnit.type;
-    if (
-      type !== UnitType.AtomBomb &&
-      type !== UnitType.HydrogenBomb
-    ) {
+    if (type !== UnitType.AtomBomb && type !== UnitType.HydrogenBomb) {
       this.clearNukeTrajectory();
       return;
     }
@@ -617,8 +631,7 @@ export class BuildPreviewController implements Controller {
       const unitType = this.ghostUnit.buildableUnit.type;
       const isNuke = unitType === UnitType.AtomBomb;
       const rocketDirectionUp =
-        unitType === UnitType.AtomBomb ||
-        unitType === UnitType.HydrogenBomb
+        unitType === UnitType.AtomBomb || unitType === UnitType.HydrogenBomb
           ? this.uiState.rocketDirectionUp
           : undefined;
       this.eventBus.emit(

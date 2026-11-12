@@ -118,6 +118,10 @@ export class EmojiTable extends LitElement {
     this.requestUpdate();
   }
 
+  destroy() {
+    this.hideTable();
+  }
+
   showTable(oneEmojiClicked: (emoji: string) => void) {
     this.onEmojiClicked = oneEmojiClicked;
     this.isVisible = true;

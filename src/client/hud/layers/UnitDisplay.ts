@@ -62,6 +62,24 @@ export class UnitDisplay extends LitElement implements Controller {
     this.requestUpdate();
   }
 
+  destroy() {
+    this.playerBuildables = null;
+    this._hoveredUnit = null;
+    this._cities = 0;
+    this._warships = 0;
+    this._factories = 0;
+    this._missileSilo = 0;
+    this._port = 0;
+    this._defensePost = 0;
+    this._samLauncher = 0;
+    this._waterBomb = 0;
+    this._tankFactories = 0;
+    this.allDisabled = false;
+    this.game = null as unknown as GameView;
+    this.eventBus = null as unknown as EventBus;
+    this.requestUpdate();
+  }
+
   private cost(item: UnitType): Gold {
     for (const bu of this.playerBuildables ?? []) {
       if (bu.type === item) {

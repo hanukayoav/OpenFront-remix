@@ -782,6 +782,7 @@ export class ClientGameRunner {
   private lastMousePosition: { x: number; y: number } | null = null;
 
   private lastMessageTime: number = 0;
+  private connectionCheckTimeout: ReturnType<typeof setTimeout> | null = null;
   private connectionCheckInterval: NodeJS.Timeout | null = null;
   private goToPlayerTimeout: NodeJS.Timeout | null = null;
 
@@ -860,7 +861,17 @@ export class ClientGameRunner {
 
     this.isActive = true;
     this.lastMessageTime = Date.now();
-    setTimeout(() => {
+    if (this.connectionCheckTimeout !== null) {
+      clearTimeout(this.connectionCheckTimeout);
+      this.connectionCheckTimeout = null;
+    }
+    if (this.connectionCheckInterval !== null) {
+      clearInterval(this.connectionCheckInterval);
+      this.connectionCheckInterval = null;
+    }
+    this.connectionCheckTimeout = setTimeout(() => {
+      this.connectionCheckTimeout = null;
+      if (!this.isActive) return;
       this.connectionCheckInterval = setInterval(
         () => this.onConnectionCheck(),
         1000,
@@ -1065,6 +1076,18 @@ export class ClientGameRunner {
   }
 
   public stop() {
+    if (this.connectionCheckTimeout !== null) {
+      clearTimeout(this.connectionCheckTimeout);
+      this.connectionCheckTimeout = null;
+    }
+    if (this.connectionCheckInterval) {
+      clearInterval(this.connectionCheckInterval);
+      this.connectionCheckInterval = null;
+    }
+    if (this.goToPlayerTimeout) {
+      clearTimeout(this.goToPlayerTimeout);
+      this.goToPlayerTimeout = null;
+    }
     this.soundManager.dispose();
     this.graphicsListenerAbort?.abort();
     this.disposeRenderer?.();
@@ -1076,14 +1099,6 @@ export class ClientGameRunner {
     this.isActive = false;
     this.worker.cleanup();
     this.transport.leaveGame();
-    if (this.connectionCheckInterval) {
-      clearInterval(this.connectionCheckInterval);
-      this.connectionCheckInterval = null;
-    }
-    if (this.goToPlayerTimeout) {
-      clearTimeout(this.goToPlayerTimeout);
-      this.goToPlayerTimeout = null;
-    }
   }
 
   private inputEvent(event: MouseUpEvent) {

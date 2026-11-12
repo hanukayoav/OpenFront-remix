@@ -87,6 +87,20 @@ export class HeadsUpMessage extends LitElement implements Controller {
     this.requestUpdate();
   }
 
+  destroy() {
+    if (this.toastTimeout) {
+      clearTimeout(this.toastTimeout);
+      this.toastTimeout = null;
+    }
+    this.isVisible = false;
+    this.toastMessage = null;
+    this.isPaused = false;
+    this.isImmunityActive = false;
+    this.isCatchingUp = false;
+    this.catchingUpTicks = 0;
+    this.requestUpdate();
+  }
+
   tick() {
     const updates = this.game.updatesSinceLastTick();
     const pauseUpdates = updates?.[GameUpdateType.GamePaused];

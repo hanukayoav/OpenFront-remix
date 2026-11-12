@@ -70,6 +70,8 @@ export class AttackingTroopsController implements Controller {
   private alternateView = false;
   /** Reused buffer pushed to the view each frame. */
   private labelBuf: AttackTroopLabel[] = [];
+  private driveRafId: number | null = null;
+  private destroyed = false;
 
   constructor(
     private readonly game: GameView,
@@ -79,15 +81,33 @@ export class AttackingTroopsController implements Controller {
   ) {}
 
   init() {
+    this.destroyed = false;
     this.eventBus.on(AlternateViewEvent, (e) => {
       this.alternateView = e.alternateView;
     });
 
     const drive = () => {
+      if (this.destroyed) return;
       this.pushLabels();
-      requestAnimationFrame(drive);
+      if (!this.destroyed) {
+        this.driveRafId = requestAnimationFrame(drive);
+      }
     };
-    requestAnimationFrame(drive);
+    this.driveRafId = requestAnimationFrame(drive);
+  }
+
+  destroy(): void {
+    this.destroyed = true;
+    if (this.driveRafId !== null) {
+      cancelAnimationFrame(this.driveRafId);
+      this.driveRafId = null;
+    }
+    this.attacks.clear();
+    this.labelBuf.length = 0;
+  }
+
+  dispose(): void {
+    this.destroy();
   }
 
   getTickIntervalMs() {

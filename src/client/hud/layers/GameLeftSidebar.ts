@@ -84,6 +84,18 @@ export class GameLeftSidebar extends LitElement implements Controller {
     }
   }
 
+  destroy() {
+    this.isVisible = false;
+    this.isPlayerTeamLabelVisible = false;
+    this.playerTeam = null;
+    this.spawnBarVisible = false;
+    this.immunityBarVisible = false;
+    this.showPlayerStatsAfterSpawn = false;
+    this.game = null;
+    this.eventBus = null;
+    this.requestUpdate();
+  }
+
   getTickIntervalMs() {
     return 1000;
   }

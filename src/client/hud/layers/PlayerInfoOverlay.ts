@@ -136,6 +136,12 @@ export class PlayerInfoOverlay extends LitElement implements Controller {
     this.setVisible(false);
     this.unit = null;
     this.player = null;
+    this.playerProfile = null;
+  }
+
+  public destroy() {
+    this._isActive = false;
+    this.hide();
   }
 
   public maybeShow(x: number, y: number) {

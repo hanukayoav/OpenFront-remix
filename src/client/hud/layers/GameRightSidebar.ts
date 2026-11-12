@@ -113,6 +113,16 @@ export class GameRightSidebar extends LitElement implements Controller {
     this.requestUpdate();
   }
 
+  destroy() {
+    this._isVisible = false;
+    this.hasWinner = false;
+    this.spawnBarVisible = false;
+    this.immunityBarVisible = false;
+    this.isLobbyCreator = false;
+    this.hasShownOneMinuteWarning = false;
+    this.requestUpdate();
+  }
+
   private onFullscreenChange = () => {
     this.isFullscreen = !!document.fullscreenElement;
   };
@@ -358,7 +368,7 @@ export class GameRightSidebar extends LitElement implements Controller {
       </style>
       <aside
         class=${`w-fit flex flex-row items-center gap-3 py-2 px-3 bg-gray-800/92 backdrop-blur-sm shadow-xs min-[1200px]:rounded-lg rounded-bl-lg transition-transform duration-300 ease-out transform text-white ${shouldFlashSidebar ? "game-end-timer-sidebar-flash" : ""} ${
-          this._isVisible ? "translate-x-0" : "translate-x-full"
+          this._isVisible ? "translate-x-0" : "hidden"
         }`}
         @contextmenu=${(e: Event) => e.preventDefault()}
       >

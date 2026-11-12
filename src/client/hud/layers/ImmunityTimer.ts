@@ -34,6 +34,14 @@ export class ImmunityTimer extends LitElement implements Controller {
     this.isVisible = true;
   }
 
+  destroy() {
+    this.isVisible = false;
+    this.isActive = false;
+    this._barVisible = false;
+    this.progressRatio = 0;
+    this.requestUpdate();
+  }
+
   tick() {
     if (!this.game || !this.isVisible) {
       return;

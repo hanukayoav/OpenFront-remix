@@ -89,9 +89,18 @@ export class MatchAnalytics {
   private matchTimeMs = 0;
 
   // Medal tracking aggregators
-  private readonly cratesSecured = new Map<number | string, { name: string; color: string; count: number }>();
-  private readonly peakTroops = new Map<number | string, { name: string; color: string; amount: number }>();
-  private readonly peakTerritory = new Map<number | string, { name: string; color: string; percent: number }>();
+  private readonly cratesSecured = new Map<
+    number | string,
+    { name: string; color: string; count: number }
+  >();
+  private readonly peakTroops = new Map<
+    number | string,
+    { name: string; color: string; amount: number }
+  >();
+  private readonly peakTerritory = new Map<
+    number | string,
+    { name: string; color: string; percent: number }
+  >();
 
   private modalContainer: HTMLElement | null = null;
   private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
@@ -131,7 +140,10 @@ export class MatchAnalytics {
       const p = sample.players[i];
       // Peak territory
       const currentPeakTerritory = this.peakTerritory.get(p.playerId);
-      if (!currentPeakTerritory || p.territoryPercent > currentPeakTerritory.percent) {
+      if (
+        !currentPeakTerritory ||
+        p.territoryPercent > currentPeakTerritory.percent
+      ) {
         this.peakTerritory.set(p.playerId, {
           name: p.name,
           color: p.color,
@@ -175,21 +187,37 @@ export class MatchAnalytics {
     let mostCrates = { playerName: "None", playerColor: "#64748b", count: 0 };
     for (const data of this.cratesSecured.values()) {
       if (data.count > mostCrates.count) {
-        mostCrates = { playerName: data.name, playerColor: data.color, count: data.count };
+        mostCrates = {
+          playerName: data.name,
+          playerColor: data.color,
+          count: data.count,
+        };
       }
     }
 
     let totalTroops = { playerName: "None", playerColor: "#64748b", amount: 0 };
     for (const data of this.peakTroops.values()) {
       if (data.amount > totalTroops.amount) {
-        totalTroops = { playerName: data.name, playerColor: data.color, amount: data.amount };
+        totalTroops = {
+          playerName: data.name,
+          playerColor: data.color,
+          amount: data.amount,
+        };
       }
     }
 
-    let peakTerritory = { playerName: "None", playerColor: "#64748b", percent: 0 };
+    let peakTerritory = {
+      playerName: "None",
+      playerColor: "#64748b",
+      percent: 0,
+    };
     for (const data of this.peakTerritory.values()) {
       if (data.percent > peakTerritory.percent) {
-        peakTerritory = { playerName: data.name, playerColor: data.color, percent: data.percent };
+        peakTerritory = {
+          playerName: data.name,
+          playerColor: data.color,
+          percent: data.percent,
+        };
       }
     }
 
@@ -224,7 +252,7 @@ export class MatchAnalytics {
     const overlay = document.createElement("div");
     overlay.id = "openfront-match-analytics-modal";
     overlay.className =
-      "fixed inset-0 z-50 flex items-center justify-center p-4 " +
+      "fixed inset-0 z-[10005] flex items-center justify-center p-4 " +
       "bg-black/60 backdrop-blur-xl transition-opacity duration-300 animate-fadeIn";
 
     // 2. Glassmorphism Card
@@ -247,7 +275,9 @@ export class MatchAnalytics {
           <div class="flex flex-col gap-1 min-w-0">
             <div class="flex items-center gap-2.5 flex-wrap">
               <span class="text-xs uppercase font-extrabold tracking-widest px-2.5 py-0.5 rounded-full ${
-                isDomination ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                isDomination
+                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                  : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
               }">
                 ${options.victoryType} Victory
               </span>
@@ -362,7 +392,9 @@ export class MatchAnalytics {
     this.modalContainer = overlay;
 
     // Draw Victor Portrait Avatar onto canvas
-    const portraitCanvas = card.querySelector<HTMLCanvasElement>("#analytics-avatar-portrait");
+    const portraitCanvas = card.querySelector<HTMLCanvasElement>(
+      "#analytics-avatar-portrait",
+    );
     if (portraitCanvas) {
       const pCtx = portraitCanvas.getContext("2d");
       if (pCtx) {
@@ -370,7 +402,8 @@ export class MatchAnalytics {
           pCtx,
           {
             id: "modal_victor",
-            playerId: typeof options.winnerId === "number" ? options.winnerId : 1,
+            playerId:
+              typeof options.winnerId === "number" ? options.winnerId : 1,
             capitalX: 36,
             capitalY: 48,
             state: "victory",
@@ -385,18 +418,24 @@ export class MatchAnalytics {
     }
 
     // Draw Territory Control Timeline Line Graph onto mini canvas
-    const graphCanvas = card.querySelector<HTMLCanvasElement>("#analytics-timeline-graph");
+    const graphCanvas = card.querySelector<HTMLCanvasElement>(
+      "#analytics-timeline-graph",
+    );
     if (graphCanvas) {
       this.drawLineGraph(graphCanvas, samples, options.winnerId);
     }
 
     // Wire Close & Spectate Buttons
-    const closeBtn = card.querySelector<HTMLButtonElement>("#analytics-close-btn");
+    const closeBtn = card.querySelector<HTMLButtonElement>(
+      "#analytics-close-btn",
+    );
     if (closeBtn) {
       closeBtn.addEventListener("click", () => this.hideVictoryModal());
     }
 
-    const spectateBtn = card.querySelector<HTMLButtonElement>("#analytics-spectate-btn");
+    const spectateBtn = card.querySelector<HTMLButtonElement>(
+      "#analytics-spectate-btn",
+    );
     if (spectateBtn) {
       spectateBtn.addEventListener("click", () => this.hideVictoryModal());
     }
@@ -419,7 +458,9 @@ export class MatchAnalytics {
     }
 
     // Wire Play Again Button
-    const playAgainBtn = card.querySelector<HTMLButtonElement>("#analytics-play-again-btn");
+    const playAgainBtn = card.querySelector<HTMLButtonElement>(
+      "#analytics-play-again-btn",
+    );
     if (playAgainBtn) {
       playAgainBtn.addEventListener("click", () => {
         this.hideVictoryModal();
@@ -491,10 +532,17 @@ export class MatchAnalytics {
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
     ctx.fillText(`${Math.round(minTime)}s`, padLeft, padTop + graphH + 6);
-    ctx.fillText(`${Math.round(maxTime)}s`, padLeft + graphW, padTop + graphH + 6);
+    ctx.fillText(
+      `${Math.round(maxTime)}s`,
+      padLeft + graphW,
+      padTop + graphH + 6,
+    );
 
     // Group player trajectories
-    const playerSeries = new Map<number | string, Array<{ x: number; y: number; color: string }>>();
+    const playerSeries = new Map<
+      number | string,
+      Array<{ x: number; y: number; color: string }>
+    >();
     for (let i = 0; i < samples.length; i++) {
       const s = samples[i];
       if (!s || !s.players || !Array.isArray(s.players)) continue;
