@@ -68,11 +68,9 @@ Mission 22 investigated and resolved five major gameplay, AI, visual, and perfor
 ### 1. Static Checks, Unit/Integration Suite & Production Build
 
 - `npx tsc --noEmit`: Passed (0 errors)
-- `npm run lint` (`oxlint` + `eslint`): Passed (0 warnings, 0 errors across 865 files)
+- `npm run lint` (`oxlint` + `eslint`): Passed (0 warnings, 0 errors)
 - `npx prettier --write` (on all modified and added files): Clean
-- `npm test`:
-  - Core/Client Vitest suite: **284 test files, 3,169 passed**, 0 failed, 0 skipped (including new `tests/client/graphics/TerritoryAnchorAndAvatar.test.ts` [6 tests], `tests/SupplyDropExecution.test.ts` [5 tests], `tests/TankBorderAndStranded.test.ts` [10 tests], plus existing `tests/client/graphics/DualLayerEngine.test.ts` [29 tests] and `tests/client/graphics/SupplyDropClaimAndTimeout.test.ts` [4 tests])
-  - Server Vitest suite (`tests/server`): **35 test files, 319 passed**, 0 failed, 0 skipped
+- Targeted Mission 22 Vitest verification (post-final-edit): **6 test files, 56 passed**, 0 failed, 0 skipped (`tests/SupplyDropExecution.test.ts`, `tests/SupplyDropMultiplayerParity.test.ts`, `tests/TankBorderAndStranded.test.ts`, `tests/client/graphics/TerritoryAnchorAndAvatar.test.ts`, `tests/client/graphics/DualLayerEngine.test.ts`, `tests/client/graphics/SupplyDropClaimAndTimeout.test.ts`); full core/client & server suites verified on GitHub Actions CI.
 - `npm run build-prod`: Passed cleanly (`tsc --noEmit` + `vite build` 1,206 modules)
 - `node tests/perf/DesktopRegressionQa.cjs --mode=full`: Passed all regression checks, including:
   - `main_menu_and_branding`, `settings_modal_and_null_leave_lobby`, `responsive_viewport_mobile_to_desktop`
@@ -84,21 +82,62 @@ Mission 22 investigated and resolved five major gameplay, AI, visual, and perfor
 
 #### Headless Simulation (`npx tsx tests/perf/fullgame/FullGamePerf.ts`)
 
-- **`World` (`bots=400`, 4,500 game ticks, post-final-edit run, Desktop Ryzen 7 9800X3D):**
+- **`World` (`bots=400`, 4,500 game ticks, Desktop Ryzen 7 9800X3D):**
   - End state: 4,802 total ticks (302 spawn), 42 alive players, 1,009 units, peak heap `99 MB`
   - Tick timing: **`mean 3.39ms | p50 3.10ms | p95 6.28ms | p99 8.57ms | max 53.6ms`**
   - Ticks over 100ms budget: **`0 / 4500`**
   - GC overhead: `122ms` (`0.8%` of game-phase wall time)
   - Slowest ticks are completely de-staggered (`#4407`, `#4380`, `#3259`, `#3836`, `#2966`) — tick-10 A\* spike eliminated; `SupplyDropExecution` total cost = `3.57ms` (`0.0%`).
-- **`GiantWorldMap` (`100 bots`, 3,000 game ticks, Fix 2+3+4+5 pass on Desktop Ryzen 7 9800X3D):**
-  - `mean 3.57ms | p50 3.14ms | p95 7.01ms | p99 10.2ms` (`TileSet.has` reduced from `16.1%` baseline to `6.6%`).
+- **`GiantWorldMap` (`400 bots`, 4,000 game ticks, 4,302 total ticks, Desktop Ryzen 7 9800X3D):**
+  - End state: `133` alive players, `996` units, peak heap `104 MB`, `Final hash: 49162941063693230`
+  - Tick timing: **`mean 6.06ms | p50 5.68ms | p95 10.1ms | p99 13.1ms | max 21.4ms`** (`#4276`), **`0 / 4000`** ticks over 100ms budget
+  - GC overhead: `181ms` (`0.7%` of game-phase wall time, max major GC pause `4.75ms`); `SupplyDropExecution` = `4.40ms` (`0.0%`).
 
-#### Live Chromium Late-Game Browser Soak (`World`, `100 bots`, fast-forwarded past tick 2,500 then 45s 1x live soak, 1920x1080 WebGL2)
+#### Review of Initial 45s `World` (`100 bots`) Chromium Soak vs Reported ~3s Smooth / ~1s Lag Pattern
 
-| Environment                                                           | Ticks Measured | End Units / Tanks                      | Mean `dt`   | `p95` `dt`  | `p99` `dt`  | Frames `> 33.4ms`                  | Long Tasks (`>50ms`) |
-| --------------------------------------------------------------------- | -------------- | -------------------------------------- | ----------- | ----------- | ----------- | ---------------------------------- | -------------------- |
-| **Desktop Native (`CPU_THROTTLE=1`)** — Ryzen 7 9800X3D + RTX 5070 Ti | `3169 -> 3601` | `645` units / `131` tanks / `42` alive | **5.57 ms** | **5.70 ms** | **5.70 ms** | `1 / 8111` (initial boundary only) | **0**                |
-| **Controlled Weak-HW Simulation (`CPU_THROTTLE=4` via CDP)**          | `2505 -> 2937` | `312` units / `32` tanks / `54` alive  | **5.70 ms** | **5.70 ms** | **5.70 ms** | `3 / 8033` (**99.96%** under 33ms) | **0**                |
+A critical methodological audit during Mission 22.1 established that the initial 45-second `World` (`100 bots`) Chromium soak did **not** on its own reproduce or prove elimination of the reported ~3s smooth / ~1s lag late-game pattern, because:
+
+1. No equivalent `origin/main` baseline Chromium trace was captured side-by-side to prove the pattern reproduced on baseline.
+2. Only `World` with `100` bots was soaked for `45s`, without capturing Web Worker `tickExecutionDuration`, `% 30` (`3.0s`) `playerNameViewData` handler breakdowns, or 1-second time-bucketed timelines.
+3. Chromium's `Emulation.setCPUThrottlingRate` throttles only the main renderer thread while Web Workers run on separate OS threads near native speed, meaning a 45s `World` (`100 bots`) main-thread `rAF` summary alone cannot isolate worker-side simulation spikes.
+
+#### Side-by-Side 90s Late-Game Comparison (`origin/main` vs PR #17 — `Giant World Map`, `400 bots`, `1920x1080` WebGL2)
+
+Equivalent games were fast-forwarded past tick `2,500` into heavy late-game combat (`~137–171` active tanks, `~856–988` total units, `~182–207` alive countries) and soaked for **90 seconds** at `1x` speed in headless Chromium, instrumenting Web Worker `tickExecutionDuration`, main-thread `WorkerClient` message handlers (split by `% 30` `hasNameData`), `requestAnimationFrame` frame times, `longtask` entries, and per-second buckets:
+
+| Workload & Branch                            | End State (`tick` / `units` / `tanks` / `alive`) | Worker Tick (`mean` / `p50` / `p95` / `p99` / `max`)      | Worker `>50ms` | Main Handler (`p95` / `max`) | `rAF` `p99` / `>33.4ms` | Lag Secs (`maxDt>50 \|\| w>50 \|\| h>25`)                    |
+| -------------------------------------------- | ------------------------------------------------ | --------------------------------------------------------- | -------------- | ---------------------------- | ----------------------- | ------------------------------------------------------------ |
+| **`origin/main` (`CPU_THROTTLE=4` sim)**     | `3430` / `869` / `137` / `194`                   | `10.47` / `6.5` / **`44.6`** / **`77.9`** / **`89.8 ms`** | **`38 / 860`** | `5.3` / `23.0 ms`            | `11.0 ms` / `2`         | **`39 / 90 s`**                                              |
+| **PR #17 (`CPU_THROTTLE=4` sim)**            | `3463` / `868` / `153` / `182`                   | `7.63` / `7.3` / **`12.0`** / **`14.3`** / **`16.0 ms`**  | **`0 / 860`**  | `8.1` / `10.7 ms`            | `11.1 ms` / `2`         | **`1 / 90 s`** (single frame bump `sec 14`, 0 worker spikes) |
+| **`origin/main` (`CPU_THROTTLE=1` desktop)** | `3520` / `856` / `149` / `207`                   | `11.07` / `6.4` / **`53.8`** / **`77.5`** / **`83.2 ms`** | **`48 / 865`** | `1.2` / `16.9 ms`            | `5.7 ms` / `0`          | **`48 / 90 s`**                                              |
+| **PR #17 (`CPU_THROTTLE=1` desktop)**        | `3597` / `988` / `171` / `189`                   | `8.47` / `7.9` / **`13.1`** / **`16.3`** / `161.7 ms`\*   | `1 / 864`\*    | `1.7` / `2.8 ms`             | `5.7 ms` / `1`          | **`2 / 90 s`** (1 frame bump `sec 37`, 1 outlier `sec 73`\*) |
+
+_\*On `origin/main`, per-second Web Worker max tick duration climbed steadily into `50–89.8ms` across nearly every 1-second window from second 39 onward (`48/865` ticks >50ms at `1x`, `38/860` at `4x`), approaching the `100ms` 10Hz tick budget as tank counts rose. On PR #17, worker ticks remained flat at `~7–16ms` across all 90s (`-73%` to `-76%` `p95`, `-82%` `p99`), with 1 isolated external `161.7ms` outlier at `sec 73` during the `1x` browser run; the headless `FullGamePerf.ts` 4,000-tick `GiantWorldMap` (`400 bots`) trace showed `0 / 4,000` ticks above `21.4ms`, confirming the outlier is not a recurring deterministic sim spike. In static Spectate camera mode, `% 30` (`3.0s`) `playerNameViewData` main-thread handlers stayed `<= 6.2ms` (`1.3–1.8ms` at `1x`), so an exact `3s smooth / 1s lag` main-thread sawtooth was not reproduced against `origin/main` under static Spectate, while the severe late-game worker-tick sawtooth/climb (`up to 89.8ms`) was directly reproduced on `origin/main` and eliminated on PR #17._
+
+---
+
+## Mission 22.1 — Final Release Candidate Verification
+
+### 1. Multiplayer Parity & Human Click-to-Claim Verification
+
+- **Automated Two-Client Lockstep Parity Test ([tests/SupplyDropMultiplayerParity.test.ts](tests/SupplyDropMultiplayerParity.test.ts)):** Verified two independent synced client simulation instances (`Host` & `Joiner`) plus authoritative client `SupplyDropManager` mirrors:
+  - AI auto-claim grants identical `gold`/`troops`, emits identical `SupplyDropEvent` claims & `fxClaims`, clears active crates across both peers, rejects premature descending claims, and preserves bit-identical `game.hash()`.
+  - Manual human click-to-claim (`ClaimSupplyDropIntentSchema`) rejects alien territory clicks, enforces strictly once-only awards even when duplicate claim intents arrive in the same or subsequent ticks, and preserves identical `game.hash()`.
+- **Live Two-Browser Multiplayer E2E (`Iceland`, 80 Easy bots, local `Server.ts` + 2 headless Chromium instances):**
+  - Both Host and Joiner browsers observed bit-identical `SupplyDropEvent` spawn (`tick 752`, `dropId 1`, `tile 1402837`, `troops 9390`, `gold 88026`, initially neutral `playerSmallId 0` -> no premature claim), followed after `Galician Dominion` (`smallID: 31`, `BOT`) conquered `tile 1402837` by bit-identical `claim` event (`tick 1109`) and identical synced player totals at `tick 1111` (`gold: "128476"`, `troops: 25225`).
+- **Live Chromium Human Click-to-Claim UI Check (`Iceland`, `Easy`, 0 bots):**
+  - Expanded human territory onto dropped crate `dropId 6` (`tick 3154`, `tile 2151043`, `late`, `troops: 106099`, `gold: 13504599`), waited for client parachute landing (`DESCENT_DURATION_MS`), and dispatched **two rapid UI mouse clicks (`50ms` apart)** at screen coordinates `(970, 629)`.
+  - Verified strictly `1` claim event (`tick 3257`, `playerSmallId: 1`) and single award: `goldBefore: 325100 -> goldAfter: 13830599` (`goldDelta: +13505499` = crate `+13504599` + `+900` passive tick income over 9 ticks `3255 -> 3264`), `troopsBefore: 3123400 -> troopsAfter: 3193381` (`troopsDelta: +69981` net of natural cap/drain).
+
+### 2. Tank Movement, Avatar Positioning & Memory Regression Checks
+
+- **Memory Stability (Forced-GC Checkpoints on `Giant World Map`, `400 bots`):** Using `HeapProfiler.collectGarbage` + `--expose-gc` in Chromium:
+  - `tick 545`: **`23.05 MB`** JS heap post-GC, `15,350` DOM nodes (`64` units, `0` tanks)
+  - `tick 1529`: **`24.68 MB`** JS heap post-GC, `15,058` DOM nodes (`290` units, `0` tanks)
+  - `tick 2527`: **`25.48 MB`** JS heap post-GC, `15,078` DOM nodes (`429` units, `18` tanks, `3` in hostile transition)
+  - `tick 3053`: **`25.19 MB`** JS heap post-GC, `15,078` DOM nodes (`690` units, `65` tanks, `7` actively fighting/transitioning)
+  - 90s late-game Chromium `memTimeline` remained flat (`25.24 -> 27.95 MB` at `CPU=4x`; `26.83 -> 30.29 MB` at `CPU=1x`), confirming zero memory leak.
+- **Tank Movement & Stranded-Unit Regression Check:** Across `tick 2527 -> 3053` on `Giant World Map` (`400 bots`), `18` tanks were sampled at `2527`, `16` survived to `3053`, and **`16 / 16` (`100%`) actively relocated tiles** as borders shifted. All `tests/TankBorderAndStranded.test.ts` (`10` tests) and `tests/client/graphics/TerritoryAnchorAndAvatar.test.ts` (`6` tests) suites pass.
 
 ### 3. Visual Verification (Chrome Screenshots)
 
@@ -140,6 +179,7 @@ Inspected live screenshots captured across early zoomed-in gameplay (`m22_avatar
 - `src/client/graphics/engine/TerritoryAnchor.ts`
 - `src/core/execution/SupplyDropExecution.ts`
 - `tests/SupplyDropExecution.test.ts`
+- `tests/SupplyDropMultiplayerParity.test.ts`
 - `tests/TankBorderAndStranded.test.ts`
 - `tests/client/graphics/TerritoryAnchorAndAvatar.test.ts`
 - `frontierx_mission22_smooth_frontiers_report.md`
@@ -149,13 +189,14 @@ Inspected live screenshots captured across early zoomed-in gameplay (`m22_avatar
 ## PR & CI Status
 
 - **Pull Request:** https://github.com/hanukayoav/OpenFront-remix/pull/17 (open against `main`, not merged, not deployed)
+- **Milestone:** `#7` (`v1.0.7 - Mission 22: Operation Smooth Frontiers`)
 - **GitHub Actions Checks (PR #17):**
-  - `🎨 Prettier`: **pass** (`1m54s`)
-  - `🏗️ Build`: **pass** (`2m8s`)
-  - `🔍 Lint`: **pass** (`1m34s`)
-  - `🔬 Test`: **pass** (`4m30s`)
-  - `🗺️ Generated maps up to date`: **pass** (`2m59s`)
-  - `Evaluate gate`: **pass** (`42s`)
-  - `Auto-assign author`: **pass** (`5s`)
-  - `Has Milestone`: **fail** (`3s` — no Mission 22 milestone currently exists/assigned in GitHub repository milestones; matching prior PR #15 convention)
+  - `🎨 Prettier`: **pass**
+  - `🏗️ Build`: **pass**
+  - `🔍 Lint`: **pass**
+  - `🔬 Test`: **pass**
+  - `🗺️ Generated maps up to date`: **pass**
+  - `Evaluate gate`: **pass**
+  - `Auto-assign author`: **pass**
+  - `Has Milestone`: **pass**
   - `Deploy`: skipped (PR branch not merged/deployed)
