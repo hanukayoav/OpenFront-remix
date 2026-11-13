@@ -30,11 +30,26 @@ import { WinModal } from "../../src/client/hud/layers/WinModal";
 import { LocalServer } from "../../src/client/LocalServer";
 import type { MapRenderer } from "../../src/client/render/gl";
 import type { TransformHandler } from "../../src/client/TransformHandler";
-import { Transport } from "../../src/client/Transport";
+import {
+  BuildUnitIntentEvent,
+  SendAttackIntentEvent,
+  SendEmojiIntentEvent,
+  SendQuickChatEvent,
+  SendSpawnIntentEvent,
+  SendTargetPlayerIntentEvent,
+  Transport,
+} from "../../src/client/Transport";
 import type { UIState } from "../../src/client/UIState";
-import type { GameView } from "../../src/client/view";
+import type { GameView, PlayerView } from "../../src/client/view";
 import { EventBus } from "../../src/core/EventBus";
-import { GameMode, GameType } from "../../src/core/game/Game";
+import {
+  Difficulty,
+  GameMapSize,
+  GameMapType,
+  GameMode,
+  GameType,
+  UnitType,
+} from "../../src/core/game/Game";
 import { UserSettings } from "../../src/core/game/UserSettings";
 
 class MockWebSocket {
@@ -71,6 +86,10 @@ class MockWebSocket {
   triggerOpen() {
     this.readyState = MockWebSocket.OPEN;
     this.onopen?.();
+  }
+
+  triggerMessage(payload: Record<string, unknown>) {
+    this.onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
   }
 
   triggerClose(code: number, reason = "") {
@@ -113,11 +132,51 @@ function setTestBootstrapConfig() {
   ClientEnv.reset();
 }
 
+async function flushMicrotasks(ticks = 6) {
+  for (let i = 0; i < ticks; i++) {
+    await Promise.resolve();
+  }
+}
+
+function makeStartGameMessage(turns: Array<{ turnNumber: number }> = []) {
+  return {
+    type: "start",
+    lobbyCreatedAt: 1000,
+    myClientID: "client01",
+    turns: turns.map((t) => ({
+      turnNumber: t.turnNumber,
+      intents: [],
+    })),
+    gameStartInfo: {
+      gameID: "game0001",
+      lobbyCreatedAt: 1000,
+      players: [],
+      config: {
+        gameMap: GameMapType.World,
+        gameMapSize: GameMapSize.Normal,
+        difficulty: Difficulty.Medium,
+        donateGold: false,
+        donateTroops: false,
+        gameType: GameType.Public,
+        gameMode: GameMode.FFA,
+        nations: 1,
+        bots: 0,
+        randomSpawn: false,
+        infiniteGold: false,
+        infiniteTroops: false,
+        instantBuild: false,
+      },
+    },
+  };
+}
+
 describe("Project IRONCLAD regressions", () => {
   beforeEach(() => {
     MockWebSocket.instances = [];
     localStorage.clear();
+    sessionStorage.clear();
     setTestBootstrapConfig();
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
   });
 
   afterEach(() => {
@@ -128,76 +187,234 @@ describe("Project IRONCLAD regressions", () => {
     document.body.innerHTML = "";
   });
 
-  describe("Transport queue ordering, socket states, and reconnect backoff", () => {
-    it("flushes buffered offline messages in FIFO order on socket open", () => {
+  describe("Transport authentication, queue ordering, staleness, and reconnect hardening", () => {
+    it("authenticates and rejoins BEFORE flushing buffered intents in FIFO order", async () => {
       vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
-      const transport = new Transport(createFakeLobbyConfig(), new EventBus());
-      const onconnect = vi.fn();
-      const onmessage = vi.fn();
+      const bus = new EventBus();
+      const transport = new Transport(createFakeLobbyConfig(), bus);
+      const syncOrder: string[] = [];
 
-      transport.connect(onconnect, onmessage);
+      transport.connect(
+        () => {
+          syncOrder.push("onconnect");
+          void transport.rejoinGame(4);
+        },
+        (msg) => {
+          syncOrder.push(`onmessage:${msg.type}`);
+        },
+      );
+
       const ws1 = MockWebSocket.instances[0];
       expect(ws1).toBeDefined();
 
-      // While CONNECTING, sendMsg should queue without throwing InvalidStateError
-      (
-        transport as unknown as {
-          sendMsg: (m: { type: "ping" }) => void;
-        }
-      ).sendMsg({ type: "ping" });
-      (
-        transport as unknown as {
-          sendMsg: (m: { type: "hash"; tick: number; hash: number }) => void;
-        }
-      ).sendMsg({ type: "hash", tick: 1, hash: 111 } as unknown as {
-        type: "hash";
-        tick: number;
-        hash: number;
-      });
+      // Important actions emitted while CONNECTING must buffer, not send or throw.
+      bus.emit(new SendSpawnIntentEvent(101));
+      bus.emit(new BuildUnitIntentEvent(UnitType.City, 202));
+      bus.emit(new SendAttackIntentEvent("p2", 500, 303));
+      expect(ws1.sent).toHaveLength(0);
 
+      // Opening socket runs onconnect() -> async getPlayToken() -> sends "rejoin",
+      // and MUST NOT flush queued gameplay intents until server state sync arrives.
       ws1.triggerOpen();
-      expect(onconnect).toHaveBeenCalledTimes(1);
-      expect(ws1.sent).toHaveLength(2);
-      expect(JSON.parse(ws1.sent[0]).type).toBe("ping");
-      expect(JSON.parse(ws1.sent[1]).type).toBe("hash");
+      await flushMicrotasks();
+
+      expect(ws1.sent).toHaveLength(1);
+      const firstSent = JSON.parse(ws1.sent[0]);
+      expect(firstSent.type).toBe("rejoin");
+      expect(firstSent.lastTurn).toBe(4);
+      expect(typeof firstSent.token).toBe("string");
+
+      // Server responds with "start" (including missed turn catchup).
+      ws1.triggerMessage(makeStartGameMessage([{ turnNumber: 4 }]));
+      expect(syncOrder).toEqual(["onconnect", "onmessage:start"]);
+
+      // Now all queued intents flush strictly after "rejoin" & "start", in FIFO order.
+      expect(ws1.sent).toHaveLength(4);
+      expect(JSON.parse(ws1.sent[1]).intent.type).toBe("spawn");
+      expect(JSON.parse(ws1.sent[2]).intent.type).toBe("build_unit");
+      expect(JSON.parse(ws1.sent[3]).intent.type).toBe("attack");
 
       transport.leaveGame();
     });
 
-    it("buffers instead of throwing when socket is CLOSING", () => {
+    it("handles network interruption during active gameplay and recovers after rejoin + start sync", async () => {
+      vi.useFakeTimers();
       vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
-      const transport = new Transport(createFakeLobbyConfig(), new EventBus());
-      transport.connect(vi.fn(), vi.fn());
+      const bus = new EventBus();
+      const transport = new Transport(createFakeLobbyConfig(), bus);
+      let currentTurns = 10;
 
-      const ws1 = MockWebSocket.instances[0];
-      ws1.readyState = MockWebSocket.CLOSING;
-
-      expect(() => {
-        (
-          transport as unknown as {
-            sendMsg: (m: { type: "ping" }) => void;
+      transport.connect(
+        () => {
+          void transport.rejoinGame(currentTurns);
+        },
+        (msg) => {
+          if (msg.type === "start") {
+            currentTurns += msg.turns.length;
           }
-        ).sendMsg({ type: "ping" });
-      }).not.toThrow();
+        },
+      );
 
-      // Reconnect should have opened ws2 and queued message for FIFO flush
+      // Initial connection + auth + start sync
+      const ws1 = MockWebSocket.instances[0];
+      ws1.triggerOpen();
+      await flushMicrotasks();
+      ws1.triggerMessage(makeStartGameMessage([]));
+      expect(ws1.sent.map((s) => JSON.parse(s).type)).toEqual(["rejoin"]);
+
+      // Normal synced intent sends immediately
+      bus.emit(new SendAttackIntentEvent("bot-1", 1200, 444));
+      expect(ws1.sent).toHaveLength(2);
+
+      // Network drops (1006); player triggers action while disconnected -> queued once, not dropped
+      ws1.triggerClose(1006, "network drop");
+      bus.emit(new BuildUnitIntentEvent(UnitType.Port, 555));
+      expect(MockWebSocket.instances).toHaveLength(1);
+
+      // Reconnect fires after 500ms backoff
+      vi.advanceTimersByTime(500);
       expect(MockWebSocket.instances).toHaveLength(2);
       const ws2 = MockWebSocket.instances[1];
       ws2.triggerOpen();
+      await flushMicrotasks();
+
+      // First message on ws2 MUST be "rejoin", NOT the buffered "build_unit"
       expect(ws2.sent).toHaveLength(1);
-      expect(JSON.parse(ws2.sent[0]).type).toBe("ping");
+      expect(JSON.parse(ws2.sent[0]).type).toBe("rejoin");
+
+      // Server replies with missed turn 10 -> client applies it BEFORE buffered port build flushes
+      ws2.triggerMessage(makeStartGameMessage([{ turnNumber: 10 }]));
+      expect(currentTurns).toBe(11);
+      expect(ws2.sent).toHaveLength(2);
+      expect(JSON.parse(ws2.sent[1]).intent.type).toBe("build_unit");
 
       transport.leaveGame();
     });
 
-    it("schedules bounded exponential backoff on unexpected close and cancels timer on leaveGame()", () => {
+    it("drops stale queued actions (>5s old) and never queues ephemeral/ping offline messages", async () => {
       vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-11-13T00:00:00Z"));
+      vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
+      const bus = new EventBus();
+      const transport = new Transport(createFakeLobbyConfig(), bus);
+
+      transport.connect(() => {
+        void transport.rejoinGame(0);
+      }, vi.fn());
+
+      const ws1 = MockWebSocket.instances[0];
+
+      // While disconnected/connecting: old attack + ephemeral intents + offline ping
+      bus.emit(new SendAttackIntentEvent("enemy", 500, 10));
+      bus.emit(
+        new SendEmojiIntentEvent(
+          { id: () => "enemy" } as unknown as PlayerView,
+          3,
+        ),
+      );
+      bus.emit(
+        new SendQuickChatEvent(
+          { id: () => "enemy" } as unknown as PlayerView,
+          "hello",
+        ),
+      );
+      bus.emit(new SendTargetPlayerIntentEvent("enemy"));
+      (
+        transport as unknown as { sendMsg: (m: { type: "ping" }) => void }
+      ).sendMsg({ type: "ping" });
+
+      // Advance >5s so earlier attack becomes stale, then emit a fresh build intent
+      vi.advanceTimersByTime(5500);
+      bus.emit(new BuildUnitIntentEvent(UnitType.DefensePost, 99));
+
+      ws1.triggerOpen();
+      await flushMicrotasks();
+      ws1.triggerMessage(makeStartGameMessage([]));
+
+      const sentTypes = ws1.sent.map((raw) => {
+        const p = JSON.parse(raw);
+        return p.type === "intent" ? `intent:${p.intent.type}` : p.type;
+      });
+      expect(sentTypes).toEqual(["rejoin", "intent:build_unit"]);
+
+      transport.leaveGame();
+    });
+
+    it("does not duplicate handshakes when join/rejoin is invoked offline before open", async () => {
       vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
       const transport = new Transport(createFakeLobbyConfig(), new EventBus());
+
+      transport.connect(() => {
+        void transport.rejoinGame(0);
+      }, vi.fn());
+
+      // Stale join/rejoin attempts while CONNECTING must not pile up into buffer
+      await transport.joinGame();
+      await transport.rejoinGame(0);
+
+      const ws1 = MockWebSocket.instances[0];
+      ws1.triggerOpen();
+      await flushMicrotasks();
+      ws1.triggerMessage(makeStartGameMessage([]));
+
+      expect(ws1.sent).toHaveLength(1);
+      expect(JSON.parse(ws1.sent[0]).type).toBe("rejoin");
+      transport.leaveGame();
+    });
+
+    it("aborts queued intents and reconnects when restarted server rejects rejoin (1002)", async () => {
+      vi.useFakeTimers();
+      vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
+      const bus = new EventBus();
+      const transport = new Transport(createFakeLobbyConfig(), bus);
+
+      transport.connect(() => {
+        void transport.rejoinGame(25);
+      }, vi.fn());
+
+      const ws1 = MockWebSocket.instances[0];
+      ws1.triggerOpen();
+      await flushMicrotasks();
+      ws1.triggerMessage(makeStartGameMessage([]));
+
+      // Connection drops and player queues an attack before server restarts
+      ws1.triggerClose(1006, "server rebooting");
+      bus.emit(new SendAttackIntentEvent("enemy", 900, 77));
+
+      vi.advanceTimersByTime(500);
+      const ws2 = MockWebSocket.instances[1];
+      ws2.triggerOpen();
+      await flushMicrotasks();
+
+      // Restarted server rejects unknown gameID with 1002
+      ws2.triggerClose(1002, "Game not found");
+
+      // Buffered attack must NEVER be sent to restarted server and no further reconnect occurs
+      const sentIntents = ws2.sent.filter(
+        (raw) => JSON.parse(raw).type === "intent",
+      );
+      expect(sentIntents).toHaveLength(0);
+
+      // Even if UI emits another intent or timers advance, stopped transport stays dead
+      bus.emit(new BuildUnitIntentEvent(UnitType.City, 88));
+      vi.advanceTimersByTime(60_000);
+      expect(MockWebSocket.instances).toHaveLength(2);
+    });
+
+    it("does NOT bypass exponential backoff when sending while CLOSING or CLOSED", () => {
+      vi.useFakeTimers();
+      vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
+      const bus = new EventBus();
+      const transport = new Transport(createFakeLobbyConfig(), bus);
       transport.connect(vi.fn(), vi.fn());
 
-      // Unexpected close triggers backoff instead of immediate tight reconnect loop
-      MockWebSocket.instances[0].triggerClose(1006, "abnormal");
+      const ws1 = MockWebSocket.instances[0];
+      // Simulated CLOSING state before onclose fires
+      ws1.readyState = MockWebSocket.CLOSING;
+
+      // Rapid offline actions during CLOSING/CLOSED must schedule at most ONE backoff attempt
+      bus.emit(new SendAttackIntentEvent("p2", 100, 1));
+      bus.emit(new SendAttackIntentEvent("p2", 200, 2));
       expect(MockWebSocket.instances).toHaveLength(1);
 
       vi.advanceTimersByTime(499);
@@ -205,18 +422,80 @@ describe("Project IRONCLAD regressions", () => {
       vi.advanceTimersByTime(1);
       expect(MockWebSocket.instances).toHaveLength(2);
 
-      // Second consecutive failure waits 1000ms (500 * 2^1)
+      // Second failure waits 1000ms (even if intents are sent while CLOSED)
       MockWebSocket.instances[1].triggerClose(1006, "abnormal");
+      bus.emit(new SendAttackIntentEvent("p2", 300, 3));
       vi.advanceTimersByTime(999);
       expect(MockWebSocket.instances).toHaveLength(2);
       vi.advanceTimersByTime(1);
       expect(MockWebSocket.instances).toHaveLength(3);
 
-      // Calling leaveGame cancels any queued reconnect timer
-      MockWebSocket.instances[2].triggerClose(1006, "abnormal");
       transport.leaveGame();
+    });
+
+    it("stops reconnecting permanently once MAX_RECONNECT_ATTEMPTS is exhausted", () => {
+      vi.useFakeTimers();
+      vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
+      const bus = new EventBus();
+      const transport = new Transport(createFakeLobbyConfig(), bus);
+      transport.connect(vi.fn(), vi.fn());
+
+      // Exhaust 10 reconnect attempts (1 initial + 10 retries = 11 sockets total)
+      for (let i = 0; i < 10; i++) {
+        MockWebSocket.instances[i].triggerClose(1006, "unreachable");
+        vi.advanceTimersByTime(20_000);
+      }
+      expect(MockWebSocket.instances).toHaveLength(11);
+
+      // 11th socket closes -> hits attempt limit, stops permanently
+      MockWebSocket.instances[10].triggerClose(1006, "unreachable");
+      vi.advanceTimersByTime(120_000);
+      bus.emit(new BuildUnitIntentEvent(UnitType.City, 50));
+      vi.advanceTimersByTime(120_000);
+      expect(MockWebSocket.instances).toHaveLength(11);
+    });
+
+    it("cancels pending reconnects, aborts CONNECTING sockets, and ignores delayed auth on leaveGame()", async () => {
+      vi.useFakeTimers();
+      vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
+
+      let resolveFetch!: () => void;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          () =>
+            new Promise((resolve) => {
+              resolveFetch = () =>
+                resolve({ ok: false } as unknown as Response);
+            }),
+        ),
+      );
+
+      const transport = new Transport(createFakeLobbyConfig(), new EventBus());
+      let connectPromise: Promise<void> | undefined;
+      transport.connect(() => {
+        connectPromise = transport.joinGame();
+      }, vi.fn());
+
+      // Case A: leave while async auth inside onopen is still awaiting
+      const ws1 = MockWebSocket.instances[0];
+      ws1.triggerOpen();
+      expect(connectPromise).toBeDefined();
+      transport.leaveGame();
+      resolveFetch?.();
+      await connectPromise;
+      await flushMicrotasks();
+      expect(ws1.sent).toHaveLength(0);
+      expect(ws1.closeCalls).toBe(1);
+
+      // Case B: fresh session left mid-reconnect backoff never opens another WebSocket
+      MockWebSocket.instances = [];
+      const transport2 = new Transport(createFakeLobbyConfig(), new EventBus());
+      transport2.connect(vi.fn(), vi.fn());
+      MockWebSocket.instances[0].triggerClose(1006, "drop");
+      transport2.leaveGame();
       vi.advanceTimersByTime(60_000);
-      expect(MockWebSocket.instances).toHaveLength(3);
+      expect(MockWebSocket.instances).toHaveLength(1);
     });
   });
 

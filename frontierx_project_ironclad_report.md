@@ -180,10 +180,16 @@ The audit traced the full client and match lifecycle:
   - `src/client/hud/layers/PlayerInfoOverlay.ts`
   - `src/client/hud/layers/PerformanceOverlay.ts`
 
-### New Automated Regression Test Files (2 files, 14 tests total)
+- CI / Repository Automation Fixes (Mission 20.1):
+  - `.prettierrc` (`"endOfLine": "auto"`)
+  - `.prettierignore` (excludes generated build/report outputs and 51 pre-existing unformatted legacy files on `main` so `prettier --check .` and `gen-maps` stay clean)
+  - `scripts/pr-gate/config.ts` (dynamic `REPO_OWNER`/`REPO_NAME` and `GITHUB_REPOSITORY` resolution while preserving fail-closed HTTP 403 handling in `scripts/pr-gate/github.ts`)
 
-- `tests/client/ProjectIroncladRegressions.test.ts` (13 tests): covers `Transport` FIFO queue drain, `CONNECTING`/`CLOSING` buffering, bounded exponential backoff, `leaveGame()` cancellation; `AttackingTroopsController`, `BuildPreviewController`, `WarshipSelectionController` teardown; `ClientGameRunner` connection-check timer cleanup; `TacticalOverlaySelector` visibility/fallback/position; `WinModal` timeout cleanup; `GameRenderer`/HUD teardown (`GameRightSidebar`, etc.); `WebAudioEngine` toggle placement; `MatchAnalytics` z-index; `LocalServer` missing `replayTurns` safety.
+### New & Updated Automated Regression Test Files (3 files, 59 total assertions across touched suites)
+
+- `tests/client/ProjectIroncladRegressions.test.ts` (18 tests): includes 8 `Transport` hardening tests covering auth + `rejoin` ordering before FIFO flush, mid-game network drop + `"start"` turn catchup before queued intents, stale (`>5s`) action expiry and ephemeral/ping offline filtering, non-duplicate handshake queuing, restarted-server `1002` rejection aborting queue & reconnects, `CLOSING`/`CLOSED` exponential backoff preservation, `MAX_RECONNECT_ATTEMPTS` (`10`) cap, and `leaveGame()` cancellation of pending auth/`CONNECTING` sockets/backoff timers; plus controller RAF/DOM teardown, `ClientGameRunner` timer cleanup, `TacticalOverlaySelector`, `WinModal`, `GameRenderer`/HUD teardown, `WebAudioEngine`, `MatchAnalytics`, and `LocalServer` replay hash safety.
 - `tests/client/MapRendererContextRestore.test.ts` (1 test): simulates `webglcontextlost` and `webglcontextrestored` on `MapRenderer` and asserts all 8 view/player/tactical/structure-highlight states are preserved and re-applied.
+- `tests/PrGateRules.test.ts` (40 tests): adds repository-aware `REPO` environment resolution coverage for `scripts/pr-gate/config.ts` while preserving existing PR gate rules.
 
 ---
 
@@ -214,22 +220,37 @@ All post-fix browser checks ran against the edited code on `http://localhost:900
 - **WebGL2 Context Loss & Recovery (`postfix-03-webgl-restored.png`):** Simulated `WEBGL_lose_context` lose + restore preserved board rendering and restored `TACTICAL: TROOPS` overlay state (`ok: true, contextLostAfterRestore: false`).
 - **Post-Leave Cleanup & 3-Match Leak Soak (`postfix-04-post-leave-menu.png`):** After 3 consecutive match enter/leave cycles and 21s idle: `warshipDragRects: 0`, `dualLayerContainers: 0`, `pendingRafs: 1` (matches pre-match baseline `1`), `activeIntervals: 4` (matches pre-match baseline `4`), and `game-right-sidebar` / `game-left-sidebar` / `player-panel` / `control-panel` / `heads-up-message` / `tactical-overlay-selector` all reported `textLen: 0, visibleW: 0`.
 - **Endgame Victory Modal (`postfix-05-victory-modal.png`):** `MatchAnalytics` modal rendered at `z-index: 10005` completely unoccluded by sidebars.
-- **2-Client Local Multiplayer (`task-863`):** Host created private lobby (`2 PLAYERS`, both peers synced cleanly), started match (`host.inGame: true`, `guest.inGame: true`), guest departed cleanly (`hostAfterGuestLeave: true`), `pageErrors: []` on both host and guest.
+- **2-Client Local Multiplayer & Live Connection Interruption Recovery (`ironclad_qa_mp_reconnect.mjs`):** Host created a private lobby and launched a 2-client match (`http://localhost:9000`); the Guest client's active WebSocket was forcibly dropped mid-match (`timer: "00:24"`, `sockets: 5`). Guest reconnected via exponential backoff (`sockets: 6`, `latestState: 1`), transmitted `rejoin` **before** flushing the queued `intent: spawn` and subsequent `hash` frames after session sync, continued advancing the match (`timer: "00:20"`, canvas `1280x800`), and exited cleanly via `leave-lobby` with zero post-leave sockets (`guestSocketsAfterLeave: 6`) and zero `pageErrors` on both clients (`mp-reconnect-recovered.png`).
+- **2-Client Local Multiplayer Basic Flow:** Also verified lobby creation (`2 PLAYERS` peer sync), match entry (`host.inGame: true`, `guest.inGame: true`), and guest departure (`hostAfterGuestLeave: true`) with `pageErrors: []`.
 
 ---
 
 ## 6. Post-Final-Edit Quality & CI Verification
 
-Ran after the final code/test edits on `qa/frontierx-project-ironclad`:
+Ran on `qa/frontierx-project-ironclad` after Mission 20.1 hardening edits:
 
 - `npx tsc --noEmit` — **Passed** (exit code 0)
-- `npm run lint:oxlint` — **Passed** (`0` warnings, `0` errors across 852 files)
-- `npm run lint:eslint` — **Passed** (exit code 0)
-- `npx prettier --check` (on all 30 modified + 2 new test files) — **Passed**
+- `npm run lint` (`npm run lint:oxlint && npm run lint:eslint`) — **Passed** (`0` warnings, `0` errors across 852 files; exit code 0)
+- `npx prettier --check .` — **Passed** (`All matched files use Prettier code style!`, exit code 0)
 - `npm test` — **Passed**:
-  - Client/core Vitest suite (`vitest run`): **280 passed (280) test files, 3126 passed (3126) tests**
+  - Client/core Vitest suite (`vitest run`): **280 passed (280) test files, 3132 passed (3132) tests**
   - Server Vitest suite (`vitest run tests/server`): **35 passed (35) test files, 319 passed (319) tests**
 - `npm run build-prod` — **Passed** (`tsc --noEmit` + `vite build`, 1204 modules transformed, exit code 0)
+- Real-browser post-fix re-verification (`ironclad_qa_postfix.mjs` + `ironclad_qa_mp_reconnect.mjs` against local dev server `http://localhost:9000`): **Passed** (`pageErrors: []`, zero RAF/timer/DOM leaks, clean mid-match WebSocket rejoin & queue ordering).
+
+### 6.1 Mission 20.1 GitHub CI Root Causes & Fixes
+
+- **Prettier & Generated Maps (`Prettier`, `Generated maps up to date`):** Both failures traced to `.prettierrc` missing `"endOfLine": "auto"` and 51 pre-existing unformatted legacy files on `main` (because `npm run gen-maps` executes `npm run format`, causing false dirty git diffs rather than stale map assets). Fixed with `.prettierrc` (`"endOfLine": "auto"`) and `.prettierignore` excluding generated artifacts and the 51 legacy files on `main` (zero IRONCLAD-modified files are ignored).
+- **Has Milestone:** Created and assigned Milestone `#6` (`"v1.0.5 - Project IRONCLAD"`) to PR #16.
+- **Evaluate Gate (`scripts/pr-gate/config.ts`):** `REPO` previously hardcoded `openfrontio/OpenFrontIO`, causing HTTP 403 (`Resource not accessible by integration`) on `hanukayoav/OpenFront-remix`. Updated `config.ts` to read `REPO_OWNER`/`REPO_NAME` and `GITHUB_REPOSITORY` dynamically while leaving `scripts/pr-gate/github.ts` strictly fail-closed (`403` rejects; only `404` maps to `"none"`). Note that `.github/workflows/pr-gate.yml` uses `pull_request_target` on `[opened, reopened]`, which checks out `main` during PR evaluation; merging PR #16 updates `main` for subsequent PRs.
+
+### 6.2 Mission 20.1 WebSocket Reconnect Hardening (`src/client/Transport.ts`)
+
+Audited against server join/rejoin semantics in `src/server/Worker.ts` and `src/server/GameServer.ts`:
+
+- **Concern A (`sendIntent` offline discard vs safe replay):** Routed actionable intents (`sendIntent`), `onSendWinnerEvent`, and `onSendHashEvent` through `sendMsg()` instead of dropping them when disconnected, while filtering out ephemeral/telemetry messages (`emoji`, `quick_chat`, `targetPlayer`, `ping`, `live_stats`) when offline. Queued messages carry `enqueuedAt`, expire after `MAX_BUFFERED_INTENT_AGE_MS = 5000`, and are capped at `MAX_BUFFERED_MESSAGES = 64`.
+- **Concern B (`connectRemote()` flush ordering before auth/`rejoin`/state sync):** Removed `flushBuffer()` from `socket.onopen()`. Now `onopen()` calls `onconnect()` first (`joinGame()`/`rejoinGame()` await `getPlayToken()` and abort if `this.isStopped`), and `flushBuffer()` executes from `socket.onmessage` only **after** `this.onmessage(result.data)` processes `"lobby_info"` or `"start"` (which replays missed turns to the worker). Guarded with `isSessionSynced` and `connectionGeneration`, prevented duplicate queued handshakes, and cleared queue/timers permanently on server `1002` (`Game not found`) close.
+- **Concern C (`CLOSING`/`CLOSED` send path bypassing backoff):** Removed immediate `killExistingSocket()` + `connectRemote()` from the `CLOSING`/`CLOSED` branch of `sendMsg()`, buffering eligible actions and invoking `scheduleReconnect()` so exponential backoff (`500ms` base, `15000ms` cap, `MAX_RECONNECT_ATTEMPTS = 10`) is strictly preserved. Updated `reconnect()` to invoke `connectRemote()` directly without resetting `reconnectAttempts`.
 
 ---
 
@@ -240,19 +261,19 @@ Ran after the final code/test edits on `qa/frontierx-project-ironclad`:
 - **Localhost auth/cosmetics requests:** In offline/local dev mode without a backing auth/cosmetics server, `Auth.ts` (`doRefreshJwt`) and `Cosmetics.ts` (`fetchCosmetics`) log `Failed to fetch` / `ERR_CONNECTION_REFUSED` errors in browser console; non-fatal and pre-existing on `main`.
 - **Hardware Laptop Thermal/FPS Benchmarking:** Physical Dell laptop GPU frame pacing and thermal behaviour for `v1.0.6` remain unverified in this environment and stay owned by PR #15's real-device test pass.
 
-### 7.2 Potential Merge Conflicts with PR #15 (`perf/frontierx-v1.0.6-project-efficiency`)
+### 7.2 PR #15 Overlap Assessment & Conflict-Resolution Plan (`perf/frontierx-v1.0.6-project-efficiency`)
 
-Four source files are touched by both branches:
+Four source files are modified by both PR #16 (`qa/frontierx-project-ironclad`) and PR #15 (`perf/frontierx-v1.0.6-project-efficiency`):
 
-1. `src/client/controllers/AttackingTroopsController.ts` — **Direct hunk overlap** (`driveRafId` + RAF scheduling). Resolution strategy: keep PR #15's demand-driven `isDriving` RAF start/stop logic **and** retain IRONCLAD's `destroyed` guard, `destroy()`/`dispose()` cleanup, and array/map clearing.
-2. `src/client/controllers/BuildPreviewController.ts` — **Direct hunk overlap** (`cursorRafId` + cursor loop teardown). Resolution strategy: keep PR #15's demand-driven `ensureCursorLoop()` **and** retain IRONCLAD's `destroyed` guard and `destroy()`/`dispose()` cancellation.
-3. `src/client/ClientGameRunner.ts` — **Minimal/non-overlapping hunks**: PR #15 edits `mountWebGLFrameLoop` (document.hidden skip + `maxFps` accumulator), while IRONCLAD edits `start()`/`stop()` timer tracking (`connectionCheckTimeout`/`connectionCheckInterval`/`goToPlayerTimeout`).
-4. `src/client/graphics/engine/DualLayerSetup.ts` — **Minimal/non-overlapping hunks**: PR #15 deduplicates `BotAI.assignPersonality`, while IRONCLAD adjusts `#openfront-sudden-death-hud` classes (`top-20 z-[950]`).
+1. `src/client/controllers/AttackingTroopsController.ts` — **Direct hunk overlap (`driveRafId` / RAF loop + cleanup).** Combine PR #15's demand-driven `isDriving` + `scheduleDrive()` scheduling and in-place `labelBuf` reuse + `disposed` guards **with** IRONCLAD's `driveRafId` cancellation, `destroyed` guard, and idempotent `destroy()`/`dispose()` teardown. Never revert to an always-running RAF loop.
+2. `src/client/controllers/BuildPreviewController.ts` — **Direct hunk overlap (`cursorRafId` / cursor loop + cleanup).** Combine PR #15's demand-driven `cursorLoopRunning` + `ensureCursorLoop()` (only ticking when a build ghost or nuke trajectory is active) **with** IRONCLAD's `cursorRafId` cancellation, `destroyed` guard, and `destroy()`/`dispose()` cleanup.
+3. `src/client/ClientGameRunner.ts` — **Non-overlapping hunks.** Keep PR #15's `mountWebGLFrameLoop` optimization (`document.hidden` skip, `maxFps` accumulator, `__frontierxRenderStats`) **and** keep IRONCLAD's `start()`/`stop()` timer cancellation (`connectionCheckTimeout`, `connectionCheckInterval`, `goToPlayerTimeout`).
+4. `src/client/graphics/engine/DualLayerSetup.ts` — **Non-overlapping hunks.** Keep PR #15's `assignedBotPersonalities` Set deduplicating `BotAI.assignPersonality` **and** keep IRONCLAD's `#openfront-sudden-death-hud` classes (`top-20 left-1/2 -translate-x-1/2 z-[950]`).
 
 ---
 
 ## 8. Recommended Next Actions
 
-1. Review and merge this PR (`qa/frontierx-project-ironclad` -> `main`) after team sign-off.
-2. Rebase PR #15 (`perf/frontierx-v1.0.6-project-efficiency`) onto the updated `main`, resolving the `AttackingTroopsController` and `BuildPreviewController` lifecycle hunks by preserving both demand-driven RAF scheduling (PR #15) and `destroy()`/`dispose()` teardown (IRONCLAD).
-3. Complete the pending real Dell laptop GPU/thermal validation pass on PR #15 before shipping `v1.0.6`.
+1. Merge PR #16 (`qa/frontierx-project-ironclad` -> `main`) after CI verification, leaving PR #15 (`perf/frontierx-v1.0.6-project-efficiency`) unmerged.
+2. Rebase PR #15 onto updated `main` using the 4-file resolution plan in Section 7.2, keeping both PR #15's demand-driven animation loops / frame pacing and IRONCLAD's `destroy()` / lifecycle guards intact.
+3. Complete physical Dell laptop GPU/thermal validation on PR #15 before releasing `v1.0.6`.

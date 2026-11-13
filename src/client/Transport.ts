@@ -208,12 +208,24 @@ export class SendToggleGameStartTimer implements GameEvent {
   constructor() {}
 }
 
+interface BufferedMessage {
+  type: ClientMessage["type"];
+  json: string;
+  enqueuedAt: number;
+}
+
+const EPHEMERAL_INTENT_TYPES = new Set<Intent["type"]>([
+  "emoji",
+  "quick_chat",
+  "targetPlayer",
+]);
+
 export class Transport {
   private socket: WebSocket | null = null;
 
   private localServer: LocalServer;
 
-  private buffer: string[] = [];
+  private buffer: BufferedMessage[] = [];
 
   private onconnect: () => void;
   private onmessage: (msg: ServerMessage) => void;
@@ -222,9 +234,13 @@ export class Transport {
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
   private isStopped = false;
+  private isSessionSynced = false;
+  private connectionGeneration = 0;
   private static readonly MAX_RECONNECT_ATTEMPTS = 10;
   private static readonly BASE_RECONNECT_DELAY_MS = 500;
   private static readonly MAX_RECONNECT_DELAY_MS = 15000;
+  private static readonly MAX_BUFFERED_MESSAGES = 64;
+  private static readonly MAX_BUFFERED_INTENT_AGE_MS = 5000;
   public readonly isLocal: boolean;
 
   constructor(
@@ -348,6 +364,7 @@ export class Transport {
     onmessage: (message: ServerMessage) => void,
   ) {
     this.isStopped = false;
+    this.reconnectAttempts = 0;
     this.clearReconnectTimeout();
     if (this.isLocal) {
       this.connectLocal(onconnect, onmessage);
@@ -388,34 +405,37 @@ export class Transport {
     this.clearReconnectTimeout();
     this.startPing();
     this.killExistingSocket();
+    this.isSessionSynced = false;
+    const generation = ++this.connectionGeneration;
     // WS origin comes from ClientEnv (same-origin on web, audience-derived on
     // the desktop app://openfront origin), not window.location.host.
     const workerPath = ClientEnv.workerPath(this.lobbyConfig.gameID);
-    this.socket = new WebSocket(`${ClientEnv.serverWsBase()}/${workerPath}`);
+    const socket = new WebSocket(`${ClientEnv.serverWsBase()}/${workerPath}`);
+    this.socket = socket;
     this.onconnect = onconnect;
     this.onmessage = onmessage;
-    this.socket.onopen = () => {
+    socket.onopen = () => {
       console.log("Connected to game server!");
-      if (this.socket === null) {
-        console.error("socket is null");
+      if (
+        this.isStopped ||
+        this.socket !== socket ||
+        generation !== this.connectionGeneration
+      ) {
         return;
       }
       this.reconnectAttempts = 0;
-      while (this.buffer.length > 0) {
-        if (this.socket.readyState !== WebSocket.OPEN) {
-          break;
-        }
-        console.log("sending dropped message");
-        const msg = this.buffer.shift();
-        if (msg === undefined) {
-          console.warn("msg is undefined");
-          continue;
-        }
-        this.socket.send(msg);
-      }
+      // Authenticate and join/rejoin BEFORE flushing any queued messages so
+      // queued actions wait for server verification and state catchup.
       onconnect();
     };
-    this.socket.onmessage = (event: MessageEvent) => {
+    socket.onmessage = (event: MessageEvent) => {
+      if (
+        this.isStopped ||
+        this.socket !== socket ||
+        generation !== this.connectionGeneration
+      ) {
+        return;
+      }
       try {
         const parsed = JSON.parse(event.data);
         const result = ServerMessageSchema.safeParse(parsed);
@@ -425,21 +445,40 @@ export class Transport {
           return;
         }
         this.onmessage(result.data);
+        if (
+          !this.isStopped &&
+          this.socket === socket &&
+          generation === this.connectionGeneration &&
+          (result.data.type === "lobby_info" || result.data.type === "start")
+        ) {
+          this.isSessionSynced = true;
+          this.flushBuffer();
+        }
       } catch (e) {
         console.error("Error in onmessage handler:", e, event.data);
         return;
       }
     };
-    this.socket.onerror = (err) => {
+    socket.onerror = (err) => {
       console.error("Socket encountered error: ", err, "Closing socket");
-      if (this.socket === null) return;
-      this.socket.close();
+      if (this.socket !== socket || generation !== this.connectionGeneration) {
+        return;
+      }
+      socket.close();
     };
-    this.socket.onclose = (event: CloseEvent) => {
+    socket.onclose = (event: CloseEvent) => {
+      if (this.socket !== socket || generation !== this.connectionGeneration) {
+        return;
+      }
+      this.isSessionSynced = false;
       console.log(
         `WebSocket closed. Code: ${event.code}, Reason: ${event.reason}`,
       );
       if (event.code === 1002) {
+        this.isStopped = true;
+        this.buffer = [];
+        this.stopPing();
+        this.clearReconnectTimeout();
         showInGameAlert(
           translateText("error_modal.connection_refused", {
             reason: event.reason,
@@ -453,11 +492,21 @@ export class Transport {
   }
 
   private scheduleReconnect() {
-    if (this.isStopped || this.reconnectTimeout !== null) return;
+    if (
+      this.isStopped ||
+      this.reconnectTimeout !== null ||
+      !this.onconnect ||
+      !this.onmessage
+    ) {
+      return;
+    }
     if (this.reconnectAttempts >= Transport.MAX_RECONNECT_ATTEMPTS) {
       console.error(
         `Max reconnect attempts (${Transport.MAX_RECONNECT_ATTEMPTS}) reached`,
       );
+      this.isStopped = true;
+      this.buffer = [];
+      this.stopPing();
       showInGameAlert(
         translateText("error_modal.connection_refused", {
           reason: "Connection lost",
@@ -479,7 +528,12 @@ export class Transport {
 
   public reconnect() {
     this.clearReconnectTimeout();
-    this.connect(this.onconnect, this.onmessage);
+    if (this.isStopped) return;
+    if (this.isLocal) {
+      this.connectLocal(this.onconnect, this.onmessage);
+    } else {
+      this.connectRemote(this.onconnect, this.onmessage);
+    }
   }
 
   public turnComplete() {
@@ -489,6 +543,8 @@ export class Transport {
   }
 
   async joinGame() {
+    const token = await getPlayToken();
+    if (this.isStopped) return;
     this.sendMsg({
       type: "join",
       gameID: this.lobbyConfig.gameID,
@@ -497,22 +553,29 @@ export class Transport {
       clanTag: this.lobbyConfig.playerClanTag ?? null,
       cosmetics: this.lobbyConfig.cosmetics,
       turnstileToken: this.lobbyConfig.turnstileToken,
-      token: await getPlayToken(),
+      token,
     } satisfies ClientJoinMessage);
   }
 
   async rejoinGame(lastTurn: number) {
+    if (!this.isLocal) {
+      this.isSessionSynced = false;
+    }
+    const token = await getPlayToken();
+    if (this.isStopped) return;
     this.sendMsg({
       type: "rejoin",
       gameID: this.lobbyConfig.gameID,
       // Note: clientID is not sent - server looks it up from persistentID in token
       lastTurn: lastTurn,
-      token: await getPlayToken(),
+      token,
     } satisfies ClientRejoinMessage);
   }
 
   leaveGame() {
     this.isStopped = true;
+    this.isSessionSynced = false;
+    this.connectionGeneration++;
     this.clearReconnectTimeout();
     this.buffer = [];
     if (this.isLocal) {
@@ -670,23 +733,18 @@ export class Transport {
   }
 
   private onSendWinnerEvent(event: SendWinnerEvent) {
-    if (this.isLocal || this.socket?.readyState === WebSocket.OPEN) {
-      this.sendMsg({
-        type: "winner",
-        winner: event.winner,
-        allPlayersStats: event.allPlayersStats,
-      } satisfies ClientSendWinnerMessage);
-    } else {
-      console.log(
-        "WebSocket is not open. Current state:",
-        this.socket?.readyState,
-      );
-      console.log("attempting reconnect");
-    }
+    this.sendMsg({
+      type: "winner",
+      winner: event.winner,
+      allPlayersStats: event.allPlayersStats,
+    } satisfies ClientSendWinnerMessage);
   }
 
   private onSendLiveStatsEvent(event: SendLiveStatsEvent) {
-    if (this.isLocal || this.socket?.readyState === WebSocket.OPEN) {
+    if (
+      this.isLocal ||
+      (this.socket?.readyState === WebSocket.OPEN && this.isSessionSynced)
+    ) {
       this.sendMsg({
         type: "live_stats",
         stats: event.stats,
@@ -695,19 +753,11 @@ export class Transport {
   }
 
   private onSendHashEvent(event: SendHashEvent) {
-    if (this.isLocal || this.socket?.readyState === WebSocket.OPEN) {
-      this.sendMsg({
-        type: "hash",
-        turnNumber: event.tick,
-        hash: event.hash,
-      } satisfies ClientHashMessage);
-    } else {
-      console.log(
-        "WebSocket is not open. Current state:",
-        this.socket?.readyState,
-      );
-      console.log("attempting reconnect");
-    }
+    this.sendMsg({
+      type: "hash",
+      turnNumber: event.tick,
+      hash: event.hash,
+    } satisfies ClientHashMessage);
   }
 
   private onCancelAttackIntentEvent(event: CancelAttackIntentEvent) {
@@ -776,18 +826,63 @@ export class Transport {
   }
 
   private sendIntent(intent: Intent) {
-    if (this.isLocal || this.socket?.readyState === WebSocket.OPEN) {
-      const msg = {
-        type: "intent",
-        intent: intent,
-      } satisfies ClientIntentMessage;
-      this.sendMsg(msg);
-    } else {
-      console.log(
-        "WebSocket is not open. Current state:",
-        this.socket?.readyState,
-      );
-      console.log("attempting reconnect");
+    const canSendImmediately =
+      this.isLocal ||
+      (this.socket?.readyState === WebSocket.OPEN && this.isSessionSynced);
+    if (!canSendImmediately && EPHEMERAL_INTENT_TYPES.has(intent.type)) {
+      return;
+    }
+    this.sendMsg({
+      type: "intent",
+      intent,
+    } satisfies ClientIntentMessage);
+  }
+
+  private enqueueBufferedMessage(msg: ClientMessage, json: string) {
+    // Discard stale entries before enforcing queue capacity so fresh actions survive.
+    const now = Date.now();
+    this.buffer = this.buffer.filter(
+      (entry) => now - entry.enqueuedAt <= Transport.MAX_BUFFERED_INTENT_AGE_MS,
+    );
+    if (this.buffer.length >= Transport.MAX_BUFFERED_MESSAGES) {
+      this.buffer.shift();
+    }
+    this.buffer.push({
+      type: msg.type,
+      json,
+      enqueuedAt: now,
+    });
+  }
+
+  private flushBuffer() {
+    if (
+      this.isStopped ||
+      this.socket === null ||
+      this.socket.readyState !== WebSocket.OPEN ||
+      !this.isSessionSynced
+    ) {
+      return;
+    }
+    const now = Date.now();
+    while (this.buffer.length > 0) {
+      if (
+        this.socket === null ||
+        this.socket.readyState !== WebSocket.OPEN ||
+        this.isStopped ||
+        !this.isSessionSynced
+      ) {
+        break;
+      }
+      const entry = this.buffer.shift();
+      if (entry === undefined) {
+        continue;
+      }
+      if (now - entry.enqueuedAt > Transport.MAX_BUFFERED_INTENT_AGE_MS) {
+        console.log(`Dropping stale queued ${entry.type} message`);
+        continue;
+      }
+      console.log("sending dropped message");
+      this.socket.send(entry.json);
     }
   }
 
@@ -796,25 +891,62 @@ export class Transport {
       // Forward message to local server
       this.localServer.onMessage(msg);
       return;
-    } else if (this.socket === null) {
-      // Socket missing, do nothing
+    }
+    if (this.isStopped) {
       return;
     }
     const str = JSON.stringify(msg, replacer);
-    if (this.socket.readyState === WebSocket.CONNECTING) {
-      // Socket handshake still in progress: queue without recreating socket
-      this.buffer.push(str);
-    } else if (this.socket.readyState !== WebSocket.OPEN) {
-      // Buffer message and recover from CLOSING/CLOSED sockets without throwing
-      console.warn("socket not ready, closing and trying later");
-      this.killExistingSocket();
-      this.buffer.push(str);
-      if (!this.isStopped) {
-        this.connectRemote(this.onconnect, this.onmessage);
+    const isHandshake = msg.type === "join" || msg.type === "rejoin";
+    if (isHandshake) {
+      if (this.socket !== null && this.socket.readyState === WebSocket.OPEN) {
+        this.socket.send(str);
+      } else if (
+        this.socket === null ||
+        this.socket.readyState === WebSocket.CLOSING ||
+        this.socket.readyState === WebSocket.CLOSED
+      ) {
+        // Fresh handshake will run via onconnect() once reconnect opens.
+        this.scheduleReconnect();
       }
-    } else {
-      // Send the message directly
+      return;
+    }
+    // Live heartbeats and ephemeral telemetry must never be replayed offline.
+    if (msg.type === "ping") {
+      if (this.socket !== null && this.socket.readyState === WebSocket.OPEN) {
+        this.socket.send(str);
+      }
+      return;
+    }
+    if (msg.type === "live_stats") {
+      if (
+        this.socket !== null &&
+        this.socket.readyState === WebSocket.OPEN &&
+        this.isSessionSynced
+      ) {
+        this.socket.send(str);
+      }
+      return;
+    }
+    if (
+      this.socket !== null &&
+      this.socket.readyState === WebSocket.OPEN &&
+      this.isSessionSynced
+    ) {
       this.socket.send(str);
+      return;
+    }
+    // Never send gameplay/state messages before socket is OPEN + joined/synced.
+    this.enqueueBufferedMessage(msg, str);
+    if (
+      this.socket === null ||
+      this.socket.readyState === WebSocket.CLOSING ||
+      this.socket.readyState === WebSocket.CLOSED
+    ) {
+      console.warn(
+        "WebSocket is not open, queuing action and scheduling reconnect:",
+        this.socket?.readyState,
+      );
+      this.scheduleReconnect();
     }
   }
 
