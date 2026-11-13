@@ -2,7 +2,7 @@ const [envOwner, envRepo] = (process.env.GITHUB_REPOSITORY ?? "").split("/");
 export const REPO = {
   owner: process.env.REPO_OWNER ?? (envOwner || "openfrontio"),
   repo: process.env.REPO_NAME ?? (envRepo || "OpenFrontIO"),
-};
+} as const;
 
 export const TRUSTED_REPO_PERMISSIONS = ["admin", "maintain", "write"] as const;
 

@@ -202,7 +202,9 @@ async function testScenario({ name, bots, map, durationSec = 30 }) {
   server.close();
   try {
     fs.rmSync(tmpProfile, { recursive: true, force: true });
-  } catch (e) {}
+  } catch {
+    // ignore temp profile cleanup errors
+  }
 
   return finalStatus.result?.value;
 }

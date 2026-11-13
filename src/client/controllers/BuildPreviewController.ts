@@ -126,6 +126,7 @@ export class BuildPreviewController implements Controller {
   } | null = null;
   private cursorLoopRunning = false;
   private cursorRafId: number | null = null;
+  private destroyed = false;
 
   constructor(
     private game: GameView,
@@ -137,6 +138,8 @@ export class BuildPreviewController implements Controller {
   ) {}
 
   init() {
+    this.destroyed = false;
+    this.cursorLoopRunning = false;
     this.eventBus.on(MouseMoveEvent, (e) => this.moveGhost(e));
     this.eventBus.on(MouseUpEvent, (e) => this.requestConfirmStructure(e));
     this.eventBus.on(ConfirmGhostStructureEvent, () =>
@@ -144,27 +147,41 @@ export class BuildPreviewController implements Controller {
         new MouseUpEvent(this.mousePos.x, this.mousePos.y),
       ),
     );
+  }
 
-    // Re-emit the ghost each render frame at the cursor's current world
-    // position (sub-tile). Buildable validation still runs on the snapped
-    // tile in renderGhost(); this loop just keeps the icon under the cursor
-    // so motion is continuous instead of stepping tile-to-tile.
-    // The shader treats (tileX + 0.5, tileY + 0.5) as the icon center (so an
-    // integer tile coord centers on that tile), so we subtract 0.5 here to
-    // place the icon exactly under the cursor.
+  destroy(): void {
+    this.destroyed = true;
+    this.cursorLoopRunning = false;
+    if (this.cursorRafId !== null) {
+      cancelAnimationFrame(this.cursorRafId);
+      this.cursorRafId = null;
+    }
+    this.lastGhostData = null;
+    this.nukeTrajectoryStatic = null;
+    this.ghostUnit = null;
+  }
+
+  dispose(): void {
+    this.destroy();
   }
 
   private ensureCursorLoop(): void {
-    if (this.cursorLoopRunning) return;
+    if (this.destroyed || this.cursorLoopRunning) return;
     this.cursorLoopRunning = true;
     this.cursorRafId = requestAnimationFrame(this.cursorLoop);
   }
 
   private cursorLoop = (): void => {
+    if (this.destroyed) {
+      this.cursorLoopRunning = false;
+      this.cursorRafId = null;
+      return;
+    }
     const ghost = this.lastGhostData;
     const traj = this.nukeTrajectoryStatic;
     if (ghost === null && traj === null) {
       this.cursorLoopRunning = false;
+      this.cursorRafId = null;
       return;
     }
     const w = this.transformHandler.screenToWorldCoordinatesFloat(
@@ -204,10 +221,16 @@ export class BuildPreviewController implements Controller {
       }
       this.view.updateNukeTrajectory(data);
     }
-    this.cursorRafId = requestAnimationFrame(this.cursorLoop);
+    if (!this.destroyed) {
+      this.cursorRafId = requestAnimationFrame(this.cursorLoop);
+    } else {
+      this.cursorLoopRunning = false;
+      this.cursorRafId = null;
+    }
   };
 
   tick() {
+    if (this.destroyed) return;
     // Re-query buildables periodically (world state can change — tiles may
     // become buildable as troops/territory move).
     if (this.syncGhostState()) return;
@@ -307,6 +330,7 @@ export class BuildPreviewController implements Controller {
       ?.myPlayer()
       ?.buildables(tileRef, [this.ghostUnit?.buildableUnit.type])
       .then((buildables) => {
+        if (this.destroyed) return;
         if (!this.ghostUnit) {
           this.pendingConfirm = null;
           this.emitGhostPreview(tileRef, targetingAlly, trajectoryTileRef);

@@ -162,7 +162,7 @@ export function setupDualLayerEngine(
     suddenDeathHudEl = document.createElement("div");
     suddenDeathHudEl.id = "openfront-sudden-death-hud";
     suddenDeathHudEl.className =
-      "fixed top-3 left-1/2 -translate-x-1/2 z-40 px-3.5 py-1 bg-slate-900/85 backdrop-blur-md border border-amber-500/40 rounded-full text-amber-300 font-mono text-xs flex items-center gap-2 shadow-xl select-none pointer-events-none transition-all duration-300";
+      "fixed top-20 left-1/2 -translate-x-1/2 z-[950] px-3.5 py-1 bg-slate-900/85 backdrop-blur-md border border-amber-500/40 rounded-full text-amber-300 font-mono text-xs flex items-center gap-2 shadow-xl select-none pointer-events-none transition-all duration-300";
     const minutes = Math.floor(mutators.suddenDeathTimer / 60);
     const seconds = mutators.suddenDeathTimer % 60;
     const initialFormatted =
@@ -265,7 +265,7 @@ export function setupDualLayerEngine(
         }
         if (remainingSec <= 30) {
           suddenDeathHudEl.className =
-            "fixed top-3 left-1/2 -translate-x-1/2 z-40 px-3.5 py-1 bg-rose-950/90 backdrop-blur-md border border-rose-500/80 rounded-full text-rose-300 font-mono text-xs flex items-center gap-2 shadow-[0_0_15px_rgba(244,63,94,0.4)] select-none pointer-events-none animate-pulse transition-all duration-300";
+            "fixed top-20 left-1/2 -translate-x-1/2 z-[950] px-3.5 py-1 bg-rose-950/90 backdrop-blur-md border border-rose-500/80 rounded-full text-rose-300 font-mono text-xs flex items-center gap-2 shadow-[0_0_15px_rgba(244,63,94,0.4)] select-none pointer-events-none animate-pulse transition-all duration-300";
         }
       }
 

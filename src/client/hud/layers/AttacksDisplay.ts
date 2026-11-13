@@ -49,6 +49,18 @@ export class AttacksDisplay extends LitElement implements Controller {
 
   init() {}
 
+  destroy() {
+    this.active = false;
+    this._isVisible = false;
+    this.incomingAttacks = [];
+    this.outgoingAttacks = [];
+    this.outgoingLandAttacks = [];
+    this.outgoingBoats = [];
+    this.incomingBoats = [];
+    this.incomingBoatIDs.clear();
+    this.requestUpdate();
+  }
+
   tick() {
     this.active = true;
 

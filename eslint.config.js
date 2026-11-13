@@ -17,7 +17,6 @@ export default [
     ignores: [
       "src/server/gatekeeper/**",
       "tests/pathfinding/playground/**",
-      "tests/perf/**",
       ".claude/**",
     ],
   },
@@ -35,7 +34,9 @@ export default [
             "eslint.config.js",
             "scripts/sync-assets.mjs",
             "tests/matchmaking/*.mjs",
+            "tests/perf/*.cjs",
           ],
+          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 16,
         },
         tsconfigRootDir: import.meta.dirname,
       },
@@ -61,6 +62,12 @@ export default [
           caughtErrors: "none",
         },
       ],
+    },
+  },
+  {
+    files: ["**/*.cjs"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
     },
   },
 ];

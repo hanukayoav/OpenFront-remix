@@ -250,6 +250,8 @@ export class WinModal extends LitElement implements Controller {
     `;
   }
 
+  private showButtonsTimeout: ReturnType<typeof setTimeout> | null = null;
+
   async show() {
     crazyGamesSDK.gameplayStop();
     await this.loadPatternContent();
@@ -258,16 +260,29 @@ export class WinModal extends LitElement implements Controller {
       this.game.config().gameConfig().rankedType !== undefined;
     this.isVisible = true;
     this.requestUpdate();
-    setTimeout(() => {
+    if (this.showButtonsTimeout !== null) {
+      clearTimeout(this.showButtonsTimeout);
+    }
+    this.showButtonsTimeout = setTimeout(() => {
+      this.showButtonsTimeout = null;
       this.showButtons = true;
       this.requestUpdate();
     }, 3000);
   }
 
   hide() {
+    if (this.showButtonsTimeout !== null) {
+      clearTimeout(this.showButtonsTimeout);
+      this.showButtonsTimeout = null;
+    }
     this.isVisible = false;
     this.showButtons = false;
     this.requestUpdate();
+  }
+
+  destroy() {
+    this.hide();
+    this.hasShownDeathModal = false;
   }
 
   private _handleExit() {

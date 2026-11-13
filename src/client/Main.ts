@@ -25,10 +25,7 @@ import {
 } from "./Cosmetics";
 import { updateCrazyGamesNavButton } from "./CrazyGamesAccountButton";
 import { crazyGamesSDK } from "./CrazyGamesSDK";
-import {
-  composeVersionDisplay,
-  desktopVersion,
-} from "./DesktopShell";
+import { composeVersionDisplay, desktopVersion } from "./DesktopShell";
 import "./FeaturedStream";
 import "./GameModeSelector";
 import { GameModeSelector } from "./GameModeSelector";
@@ -1029,7 +1026,7 @@ class Client {
 
     if (this.joinModal.isOpen()) {
       this.joinModal.close();
-      if (event?.detail.cause === "full-lobby") {
+      if (event?.detail?.cause === "full-lobby") {
         window.dispatchEvent(
           new CustomEvent("show-message", {
             detail: {

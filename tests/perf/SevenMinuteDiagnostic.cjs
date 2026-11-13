@@ -279,6 +279,9 @@ async function runDiagnostic({
       break;
     }
   }
+  if (!activeSimulation) {
+    console.warn("WARNING: Spawn phase still active after 10s check.");
+  }
 
   const logFile = path.join(resultsDir, `${outName}.json`);
   const csvFile = path.join(resultsDir, `${outName}.csv`);
@@ -292,8 +295,6 @@ async function runDiagnostic({
   );
 
   const startTime = Date.now();
-  let lastTicks = 0;
-  let lastSampleTime = startTime;
 
   console.log(
     `\nBeginning monitoring loop for ${totalSeconds} seconds (sampling every ${sampleIntervalSec}s)...`,
@@ -434,7 +435,9 @@ async function runDiagnostic({
   server.close();
   try {
     fs.rmSync(tmpProfile, { recursive: true, force: true });
-  } catch (e) {}
+  } catch {
+    // ignore temp profile cleanup errors
+  }
 
   return checkpoints;
 }

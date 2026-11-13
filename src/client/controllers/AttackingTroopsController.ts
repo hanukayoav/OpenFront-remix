@@ -72,7 +72,7 @@ export class AttackingTroopsController implements Controller {
   private labelBuf: AttackTroopLabel[] = [];
   private isDriving = false;
   private driveRafId: number | null = null;
-  private disposed = false;
+  private destroyed = false;
 
   constructor(
     private readonly game: GameView,
@@ -82,6 +82,8 @@ export class AttackingTroopsController implements Controller {
   ) {}
 
   init() {
+    this.destroyed = false;
+    this.isDriving = false;
     this.eventBus.on(AlternateViewEvent, (e) => {
       this.alternateView = e.alternateView;
       if (this.alternateView && this.labelBuf.length > 0) {
@@ -89,6 +91,21 @@ export class AttackingTroopsController implements Controller {
         this.view.setAttackTroopLabels(this.labelBuf);
       }
     });
+  }
+
+  destroy(): void {
+    this.destroyed = true;
+    this.isDriving = false;
+    if (this.driveRafId !== null) {
+      cancelAnimationFrame(this.driveRafId);
+      this.driveRafId = null;
+    }
+    this.attacks.clear();
+    this.labelBuf.length = 0;
+  }
+
+  dispose(): void {
+    this.destroy();
   }
 
   getTickIntervalMs() {
@@ -139,7 +156,7 @@ export class AttackingTroopsController implements Controller {
     if (
       this.attacks.size > 0 &&
       !this.isDriving &&
-      !this.disposed &&
+      !this.destroyed &&
       !this.alternateView
     ) {
       this.isDriving = true;
@@ -236,22 +253,38 @@ export class AttackingTroopsController implements Controller {
   }
 
   private scheduleDrive(): void {
-    if (!this.isDriving || this.disposed) return;
+    if (!this.isDriving || this.destroyed) {
+      this.driveRafId = null;
+      return;
+    }
     this.driveRafId = requestAnimationFrame(() => {
+      if (this.destroyed) {
+        this.isDriving = false;
+        this.driveRafId = null;
+        return;
+      }
       this.pushLabels();
-      if (this.isDriving && !this.disposed) {
+      if (this.isDriving && !this.destroyed) {
         this.scheduleDrive();
+      } else {
+        this.driveRafId = null;
       }
     });
   }
 
   private pushLabels(): void {
+    if (this.destroyed) {
+      this.isDriving = false;
+      this.driveRafId = null;
+      return;
+    }
     if (this.alternateView || this.attacks.size === 0) {
       if (this.labelBuf.length > 0) {
         this.labelBuf.length = 0;
         this.view.setAttackTroopLabels(this.labelBuf);
       }
       this.isDriving = false;
+      this.driveRafId = null;
       return;
     }
 
@@ -291,16 +324,5 @@ export class AttackingTroopsController implements Controller {
 
     this.labelBuf.length = labelIdx;
     this.view.setAttackTroopLabels(this.labelBuf);
-  }
-
-  dispose(): void {
-    this.disposed = true;
-    this.isDriving = false;
-    if (this.driveRafId !== null) {
-      cancelAnimationFrame(this.driveRafId);
-      this.driveRafId = null;
-    }
-    this.attacks.clear();
-    this.labelBuf.length = 0;
   }
 }

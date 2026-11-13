@@ -560,6 +560,23 @@ export class PerformanceOverlay extends LitElement implements Controller {
     }
   }
 
+  destroy(): void {
+    this.setVisible(false);
+    if (this.copyStatusTimeoutId) {
+      clearTimeout(this.copyStatusTimeoutId);
+      this.copyStatusTimeoutId = null;
+    }
+    if (this.subscribedEventBus) {
+      this.subscribedEventBus.off(
+        TogglePerformanceOverlayEvent,
+        this.onTogglePerformanceOverlay,
+      );
+      this.subscribedEventBus.off(TickMetricsEvent, this.onTickMetricsEvent);
+      this.subscribedEventBus = null;
+    }
+    this.requestUpdate();
+  }
+
   setVisible(visible: boolean) {
     this.isVisible = visible;
     FrameProfiler.setEnabled(visible);

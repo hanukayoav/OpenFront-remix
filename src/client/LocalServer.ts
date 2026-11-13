@@ -207,7 +207,7 @@ export class LocalServer {
         return;
       }
       // If we are replaying a game then verify hash.
-      const archivedHash = this.replayTurns[clientMsg.turnNumber].hash;
+      const archivedHash = this.replayTurns[clientMsg.turnNumber]?.hash;
       if (!archivedHash) {
         console.warn(
           `no archived hash found for turn ${clientMsg.turnNumber}, client hash: ${clientMsg.hash}`,

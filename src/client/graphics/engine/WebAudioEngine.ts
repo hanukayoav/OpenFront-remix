@@ -56,7 +56,10 @@ export class WebAudioEngine {
     };
 
     this.autoplayUnlockBound = unlock;
-    window.addEventListener("pointerdown", unlock, { once: true, passive: true });
+    window.addEventListener("pointerdown", unlock, {
+      once: true,
+      passive: true,
+    });
     window.addEventListener("keydown", unlock, { once: true, passive: true });
   }
 
@@ -82,7 +85,8 @@ export class WebAudioEngine {
 
     const AudioContextClass =
       window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      (window as unknown as { webkitAudioContext: typeof AudioContext })
+        .webkitAudioContext;
 
     if (!AudioContextClass) return null;
 
@@ -111,7 +115,10 @@ export class WebAudioEngine {
     this._isMuted = muted;
     try {
       if (typeof localStorage !== "undefined") {
-        localStorage.setItem(WebAudioEngine.STORAGE_KEY, muted ? "true" : "false");
+        localStorage.setItem(
+          WebAudioEngine.STORAGE_KEY,
+          muted ? "true" : "false",
+        );
       }
     } catch {
       // Storage unavailable fallback
@@ -304,13 +311,13 @@ export class WebAudioEngine {
 
       gain2.gain.setValueAtTime(0.001, now);
       gain2.gain.setValueAtTime(0.24, now + 0.19);
-      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.40);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
 
       osc2.connect(gain2);
       gain2.connect(this.masterGain);
 
       osc2.start(now + 0.19);
-      osc2.stop(now + 0.40);
+      osc2.stop(now + 0.4);
     } catch {
       // Fail-safe
     }
@@ -330,7 +337,7 @@ export class WebAudioEngine {
     btn.id = "openfront-procedural-audio-toggle";
     btn.type = "button";
     btn.className =
-      "fixed top-3 right-16 z-50 flex items-center justify-center w-10 h-10 rounded-xl " +
+      "fixed bottom-24 lg:bottom-4 right-4 z-[900] flex items-center justify-center w-10 h-10 rounded-xl " +
       "bg-slate-900/80 hover:bg-slate-800/90 text-white/90 border border-white/15 " +
       "backdrop-blur-md shadow-lg transition-all duration-150 active:scale-95 cursor-pointer pointer-events-auto";
     btn.style.pointerEvents = "auto";

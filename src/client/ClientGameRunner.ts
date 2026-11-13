@@ -35,6 +35,7 @@ import {
 } from "../core/game/UserSettings";
 import { WorkerClient } from "../core/worker/WorkerClient";
 import { getPersistentID } from "./Auth";
+import { createFramePacer, RenderStats } from "./FramePacer";
 import { showInGameAlert } from "./InGameModal";
 import {
   AutoUpgradeEvent,
@@ -473,71 +474,31 @@ function mountWebGLFrameLoop(
   // renderer's captured frame callback (which draws). One RAF = one
   // synchronized camera-update + WebGL render.
   let rafId: number | null = null;
-  let lastDriveTime = performance.now();
-  let lastPaceCheckTime = performance.now();
-  let frameAccumulator = 0;
+
+  const pacer = createFramePacer({
+    getMaxFps: () => (userSettings ? userSettings.maxFps() : 0),
+    onFrame: (deltaMs, time) => {
+      syncCamera();
+      dualLayerHandle?.engine.step(deltaMs, time);
+    },
+  });
 
   // Render submission telemetry for truthful instrumentation & profiling
-  const renderStats = {
-    webglFrames: 0,
-    lastWebglDrawTime: performance.now(),
-    webglIntervals: [] as number[],
-    maxIntervalHistory: 300,
-  };
   (
-    window as unknown as { __frontierxRenderStats?: typeof renderStats }
-  ).__frontierxRenderStats = renderStats;
+    window as unknown as { __frontierxRenderStats?: RenderStats }
+  ).__frontierxRenderStats = pacer.renderStats;
 
   const driveFrame = (time: number): void => {
-    // 1. Skip rendering if document is hidden to eliminate background CPU/GPU duty cycle
-    if (typeof document !== "undefined" && document.hidden) {
-      rafId = requestAnimationFrame(driveFrame);
+    if (pacer.isStopped()) {
+      rafId = null;
       return;
     }
-
-    const maxFps = userSettings ? userSettings.maxFps() : 0;
-
-    // 2. Frame pacing: when maxFps > 0, pace via accumulator with drift correction.
-    // When maxFps === 0 (default), sync directly to native display refresh rate (VSync)
-    // without artificial throttling, preventing cadence aliasing at 144Hz/90Hz/etc.
-    if (maxFps > 0) {
-      const targetInterval = 1000 / maxFps;
-      const deltaSinceLastCheck = Math.min(time - lastPaceCheckTime, 100);
-      lastPaceCheckTime = time;
-      frameAccumulator += deltaSinceLastCheck;
-
-      // 1.0ms slack prevents browser RAF timer jitter from dropping frames
-      if (frameAccumulator < targetInterval - 1.0) {
-        rafId = requestAnimationFrame(driveFrame);
-        return;
-      }
-
-      // Carry forward remainder to prevent cadence aliasing (e.g. 144Hz -> 48fps drop)
-      frameAccumulator -= targetInterval;
-      if (frameAccumulator > targetInterval) {
-        frameAccumulator = 0; // Prevent burst catches after lag spikes
-      }
+    pacer.tick(time);
+    if (!pacer.isStopped()) {
+      rafId = requestAnimationFrame(driveFrame);
     } else {
-      lastPaceCheckTime = time;
-      frameAccumulator = 0;
+      rafId = null;
     }
-
-    const deltaMs = Math.min(time - lastDriveTime, 100);
-    lastDriveTime = time;
-
-    // Track WebGL frame submission telemetry
-    const now = performance.now();
-    const dt = now - renderStats.lastWebglDrawTime;
-    renderStats.lastWebglDrawTime = now;
-    renderStats.webglFrames++;
-    renderStats.webglIntervals.push(dt);
-    if (renderStats.webglIntervals.length > renderStats.maxIntervalHistory) {
-      renderStats.webglIntervals.shift();
-    }
-
-    syncCamera();
-    dualLayerHandle?.engine.step(deltaMs, time);
-    rafId = requestAnimationFrame(driveFrame);
   };
   rafId = requestAnimationFrame(driveFrame);
 
@@ -546,6 +507,7 @@ function mountWebGLFrameLoop(
   // context referenced (and alive) forever — each new game would then stack
   // another context until the browser's limit is hit.
   const stopFrameLoop = (): void => {
+    pacer.stop();
     if (rafId !== null) {
       cancelAnimationFrame(rafId);
       rafId = null;
@@ -842,6 +804,7 @@ export class ClientGameRunner {
   private lastMousePosition: { x: number; y: number } | null = null;
 
   private lastMessageTime: number = 0;
+  private connectionCheckTimeout: ReturnType<typeof setTimeout> | null = null;
   private connectionCheckInterval: NodeJS.Timeout | null = null;
   private goToPlayerTimeout: NodeJS.Timeout | null = null;
 
@@ -920,7 +883,17 @@ export class ClientGameRunner {
 
     this.isActive = true;
     this.lastMessageTime = Date.now();
-    setTimeout(() => {
+    if (this.connectionCheckTimeout !== null) {
+      clearTimeout(this.connectionCheckTimeout);
+      this.connectionCheckTimeout = null;
+    }
+    if (this.connectionCheckInterval !== null) {
+      clearInterval(this.connectionCheckInterval);
+      this.connectionCheckInterval = null;
+    }
+    this.connectionCheckTimeout = setTimeout(() => {
+      this.connectionCheckTimeout = null;
+      if (!this.isActive) return;
       this.connectionCheckInterval = setInterval(
         () => this.onConnectionCheck(),
         1000,
@@ -1125,6 +1098,18 @@ export class ClientGameRunner {
   }
 
   public stop() {
+    if (this.connectionCheckTimeout !== null) {
+      clearTimeout(this.connectionCheckTimeout);
+      this.connectionCheckTimeout = null;
+    }
+    if (this.connectionCheckInterval) {
+      clearInterval(this.connectionCheckInterval);
+      this.connectionCheckInterval = null;
+    }
+    if (this.goToPlayerTimeout) {
+      clearTimeout(this.goToPlayerTimeout);
+      this.goToPlayerTimeout = null;
+    }
     this.soundManager.dispose();
     this.graphicsListenerAbort?.abort();
     this.disposeRenderer?.();
@@ -1136,14 +1121,6 @@ export class ClientGameRunner {
     this.isActive = false;
     this.worker.cleanup();
     this.transport.leaveGame();
-    if (this.connectionCheckInterval) {
-      clearInterval(this.connectionCheckInterval);
-      this.connectionCheckInterval = null;
-    }
-    if (this.goToPlayerTimeout) {
-      clearTimeout(this.goToPlayerTimeout);
-      this.goToPlayerTimeout = null;
-    }
   }
 
   private inputEvent(event: MouseUpEvent) {
