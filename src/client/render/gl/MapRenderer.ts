@@ -30,12 +30,12 @@ import type {
   UnitState,
 } from "../types";
 import type { SpawnCenter } from "./passes/SpawnOverlayPass";
+import { TacticalOverlayMode } from "./passes/TacticalOverlayPass";
 import type { AttackTroopLabel } from "./passes/WorldTextPass";
 import { GPURenderer } from "./Renderer";
-import { TacticalOverlayMode } from "./passes/TacticalOverlayPass";
+import type { RenderSettings } from "./RenderSettings";
 
 export { TacticalOverlayMode };
-import type { RenderSettings } from "./RenderSettings";
 
 export class MapRenderer {
   private renderer: GPURenderer | null = null;
@@ -43,9 +43,17 @@ export class MapRenderer {
   // Stored layer data for context-restore re-creation.
   private storedLayers: MapLayer[] = [];
   private storedLayerImages: Map<string, ImageBitmap> = new Map();
-  // Layer state that survives context loss (GPU textures do not).
+  // Layer and view state that survive context loss (GPU state does not).
   private layerVisibility = new Map<string, boolean>();
   private layerDestroyedMasks = new Map<string, Uint8Array>();
+  private localPlayerID: number | null = null;
+  private localRailColor: [number, number, number] | null = null;
+  private altView: boolean | null = null;
+  private gridView: boolean | null = null;
+  private showPatterns: boolean | null = null;
+  private highlightOwner: number | null = null;
+  private tacticalOverlayMode: TacticalOverlayMode | null = null;
+  private highlightStructureTypes: string[] | null | undefined = undefined;
 
   /**
    * Called after a lost WebGL context is restored and the renderer has been
@@ -125,6 +133,30 @@ export class MapRenderer {
       for (const [id, mask] of this.layerDestroyedMasks) {
         this.renderer?.setLayerDestroyedMask(id, mask);
       }
+    }
+    if (this.localPlayerID !== null) {
+      this.renderer?.setLocalPlayerID(this.localPlayerID);
+    }
+    if (this.localRailColor !== null) {
+      this.renderer?.setLocalRailColor(...this.localRailColor);
+    }
+    if (this.altView !== null) {
+      this.renderer?.setAltView(this.altView);
+    }
+    if (this.gridView !== null) {
+      this.renderer?.setGridView(this.gridView);
+    }
+    if (this.showPatterns !== null) {
+      this.renderer?.setShowPatterns(this.showPatterns);
+    }
+    if (this.highlightOwner !== null) {
+      this.renderer?.setHighlightOwner(this.highlightOwner);
+    }
+    if (this.tacticalOverlayMode !== null) {
+      this.renderer?.setTacticalOverlayMode(this.tacticalOverlayMode);
+    }
+    if (this.highlightStructureTypes !== undefined) {
+      this.renderer?.setHighlightStructureTypes(this.highlightStructureTypes);
     }
     this.onContextRestored?.();
   };
@@ -326,36 +358,48 @@ export class MapRenderer {
   // ---- Other ----
 
   setLocalPlayerID(id: number): void {
+    this.localPlayerID = id;
     this.renderer?.setLocalPlayerID(id);
   }
   /** Rail color for the local player (0–1 RGB). */
   setLocalRailColor(r: number, g: number, b: number): void {
+    this.localRailColor = [r, g, b];
     this.renderer?.setLocalRailColor(r, g, b);
   }
   setAltView(active: boolean): void {
+    this.altView = active;
     this.renderer?.setAltView(active);
   }
   setGridView(active: boolean): void {
+    this.gridView = active;
     this.renderer?.setGridView(active);
   }
   setShowPatterns(active: boolean): void {
+    this.showPatterns = active;
     this.renderer?.setShowPatterns(active);
   }
   setHighlightOwner(ownerID: number): void {
+    this.highlightOwner = ownerID;
     this.renderer?.setHighlightOwner(ownerID);
   }
   setMouseWorldPos(x: number, y: number): void {
     this.renderer?.setMouseWorldPos(x, y);
   }
   setTacticalOverlayMode(mode: TacticalOverlayMode): void {
+    this.tacticalOverlayMode = mode;
     this.renderer?.setTacticalOverlayMode(mode);
   }
 
   getTacticalOverlayMode(): TacticalOverlayMode {
-    return this.renderer?.getTacticalOverlayMode() ?? TacticalOverlayMode.Off;
+    return (
+      this.renderer?.getTacticalOverlayMode() ??
+      this.tacticalOverlayMode ??
+      TacticalOverlayMode.Off
+    );
   }
 
   setHighlightStructureTypes(unitTypes: string[] | null): void {
+    this.highlightStructureTypes = unitTypes;
     this.renderer?.setHighlightStructureTypes(unitTypes);
   }
   getSettings(): RenderSettings {

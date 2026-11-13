@@ -41,6 +41,14 @@ export class SpawnTimer extends LitElement implements Controller {
     this.isVisible = true;
   }
 
+  destroy() {
+    this.isVisible = false;
+    this._barVisible = false;
+    this.ratios = [];
+    this.colors = [];
+    this.requestUpdate();
+  }
+
   tick() {
     if (
       this.game.config().gameConfig().gameType === GameType.Singleplayer &&

@@ -196,6 +196,10 @@ export class PlayerPanel extends LitElement implements Controller {
     this.requestUpdate();
   }
 
+  public destroy() {
+    this.hide();
+  }
+
   private handleClose(e: Event) {
     e.stopPropagation();
     this.hide();

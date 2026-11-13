@@ -297,6 +297,20 @@ export class ControlPanel extends LitElement implements Controller {
     }
   }
 
+  destroy() {
+    if (this._goldGainTimeoutId !== null) {
+      clearTimeout(this._goldGainTimeoutId);
+      this._goldGainTimeoutId = null;
+    }
+    this._isVisible = false;
+    this._notification = null;
+    this._goldGain = null;
+    this._attackingTroops = 0;
+    this._lastAttackTickByTarget.clear();
+    this._nearbyPlayerIDs.clear();
+    this.requestUpdate();
+  }
+
   private updateTroopIncrease() {
     const player = this.game?.myPlayer();
     if (player === null) return;

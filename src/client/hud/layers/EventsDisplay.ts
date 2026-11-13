@@ -173,6 +173,13 @@ export class EventsDisplay extends LitElement implements Controller {
     });
   }
 
+  destroy() {
+    this.active = false;
+    this._isVisible = false;
+    this.events = [];
+    this.requestUpdate();
+  }
+
   tick() {
     this.active = true;
 

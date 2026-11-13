@@ -21,14 +21,37 @@ export class TacticalOverlaySelector extends LitElement implements Controller {
   @state()
   private isOpen: boolean = false;
 
+  @state()
+  private isVisible: boolean = false;
+
   createRenderRoot() {
     return this;
   }
 
   init() {
+    this.isVisible = true;
+    this.isOpen = false;
+    this.currentMode = TacticalOverlayMode.Off;
     this.eventBus.on(TacticalOverlayModeChangedEvent, (e) => {
       this.currentMode = e.mode;
     });
+    this.requestUpdate();
+  }
+
+  destroy() {
+    this.isVisible = false;
+    this.isOpen = false;
+    this.currentMode = TacticalOverlayMode.Off;
+    this.requestUpdate();
+  }
+
+  dispose() {
+    this.destroy();
+  }
+
+  private getLabel(key: string, fallback: string): string {
+    const translated = translateText(key);
+    return translated === key ? fallback : translated;
   }
 
   private setMode(mode: TacticalOverlayMode) {
@@ -41,28 +64,61 @@ export class TacticalOverlaySelector extends LitElement implements Controller {
   }
 
   render() {
+    if (!this.isVisible) {
+      return html``;
+    }
+
     const modes = [
-      { id: TacticalOverlayMode.Off, label: translateText("tactical_overlay.off"), color: "bg-gray-700 hover:bg-gray-600" },
-      { id: TacticalOverlayMode.TroopDensity, label: translateText("tactical_overlay.troops"), color: "bg-amber-600 hover:bg-amber-500 text-black font-bold" },
-      { id: TacticalOverlayMode.SAMCoverage, label: translateText("tactical_overlay.sams"), color: "bg-emerald-600 hover:bg-emerald-500 font-bold" },
-      { id: TacticalOverlayMode.TradeEfficiency, label: translateText("tactical_overlay.trade"), color: "bg-cyan-600 hover:bg-cyan-500 font-bold" },
-      { id: TacticalOverlayMode.NavalThreat, label: translateText("tactical_overlay.naval"), color: "bg-pink-700 hover:bg-pink-600 font-bold" },
+      {
+        id: TacticalOverlayMode.Off,
+        label: this.getLabel("tactical_overlay.off", "Off"),
+        color: "bg-gray-700 hover:bg-gray-600",
+      },
+      {
+        id: TacticalOverlayMode.TroopDensity,
+        label: this.getLabel("tactical_overlay.troops", "Troop Density"),
+        color: "bg-amber-600 hover:bg-amber-500 text-black font-bold",
+      },
+      {
+        id: TacticalOverlayMode.SAMCoverage,
+        label: this.getLabel("tactical_overlay.sams", "SAM Coverage"),
+        color: "bg-emerald-600 hover:bg-emerald-500 font-bold",
+      },
+      {
+        id: TacticalOverlayMode.TradeEfficiency,
+        label: this.getLabel("tactical_overlay.trade", "Trade"),
+        color: "bg-cyan-600 hover:bg-cyan-500 font-bold",
+      },
+      {
+        id: TacticalOverlayMode.NavalThreat,
+        label: this.getLabel("tactical_overlay.naval", "Naval"),
+        color: "bg-pink-700 hover:bg-pink-600 font-bold",
+      },
     ];
 
-    const activeLabel = modes.find((m) => m.id === this.currentMode)?.label ?? "Tactical";
+    const activeLabel =
+      modes.find((m) => m.id === this.currentMode)?.label ?? "Tactical";
 
     return html`
       <div
-        class="fixed top-3 left-1/2 transform -translate-x-1/2 z-[100] pointer-events-auto select-none flex flex-col items-center gap-1.5"
+        class="fixed bottom-24 lg:bottom-4 right-16 z-[900] pointer-events-auto select-none flex flex-col-reverse items-end gap-1.5"
       >
         <button
           @click=${this.toggleOpen}
           class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-900/90 hover:bg-gray-800/90 text-xs font-semibold text-white uppercase tracking-wider backdrop-blur-sm border border-white/10 shadow-lg transition-all"
           title="Toggle Tactical Map Overlays [O]"
         >
-          <span class="w-2 h-2 rounded-full ${this.currentMode === TacticalOverlayMode.Off ? "bg-gray-400" : "bg-emerald-400 animate-pulse"}"></span>
+          <span
+            class="w-2 h-2 rounded-full ${this.currentMode ===
+            TacticalOverlayMode.Off
+              ? "bg-gray-400"
+              : "bg-emerald-400 animate-pulse"}"
+          ></span>
           <span>Tactical: ${activeLabel}</span>
-          <span class="text-[10px] text-gray-400 font-mono bg-white/10 px-1 py-0.5 rounded">O</span>
+          <span
+            class="text-[10px] text-gray-400 font-mono bg-white/10 px-1 py-0.5 rounded"
+            >O</span
+          >
         </button>
 
         ${this.isOpen

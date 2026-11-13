@@ -136,6 +136,20 @@ export class WarshipSelectionController implements Controller {
     if (this.dragRectEl !== null) this.dragRectEl.style.display = "none";
   }
 
+  destroy(): void {
+    this.hideDragRect();
+    if (this.dragRectEl !== null) {
+      this.dragRectEl.remove();
+      this.dragRectEl = null;
+    }
+    this.selectedUnit = null;
+    this.multiSelectedWarships = [];
+  }
+
+  dispose(): void {
+    this.destroy();
+  }
+
   /**
    * Find player-owned warships near the given cell, sorted by distance.
    */

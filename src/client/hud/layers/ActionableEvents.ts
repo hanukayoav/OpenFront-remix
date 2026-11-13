@@ -89,6 +89,14 @@ export class ActionableEvents extends LitElement implements Controller {
     );
   }
 
+  destroy() {
+    this.active = false;
+    this._isVisible = false;
+    this.events = [];
+    this.alliancesCheckedAt.clear();
+    this.requestUpdate();
+  }
+
   tick() {
     this.active = true;
 

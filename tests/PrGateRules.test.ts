@@ -314,3 +314,26 @@ describe("evaluate (priority ordering)", () => {
     expect(r.action).toBe("close");
   });
 });
+
+describe("PR gate config resolution", () => {
+  it("resolves owner and repo from GITHUB_REPOSITORY while supporting explicit overrides", async () => {
+    const prevRepo = process.env.GITHUB_REPOSITORY;
+    const prevOwner = process.env.REPO_OWNER;
+    const prevName = process.env.REPO_NAME;
+    try {
+      process.env.GITHUB_REPOSITORY = "hanukayoav/OpenFront-remix";
+      delete process.env.REPO_OWNER;
+      delete process.env.REPO_NAME;
+      vi.resetModules();
+      const { REPO } = await import("../scripts/pr-gate/config");
+      expect(REPO).toEqual({ owner: "hanukayoav", repo: "OpenFront-remix" });
+    } finally {
+      if (prevRepo === undefined) delete process.env.GITHUB_REPOSITORY;
+      else process.env.GITHUB_REPOSITORY = prevRepo;
+      if (prevOwner === undefined) delete process.env.REPO_OWNER;
+      else process.env.REPO_OWNER = prevOwner;
+      if (prevName === undefined) delete process.env.REPO_NAME;
+      else process.env.REPO_NAME = prevName;
+    }
+  });
+});
