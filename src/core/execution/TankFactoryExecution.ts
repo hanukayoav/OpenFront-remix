@@ -1,9 +1,10 @@
-import { Execution, Game, Unit, UnitType } from "../game/Game";
+import { Execution, Game, Player, Unit, UnitType } from "../game/Game";
 import { TankExecution } from "./TankExecution";
 
 export class TankFactoryExecution implements Execution {
   private active = true;
   private game: Game;
+  private lastOwner: Player | null = null;
   private tanks: Unit[] = [];
   private productionProgress = 0;
   private isBuilding = false;
@@ -12,6 +13,7 @@ export class TankFactoryExecution implements Execution {
 
   init(mg: Game, ticks: number): void {
     this.game = mg;
+    this.lastOwner = this.factory.owner();
   }
 
   tick(ticks: number): void {
@@ -19,6 +21,18 @@ export class TankFactoryExecution implements Execution {
       this.active = false;
       return;
     }
+
+    // Reset factory state if captured by another player so old owner's tanks
+    // and rally points do not linger on the captured structure.
+    const currentOwner = this.factory.owner();
+    if (this.lastOwner !== null && currentOwner !== this.lastOwner) {
+      this.lastOwner = currentOwner;
+      this.tanks.length = 0;
+      this.productionProgress = 0;
+      this.isBuilding = false;
+      this.factory.setTankRallyTile(undefined);
+    }
+    this.lastOwner ??= currentOwner;
 
     const tile = this.factory.tile();
     if (tile === null) {

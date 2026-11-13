@@ -28,6 +28,7 @@ import { UnitGrid, UnitPredicate } from "../../core/game/UnitGrid";
 import { ClientID, GameID, Player, PlayerCosmetics } from "../../core/Schemas";
 import { formatPlayerDisplayName } from "../../core/Util";
 import { WorkerClient } from "../../core/worker/WorkerClient";
+import { TerritoryAnchorManager } from "../graphics/engine/TerritoryAnchor";
 import { computeAllianceClusters } from "../render/frame/derive/AllianceClusters";
 import { extractAttackRings } from "../render/frame/derive/AttackRings";
 import { extractNukeTelegraphs } from "../render/frame/derive/NukeTelegraphs";
@@ -142,6 +143,7 @@ export class GameView implements GameMap {
   private trainUnitToEngine = new Map<number, number>();
 
   private toDelete = new Set<number>();
+  private readonly _territoryAnchors = new TerritoryAnchorManager();
 
   private _cosmetics: Map<string, PlayerCosmetics> = new Map();
 
@@ -302,7 +304,17 @@ export class GameView implements GameMap {
     for (let i = 0; i + 1 < packed.length; i += 2) {
       const tile = packed[i];
       const state = packed[i + 1];
+      const oldOwnerID = this._map.ownerID(tile);
       const terrainChanged = this.updateTile(tile, state);
+      const newOwnerID = this._map.ownerID(tile);
+      if (oldOwnerID !== newOwnerID) {
+        this._territoryAnchors.recordTileChange(
+          oldOwnerID,
+          newOwnerID,
+          this._map.x(tile),
+          this._map.y(tile),
+        );
+      }
       this.updatedTiles.push(tile);
       if (terrainChanged) {
         this.updatedTerrainTiles.push(tile);
@@ -1329,6 +1341,10 @@ export class GameView implements GameMap {
   }
   gameID(): GameID {
     return this._gameID;
+  }
+
+  territoryAnchorManager(): TerritoryAnchorManager {
+    return this._territoryAnchors;
   }
 
   focusedPlayer(): PlayerView | null {

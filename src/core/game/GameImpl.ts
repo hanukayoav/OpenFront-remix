@@ -118,6 +118,9 @@ export class GameImpl implements Game {
   private _teamGameSpawnAreas: TeamGameSpawnAreas | undefined;
   /** Tiles from nuke blast radii this tick, drained by the renderer. */
   private _nukeImpactQueue: TileRef[] = [];
+  private _supplyDropSystem: {
+    claimByHuman(player: Player, dropId: number, tile?: TileRef): boolean;
+  } | null = null;
 
   constructor(
     private _humans: PlayerInfo[],
@@ -1337,6 +1340,17 @@ export class GameImpl implements Game {
       conqueredId: conquered.id(),
       gold: goldCaptured,
     });
+  }
+
+  setSupplyDropSystem(system: {
+    claimByHuman(player: Player, dropId: number, tile?: TileRef): boolean;
+  }): void {
+    this._supplyDropSystem = system;
+  }
+
+  claimSupplyDrop(player: Player, dropId: number, tile?: TileRef): boolean {
+    if (!this._supplyDropSystem) return false;
+    return this._supplyDropSystem.claimByHuman(player, dropId, tile);
   }
 }
 

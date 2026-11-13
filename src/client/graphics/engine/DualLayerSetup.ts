@@ -29,6 +29,12 @@ import {
   StaticTerrainData,
 } from "./DualLayerEngine";
 import { InputManager } from "./InputManager";
+import {
+  computeAvatarScale,
+  deriveCountryAvatarConfig,
+  TerritoryAnchorManager,
+  TerritoryMapView,
+} from "./TerritoryAnchor";
 
 export interface DualLayerSetupOptions extends Partial<DualLayerEngineConfig> {
   gameView?: GameView;
@@ -162,6 +168,7 @@ export function setupDualLayerEngine(
     intervalSec: getDropIntervalSec(mutators.dropFrequency),
     maxActiveCrates: getMaxActiveDrops(mutators.dropFrequency),
   });
+  engine.supplyDropManager.authoritativeMode = Boolean(gameView);
 
   // Sudden Death HUD indicator if timer mutator is active (> 0)
   let suddenDeathHudEl: HTMLElement | null = null;
@@ -194,6 +201,8 @@ export function setupDualLayerEngine(
   let matchElapsedMs = 0;
   let suddenDeathTriggered = false;
   const assignedBotPersonalities = new Set<string | number>();
+  const fallbackAnchorManager = new TerritoryAnchorManager();
+  let anchorScanCursor = 0;
 
   // Throttled trail particle counter to prevent CPU/GC spikes
   const MAX_TRAIL_PARTICLES_PER_TICK = 6;
@@ -209,9 +218,111 @@ export function setupDualLayerEngine(
     const deltaMs = rawDeltaMs * paceMultiplier;
     lastSyncTimeMs = now;
 
-    // Register local player's capital avatar once spawned
     const myPlayer = gameView.myPlayer();
-    if (
+    const allPlayers = gameView.players();
+    const simTick =
+      typeof (gameView as any).ticks === "function"
+        ? (gameView as any).ticks()
+        : 0;
+    const anchorMgr: TerritoryAnchorManager =
+      typeof (gameView as any).territoryAnchorManager === "function"
+        ? (gameView as any).territoryAnchorManager()
+        : fallbackAnchorManager;
+    const hasMapGeom =
+      typeof (gameView as any).width === "function" &&
+      typeof (gameView as any).height === "function" &&
+      typeof (gameView as any).ref === "function" &&
+      typeof (gameView as any).isLand === "function" &&
+      typeof (gameView as any).ownerID === "function";
+
+    // Sync territory-aware scaled avatars for both human and AI countries
+    if (allPlayers && allPlayers.length > 0) {
+      const playerCount = allPlayers.length;
+      const budgetSlots = Math.min(playerCount, 12);
+      const windowStart = anchorScanCursor % playerCount;
+      anchorScanCursor =
+        (anchorScanCursor + budgetSlots) % Math.max(1, playerCount);
+
+      for (let i = 0; i < playerCount; i++) {
+        const p = allPlayers[i];
+        if (!p) continue;
+        const pid = p.id();
+        const isLocal = Boolean(myPlayer && pid === myPlayer.id());
+        if (!isLocal && p.isAlive() && !assignedBotPersonalities.has(pid)) {
+          assignedBotPersonalities.add(pid);
+          BotAI.assignPersonality(pid);
+        }
+
+        const tilesOwned =
+          typeof (p as any).numTilesOwned === "function"
+            ? (p as any).numTilesOwned()
+            : 0;
+        const spawnTile = p.state?.spawnTile;
+        if (
+          !p.isAlive() ||
+          (tilesOwned <= 0 && (spawnTile === undefined || spawnTile === null))
+        ) {
+          engine.avatarSystem.removeAvatar(pid);
+          if (typeof (p as any).smallID === "function") {
+            anchorMgr.removePlayer((p as any).smallID());
+          }
+          continue;
+        }
+        if (spawnTile === undefined || spawnTile === null) continue;
+
+        let avatar = engine.avatarSystem.getAvatar(pid);
+        if (!avatar) {
+          const sx = gameView.x(spawnTile);
+          const sy = gameView.y(spawnTile);
+          const hex =
+            typeof (p as any).territoryColor === "function"
+              ? (p as any).territoryColor().toHex()
+              : "#3b82f6";
+          const config = isLocal
+            ? loadAvatarConfig()
+            : deriveCountryAvatarConfig(String(pid), hex);
+          avatar = engine.avatarSystem.registerAvatar(
+            pid,
+            p.smallID(),
+            sx,
+            sy,
+            config,
+            isLocal,
+          );
+        }
+
+        const targetScale = computeAvatarScale(tilesOwned);
+        if (hasMapGeom) {
+          const offset = (i - windowStart + playerCount) % playerCount;
+          const allowNonUrgent = offset < budgetSlots || isLocal;
+          const resolved = anchorMgr.resolveAnchor(
+            gameView as unknown as TerritoryMapView,
+            p.smallID(),
+            tilesOwned,
+            spawnTile,
+            simTick,
+            allowNonUrgent,
+          );
+          if (resolved) {
+            engine.avatarSystem.setTerritoryState(
+              pid,
+              resolved.x,
+              resolved.y,
+              targetScale,
+              resolved.urgentSnap,
+            );
+          }
+        } else {
+          engine.avatarSystem.setTerritoryState(
+            pid,
+            avatar.capitalX,
+            avatar.capitalY,
+            targetScale,
+            false,
+          );
+        }
+      }
+    } else if (
       myPlayer &&
       myPlayer.state?.spawnTile !== undefined &&
       myPlayer.state?.spawnTile !== null
@@ -229,21 +340,17 @@ export function setupDualLayerEngine(
           true,
         );
       }
-    }
-
-    // Ensure bot personalities are initialized deterministically without flooding AvatarSystem
-    const allPlayers = gameView.players();
-    if (allPlayers && allPlayers.length > 0) {
-      for (let i = 0; i < allPlayers.length; i++) {
-        const p = allPlayers[i];
-        if (!p || !p.isAlive()) continue;
-        const pid = p.id();
-        if (myPlayer && pid === myPlayer.id()) continue;
-        if (!assignedBotPersonalities.has(pid)) {
-          assignedBotPersonalities.add(pid);
-          BotAI.assignPersonality(pid);
-        }
-      }
+      const tilesOwned =
+        typeof (myPlayer as any).numTilesOwned === "function"
+          ? (myPlayer as any).numTilesOwned()
+          : 0;
+      engine.avatarSystem.setTerritoryState(
+        myPlayer.id(),
+        cx,
+        cy,
+        computeAvatarScale(tilesOwned),
+        false,
+      );
     }
 
     // Sudden Death Limit evaluation - only during active gameplay, never during spawn phase
@@ -398,74 +505,73 @@ export function setupDualLayerEngine(
           }
         }
       }
-    }
+      // Authoritative Simulation Supply Drop Spawns & Claims
+      const supplyDropEvents = updates[GameUpdateType.SupplyDropEvent];
+      if (supplyDropEvents && supplyDropEvents.length > 0) {
+        const onAuthoritativeClaimFX = (
+          _drop: unknown,
+          claimingPlayerId: number,
+        ) => {
+          engine.avatarSystem.screenShake.trigger(4);
+          engine.audioEngine.playExplosionShake();
+          engine.audioEngine.playDropClaim();
 
-    // Dynamic Progressive Supply Drops Evaluation
-    engine.supplyDropManager.update(
-      deltaMs,
-      (tile) => {
-        const owner = gameView.owner(tile);
-        if (!owner || !owner.isPlayer()) return null;
-        return {
-          id: owner.smallID(),
-          addGold: (g: number) => {
-            if (owner.state) {
-              owner.state.gold = (owner.state.gold ?? 0) + g;
-            }
-          },
-          addTroops: (t: number) => {
-            if (owner.state) {
-              owner.state.troops = (owner.state.troops ?? 0) + t;
-            }
-          },
+          const claimer = gameView.playerBySmallID
+            ? gameView.playerBySmallID(claimingPlayerId)
+            : null;
+          let claimerName = `Player ${claimingPlayerId}`;
+          let claimerColor = "#3b82f6";
+          if (claimer && "isPlayer" in claimer && claimer.isPlayer()) {
+            claimerName = claimer.displayName();
+            claimerColor = claimer.territoryColor()?.toHex() ?? "#3b82f6";
+          }
+          engine.analytics.recordCrateSecured(
+            claimingPlayerId,
+            claimerName,
+            claimerColor,
+          );
+
+          if (myPlayer && claimingPlayerId === myPlayer.smallID()) {
+            engine.avatarSystem.triggerVictory(myPlayer.id(), 2500);
+          }
         };
-      },
-      () => {
-        const mapW = gameView.width();
-        const mapH = gameView.height();
-        for (let attempt = 0; attempt < 25; attempt++) {
-          const rx = Math.floor(Math.random() * (mapW - 20)) + 10;
-          const ry = Math.floor(Math.random() * (mapH - 20)) + 10;
-          if (gameView.isValidCoord(rx, ry)) {
-            const tile = gameView.ref(rx, ry);
-            if (!gameView.isWater(tile)) {
-              return {
-                tile,
-                x: rx,
-                y: ry,
-                ownerID: gameView.ownerID(tile),
-              };
-            }
+
+        for (let i = 0; i < supplyDropEvents.length; i++) {
+          const ev = supplyDropEvents[i];
+          const sx = gameView.x(ev.tile);
+          const sy = gameView.y(ev.tile);
+          if (ev.action === "spawn") {
+            engine.supplyDropManager.applyAuthoritativeSpawn(
+              ev.dropId,
+              ev.tile,
+              sx,
+              sy,
+              ev.troops,
+              ev.gold,
+              ev.tier,
+              ev.playerSmallId ?? null,
+            );
+          } else if (ev.action === "claim") {
+            engine.supplyDropManager.applyAuthoritativeClaim(
+              ev.dropId,
+              ev.tile,
+              sx,
+              sy,
+              ev.troops,
+              ev.gold,
+              ev.tier,
+              ev.playerSmallId ?? 0,
+              onAuthoritativeClaimFX,
+            );
           }
         }
-        return null;
-      },
-      (drop, claimingPlayerId) => {
-        // Drop claimed: trigger 4-frame screen shake & player victory animation
-        engine.avatarSystem.screenShake.trigger(4);
-        engine.audioEngine.playExplosionShake();
-        engine.audioEngine.playDropClaim();
+      }
+    }
 
-        const claimer = gameView.playerBySmallID
-          ? gameView.playerBySmallID(claimingPlayerId)
-          : null;
-        let claimerName = `Player ${claimingPlayerId}`;
-        let claimerColor = "#3b82f6";
-        if (claimer && "isPlayer" in claimer && claimer.isPlayer()) {
-          claimerName = claimer.displayName();
-          claimerColor = claimer.territoryColor()?.toHex() ?? "#3b82f6";
-        }
-        engine.analytics.recordCrateSecured(
-          claimingPlayerId,
-          claimerName,
-          claimerColor,
-        );
-
-        if (myPlayer && claimingPlayerId === myPlayer.smallID()) {
-          engine.avatarSystem.triggerVictory(myPlayer.id(), 2500);
-        }
-      },
-    );
+    // Dynamic Progressive Supply Drops Animation & Beacon/Banner Tick
+    // Note: in live matches authoritativeMode=true ensures spawning and reward
+    // grants run deterministically in simulation across all peers.
+    engine.supplyDropManager.update(deltaMs);
 
     // Particle trails for active moving units (throttled and early-exit to avoid per-unit toHex/GC churn)
     trailParticlesSpawnedThisTick = 0;

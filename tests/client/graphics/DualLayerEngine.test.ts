@@ -477,9 +477,9 @@ describe("OpenFront Dual-Layer Graphics Engine", () => {
         },
       };
 
-      // Owner shifts to player 7
+      // Complete descent (3400ms) after owner shifts to player 7
       manager.update(
-        16,
+        3400,
         (tile) => (tile === 42 ? mockPlayer : null),
         () => null,
       );

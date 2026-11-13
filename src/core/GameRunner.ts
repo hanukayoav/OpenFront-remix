@@ -4,6 +4,7 @@ import { DoomsdayClockExecution } from "./execution/DoomsdayClockExecution";
 import { Executor } from "./execution/ExecutionManager";
 import { RecomputeRailClusterExecution } from "./execution/RecomputeRailClusterExecution";
 import { SpawnTimerExecution } from "./execution/SpawnTimerExecution";
+import { SupplyDropExecution } from "./execution/SupplyDropExecution";
 import { WinCheckExecution } from "./execution/WinCheckExecution";
 import {
   AllPlayers,
@@ -97,6 +98,7 @@ export class GameRunner {
   private isExecuting = false;
 
   private playerViewData: Record<PlayerID, NameViewData> = {};
+  private playerLastNameTileChange = new Map<PlayerID, number>();
 
   constructor(
     public game: Game,
@@ -120,6 +122,7 @@ export class GameRunner {
       );
     }
     this.game.addExecution(new WinCheckExecution());
+    this.game.addExecution(new SupplyDropExecution(this.execManager.gameId()));
     if (this.game.config().doomsdayClockConfig().enabled) {
       this.game.addExecution(new DoomsdayClockExecution());
     }
@@ -188,13 +191,21 @@ export class GameRunner {
     }
 
     const spawnJustEnded = wasInSpawnPhase && !this.game.inSpawnPhase();
-    if (
-      spawnJustEnded ||
-      this.game.ticks() < 3 ||
-      this.game.ticks() % 30 === 0
-    ) {
+    const curTick = this.game.ticks();
+    if (spawnJustEnded || curTick < 3 || curTick % 30 === 0) {
       for (const p of this.game.players()) {
-        this.playerViewData[p.id()] = placeName(this.game, p);
+        const pid = p.id();
+        const lastChange = p.lastTileChange();
+        if (
+          !spawnJustEnded &&
+          curTick >= 3 &&
+          this.playerViewData[pid] !== undefined &&
+          this.playerLastNameTileChange.get(pid) === lastChange
+        ) {
+          continue;
+        }
+        this.playerViewData[pid] = placeName(this.game, p);
+        this.playerLastNameTileChange.set(pid, lastChange);
       }
       viewDataChanged = true;
     }

@@ -941,6 +941,14 @@ export interface Game extends GameMap {
 
   /** Drain all tiles from nuke impacts this tick. Called once per tick. */
   drainNukeImpacts(): TileRef[];
+
+  /** Registers authoritative simulation supply-drop controller. */
+  setSupplyDropSystem?(system: {
+    claimByHuman(player: Player, dropId: number, tile?: TileRef): boolean;
+  }): void;
+
+  /** Attempts an authoritative human claim for an active landed supply drop. */
+  claimSupplyDrop?(player: Player, dropId: number, tile?: TileRef): boolean;
 }
 
 export interface PlayerActions {

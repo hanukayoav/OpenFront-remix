@@ -12,7 +12,10 @@
  */
 
 import { EventBus } from "../../../core/EventBus";
-import { SendAttackIntentEvent } from "../../Transport";
+import {
+  SendAttackIntentEvent,
+  SendClaimSupplyDropIntentEvent,
+} from "../../Transport";
 import { TransformHandler } from "../../TransformHandler";
 import { GameView } from "../../view/GameView";
 import { DualLayerEngine } from "./DualLayerEngine";
@@ -308,7 +311,14 @@ export class InputManager {
         (t) => this.gameView!.ownerID(t),
       );
       if (claimResult?.handled) {
-        if (!claimResult.success && claimResult.message) {
+        if (claimResult.success && claimResult.dropId !== undefined) {
+          this.eventBus?.emit(
+            new SendClaimSupplyDropIntentEvent(
+              claimResult.dropId,
+              claimResult.tile,
+            ),
+          );
+        } else if (!claimResult.success && claimResult.message) {
           this.engine.pools.spawnFloatingText(
             claimResult.message,
             cell.x,
