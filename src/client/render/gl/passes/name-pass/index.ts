@@ -678,17 +678,16 @@ export class NamePass {
     d[off + 32] = slot.crownLayerIdx;
     d[off + 33] = slot.static.verified === true ? 1.0 : 0.0;
     // Count of active status-row icons so shaders don't recompute it independently.
-    d[off + 34] = [
-      slot.crown,
-      slot.traitor,
-      slot.disconnected,
-      slot.alliance,
-      slot.allianceReq,
-      slot.target,
-      slot.embargo,
-      slot.nukeActive,
-      slot.inDoomsdayClock || slot.doomsdayClockDraining,
-    ].filter(Boolean).length;
+    d[off + 34] =
+      (slot.crown ? 1 : 0) +
+      (slot.traitor ? 1 : 0) +
+      (slot.disconnected ? 1 : 0) +
+      (slot.alliance ? 1 : 0) +
+      (slot.allianceReq ? 1 : 0) +
+      (slot.target ? 1 : 0) +
+      (slot.embargo ? 1 : 0) +
+      (slot.nukeActive ? 1 : 0) +
+      (slot.inDoomsdayClock || slot.doomsdayClockDraining ? 1 : 0);
     d[off + 35] = 0.0;
 
     this.playerDataDirty = true;

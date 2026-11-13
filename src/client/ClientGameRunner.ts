@@ -35,6 +35,7 @@ import {
 } from "../core/game/UserSettings";
 import { WorkerClient } from "../core/worker/WorkerClient";
 import { getPersistentID } from "./Auth";
+import { createFramePacer, RenderStats } from "./FramePacer";
 import { showInGameAlert } from "./InGameModal";
 import {
   AutoUpgradeEvent,
@@ -411,6 +412,7 @@ function mountWebGLFrameLoop(
   gameView: GameView,
   eventBus: EventBus,
   dualLayerHandle?: DualLayerEngineHandle,
+  userSettings?: UserSettings,
 ): { builder: WebGLFrameBuilder; stopFrameLoop: () => void } {
   const gameMap = terrainMap.gameMap;
   const mapWidth = gameMap.width();
@@ -472,13 +474,31 @@ function mountWebGLFrameLoop(
   // renderer's captured frame callback (which draws). One RAF = one
   // synchronized camera-update + WebGL render.
   let rafId: number | null = null;
-  let lastDriveTime = performance.now();
+
+  const pacer = createFramePacer({
+    getMaxFps: () => (userSettings ? userSettings.maxFps() : 0),
+    onFrame: (deltaMs, time) => {
+      syncCamera();
+      dualLayerHandle?.engine.step(deltaMs, time);
+    },
+  });
+
+  // Render submission telemetry for truthful instrumentation & profiling
+  (
+    window as unknown as { __frontierxRenderStats?: RenderStats }
+  ).__frontierxRenderStats = pacer.renderStats;
+
   const driveFrame = (time: number): void => {
-    const deltaMs = Math.min(time - lastDriveTime, 100);
-    lastDriveTime = time;
-    syncCamera();
-    dualLayerHandle?.engine.step(deltaMs, time);
-    rafId = requestAnimationFrame(driveFrame);
+    if (pacer.isStopped()) {
+      rafId = null;
+      return;
+    }
+    pacer.tick(time);
+    if (!pacer.isStopped()) {
+      rafId = requestAnimationFrame(driveFrame);
+    } else {
+      rafId = null;
+    }
   };
   rafId = requestAnimationFrame(driveFrame);
 
@@ -487,6 +507,7 @@ function mountWebGLFrameLoop(
   // context referenced (and alive) forever — each new game would then stack
   // another context until the browser's limit is hit.
   const stopFrameLoop = (): void => {
+    pacer.stop();
     if (rafId !== null) {
       cancelAnimationFrame(rafId);
       rafId = null;
@@ -728,6 +749,7 @@ async function createClientGame(
       gameView,
       eventBus,
       dualLayerHandle,
+      userSettings,
     );
 
     // Releases all WebGL/DOM resources this game created. Without it, stopping

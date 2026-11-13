@@ -93,6 +93,10 @@ export class GameView implements GameMap {
    */
   private _unitsByOwner = new Map<number, UnitView[]>();
   private _unitsByOwnerStale = true;
+  private _cachedActiveUnits: UnitView[] = [];
+  private _activeUnitsStale = true;
+  private _cachedPlayers: PlayerView[] = [];
+  private _playersStale = true;
 
   // ── FrameData accumulators (renderer-bound state) ─────────────────────
   private trailManager!: TrailManager;
@@ -278,6 +282,7 @@ export class GameView implements GameMap {
   public update(gu: GameUpdateViewData) {
     // Unit set/ownership changes below; rebuild the owner index on demand.
     this._unitsByOwnerStale = true;
+    this._activeUnitsStale = true;
 
     this.toDelete.forEach((id) => {
       const u = this._unitStates.get(id);
@@ -397,6 +402,7 @@ export class GameView implements GameMap {
             {},
         );
         this._players.set(pu.id, player);
+        this._playersStale = true;
         this._playerStates.set(pu.smallID!, player.state);
         const team = player.team();
         if (team !== null) {
@@ -1031,7 +1037,11 @@ export class GameView implements GameMap {
   }
 
   players(): PlayerView[] {
-    return Array.from(this._players.values());
+    if (this._playersStale) {
+      this._playersStale = false;
+      this._cachedPlayers = Array.from(this._players.values());
+    }
+    return this._cachedPlayers;
   }
 
   /**
@@ -1057,20 +1067,16 @@ export class GameView implements GameMap {
   }
 
   playerByClientID(id: ClientID): PlayerView | null {
-    const player =
-      Array.from(this._players.values()).filter(
-        (p) => p.clientID() === id,
-      )[0] ?? null;
-    if (player === null) {
-      return null;
+    for (const p of this.players()) {
+      if (p.clientID() === id) return p;
     }
-    return player;
+    return null;
   }
   hasPlayer(id: PlayerID): boolean {
     return false;
   }
   playerViews(): PlayerView[] {
-    return Array.from(this._players.values());
+    return this.players();
   }
 
   owner(tile: TileRef): PlayerView | TerraNullius {
@@ -1113,12 +1119,19 @@ export class GameView implements GameMap {
     return this._config;
   }
   units(...types: UnitType[]): UnitView[] {
-    if (types.length === 0) {
-      return Array.from(this._units.values()).filter((u) => u.isActive());
+    if (this._activeUnitsStale) {
+      this._activeUnitsStale = false;
+      this._cachedActiveUnits.length = 0;
+      for (const u of this._units.values()) {
+        if (u.isActive()) {
+          this._cachedActiveUnits.push(u);
+        }
+      }
     }
-    return Array.from(this._units.values()).filter(
-      (u) => u.isActive() && types.includes(u.type()),
-    );
+    if (types.length === 0) {
+      return this._cachedActiveUnits;
+    }
+    return this._cachedActiveUnits.filter((u) => types.includes(u.type()));
   }
 
   /**

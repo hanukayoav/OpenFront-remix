@@ -1,0 +1,116 @@
+{
+  "mode": "full",
+  "timestamp": "2026-11-13T09:28:05.307Z",
+  "baseUrl": "http://127.0.0.1:53740",
+  "checks": {
+    "main_menu_and_branding": {
+      "passed": true,
+      "details": {
+        "title": "FrontierX (ALPHA)",
+        "hasFrontierX": true,
+        "hasLogoAsset": true,
+        "hasSettings": true,
+        "hasSingle": true,
+        "hasHost": true,
+        "hasJoin": true
+      }
+    },
+    "settings_modal_and_null_leave_lobby": {
+      "passed": true,
+      "details": {
+        "opened": true,
+        "leaveNullOk": true
+      }
+    },
+    "responsive_viewport_mobile_to_desktop": {
+      "passed": true,
+      "details": {
+        "mobileNoOverflow": true
+      }
+    },
+    "keyboard_shortcuts_tactical_grid_altview": {
+      "passed": true,
+      "details": {
+        "testedKeys": [
+          "o",
+          "O",
+          "m",
+          "M",
+          "Space"
+        ]
+      }
+    },
+    "frame_pacer_max_fps_60_cap": {
+      "passed": true,
+      "details": {
+        "fps": 60.05,
+        "frameDelta": 121
+      }
+    },
+    "webgl_context_lose_and_restore": {
+      "passed": true,
+      "details": {
+        "ok": true,
+        "lostFired": true,
+        "restoredFired": true,
+        "isLostMid": true,
+        "isLostAfter": false,
+        "ticksBefore": 12,
+        "ticksAfter": 26
+      }
+    },
+    "consecutive_match_teardown_cycles": {
+      "passed": true,
+      "details": [
+        {
+          "cycle": 1,
+          "dualCanvases": 0,
+          "warshipDragRects": 0,
+          "domNodes": 2103,
+          "jsHeapMB": 62.43
+        },
+        {
+          "cycle": 2,
+          "dualCanvases": 0,
+          "warshipDragRects": 0,
+          "domNodes": 2123,
+          "jsHeapMB": 71.54
+        },
+        {
+          "cycle": 3,
+          "dualCanvases": 0,
+          "warshipDragRects": 0,
+          "domNodes": 2143,
+          "jsHeapMB": 91.9
+        }
+      ]
+    },
+    "singleplayer_zero_unexpected_errors": {
+      "passed": true,
+      "details": {
+        "pageErrors": [],
+        "severeErrors": []
+      }
+    },
+    "two_client_multiplayer_and_ws_reconnect": {
+      "passed": true,
+      "details": {
+        "lobbyId": "m1Dqs4EF",
+        "h": 361,
+        "j": 361,
+        "tickBeforeDrop": 303,
+        "killed": true
+      }
+    },
+    "two_client_multiplayer_clean_teardown": {
+      "passed": true,
+      "details": {
+        "hostDualCanvases": 0,
+        "joinerDualCanvases": 0,
+        "hostPageErrors": [],
+        "joinerPageErrors": []
+      }
+    }
+  },
+  "failures": []
+}

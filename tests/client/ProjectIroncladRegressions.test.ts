@@ -48,6 +48,7 @@ import {
   GameMapType,
   GameMode,
   GameType,
+  PlayerType,
   UnitType,
 } from "../../src/core/game/Game";
 import { UserSettings } from "../../src/core/game/UserSettings";
@@ -500,7 +501,7 @@ describe("Project IRONCLAD regressions", () => {
   });
 
   describe("Controller RAF, DOM, and timer cleanup", () => {
-    it("AttackingTroopsController.destroy() cancels RAF loop", () => {
+    it("AttackingTroopsController starts demand-driven RAF on attacks and cancels on destroy()", async () => {
       let nextId = 1;
       const callbacks = new Map<number, FrameRequestCallback>();
       vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
@@ -513,7 +514,18 @@ describe("Project IRONCLAD regressions", () => {
       });
       vi.stubGlobal("cancelAnimationFrame", cancelSpy);
 
+      const defender = {
+        isPlayer: () => true,
+        type: () => PlayerType.Human,
+      };
+      const myPlayer = {
+        outgoingAttacks: () => [{ id: "atk-1", targetID: 2, troops: 500 }],
+        incomingAttacks: () => [],
+        attackClusteredPositions: async () => [],
+      };
       const gameView = {
+        myPlayer: () => myPlayer,
+        playerBySmallID: (id: number) => (id === 2 ? defender : null),
         updatesSinceLastTick: () => null,
       } as unknown as GameView;
       const view = {
@@ -527,14 +539,23 @@ describe("Project IRONCLAD regressions", () => {
         view,
       );
       controller.init();
+      // Demand-driven optimization: idle controller schedules no RAF loop.
+      expect(callbacks.size).toBe(0);
+
+      controller.tick();
       expect(callbacks.size).toBe(1);
 
       controller.destroy();
       expect(cancelSpy).toHaveBeenCalledTimes(1);
       expect(callbacks.size).toBe(0);
+
+      // Post-destroy ticks must not restart the RAF loop.
+      controller.tick();
+      await Promise.resolve();
+      expect(callbacks.size).toBe(0);
     });
 
-    it("BuildPreviewController.destroy() cancels cursor RAF loop", () => {
+    it("BuildPreviewController starts cursor RAF lazily and cancels on destroy()", async () => {
       let nextId = 1;
       const callbacks = new Map<number, FrameRequestCallback>();
       vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
@@ -547,33 +568,78 @@ describe("Project IRONCLAD regressions", () => {
       });
       vi.stubGlobal("cancelAnimationFrame", cancelSpy);
 
-      const gameView = {} as unknown as GameView;
+      let resolveBuildables: ((v: unknown[]) => void) | null = null;
+      const myPlayer = {
+        isAlive: () => true,
+        gold: () => 500n,
+        smallID: () => 1,
+        readyMissileCount: () => 0,
+        units: () => [],
+        allies: () => [],
+        buildables: () =>
+          new Promise((resolve) => {
+            resolveBuildables = resolve;
+          }),
+      };
+      const gameView = {
+        myPlayer: () => myPlayer,
+        isValidCoord: () => true,
+        ref: () => 42,
+        isImpassable: () => false,
+        x: () => 10,
+        y: () => 10,
+        height: () => 100,
+      } as unknown as GameView;
       const transformHandler = {
-        screenToWorldCoordinatesFloat: () => ({ x: 0, y: 0 }),
+        screenToWorldCoordinates: () => ({ x: 10, y: 10 }),
+        screenToWorldCoordinatesFloat: () => ({ x: 10, y: 10 }),
       } as unknown as TransformHandler;
       const view = {
         updateGhostPreview: vi.fn(),
         updateNukeTrajectory: vi.fn(),
       } as unknown as MapRenderer;
 
+      const uiState = {
+        attackRatio: 20,
+        ghostStructure: null as UnitType.City | null,
+        rocketDirectionUp: true,
+        upgradeMultiplier: 1,
+      };
       const controller = new BuildPreviewController(
         gameView,
         new EventBus(),
-        {
-          attackRatio: 20,
-          ghostStructure: null,
-          rocketDirectionUp: true,
-          upgradeMultiplier: 1,
-        },
+        uiState,
         transformHandler,
         view,
         new UserSettings(),
       );
       controller.init();
+      // Demand-driven optimization: idle cursor loop does not run on init().
+      expect(callbacks.size).toBe(0);
+
+      // Activate a build ghost preview to trigger the cursor RAF loop.
+      uiState.ghostStructure = UnitType.City;
+      controller.tick();
+      (resolveBuildables as unknown as ((val: unknown[]) => void) | null)?.([
+        {
+          type: UnitType.City,
+          canBuild: true,
+          canUpgrade: false,
+          upgradeTargetTile: null,
+          cost: 100n,
+          customFlag: false,
+        },
+      ]);
+      await Promise.resolve();
       expect(callbacks.size).toBe(1);
 
       controller.destroy();
       expect(cancelSpy).toHaveBeenCalledTimes(1);
+      expect(callbacks.size).toBe(0);
+
+      // Late async buildables callback or tick after destroy() must not revive loop.
+      controller.tick();
+      await Promise.resolve();
       expect(callbacks.size).toBe(0);
     });
 

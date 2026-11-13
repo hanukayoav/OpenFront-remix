@@ -71,6 +71,7 @@ export const PERFORMANCE_OVERLAY_KEY = "settings.performanceOverlay";
 export const KEYBINDS_KEY = "settings.keybinds";
 export const GRAPHICS_KEY = "settings.graphics";
 export const GRAPHICS_PRESETS_KEY = "settings.graphicsPresets";
+export const MAX_FPS_KEY = "settings.maxFps";
 export const EFFECTS_KEY = "settings.effects";
 // Keep the existing storage key so the rename does not reset saved columns.
 export const PLAYER_STATS_COLUMNS_KEY = "settings.leaderboardColumns";
@@ -619,5 +620,16 @@ export class UserSettings {
 
   setSoundEffectsVolume(volume: number): void {
     this.setFloat("settings.soundEffectsVolume", volume);
+  }
+
+  maxFps(): number {
+    const val = this.getFloat(MAX_FPS_KEY, 0);
+    return Number.isFinite(val) && val >= 0 ? val : 0;
+  }
+
+  setMaxFps(value: number): void {
+    const sanitized =
+      Number.isFinite(value) && value >= 0 ? Math.round(value) : 0;
+    this.setFloat(MAX_FPS_KEY, sanitized);
   }
 }
