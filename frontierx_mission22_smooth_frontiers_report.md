@@ -148,4 +148,14 @@ Inspected live screenshots captured across early zoomed-in gameplay (`m22_avatar
 
 ## PR & CI Status
 
-- _Pending PR creation and GitHub Actions verification (Step 5)._
+- **Pull Request:** https://github.com/hanukayoav/OpenFront-remix/pull/17 (open against `main`, not merged, not deployed)
+- **GitHub Actions Checks (PR #17):**
+  - `🎨 Prettier`: **pass** (`1m54s`)
+  - `🏗️ Build`: **pass** (`2m8s`)
+  - `🔍 Lint`: **pass** (`1m34s`)
+  - `🔬 Test`: **pass** (`4m30s`)
+  - `🗺️ Generated maps up to date`: **pass** (`2m59s`)
+  - `Evaluate gate`: **pass** (`42s`)
+  - `Auto-assign author`: **pass** (`5s`)
+  - `Has Milestone`: **fail** (`3s` — no Mission 22 milestone currently exists/assigned in GitHub repository milestones; matching prior PR #15 convention)
+  - `Deploy`: skipped (PR branch not merged/deployed)
