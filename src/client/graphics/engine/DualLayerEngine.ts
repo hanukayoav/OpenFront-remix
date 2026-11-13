@@ -156,6 +156,7 @@ export class DualLayerEngine {
   private rafId: number | null = null;
   private lastFrameTime = 0;
   private isRunning = false;
+  private dynamicCanvasDirty = false;
 
   // Performance telemetry
   public frameCount = 0;
@@ -477,38 +478,96 @@ export class DualLayerEngine {
     const w = this.dynamicCanvas.width;
     const h = this.dynamicCanvas.height;
 
-    // 1. Clear foreground dynamic layer
-    ctx.clearRect(0, 0, w, h);
-
-    // 2. Update all preallocated visual effect pools (particles, texts, beacons) and avatar state
-    this.pools.update(deltaMs);
+    // 1. Update active FX pools and avatar state first so expired items release before draw check
+    if (
+      this.pools.trailParticles.activeCount > 0 ||
+      this.pools.textMarkers.activeCount > 0 ||
+      this.pools.beaconRings.activeCount > 0
+    ) {
+      this.pools.update(deltaMs);
+    }
     this.avatarSystem.update(deltaMs);
+
+    const banner = this.supplyDropManager.getActiveBanner();
+    const hasBanner = Boolean(banner && banner.alpha > 0.01);
+    const hasParticles = this.pools.trailParticles.activeCount > 0;
+    const hasBeacons = this.pools.beaconRings.activeCount > 0;
+    const hasTextMarkers = this.pools.textMarkers.activeCount > 0;
+    const hasCrates = this.crates.size > 0;
+    const hasAvatars = this.avatars.size > 0 || this.avatarSystem.count > 0;
+    const hasUnits = this.units.length > 0;
+    const hasBatchedText = this.textBatch.length > 0 || hasTextMarkers;
+
+    const hasDynamicContent =
+      hasParticles ||
+      hasBeacons ||
+      hasCrates ||
+      hasAvatars ||
+      hasUnits ||
+      hasBatchedText ||
+      hasBanner;
+
+    if (!hasDynamicContent) {
+      if (this.dynamicCanvasDirty) {
+        ctx.clearRect(0, 0, w, h);
+        this.dynamicCanvasDirty = false;
+      }
+      this.dynamicFrameCount++;
+      return;
+    }
+
+    this.dynamicCanvasDirty = true;
+
+    // 2. Clear foreground dynamic layer
+    ctx.clearRect(0, 0, w, h);
 
     // 3. Render world-space dynamic objects
     this.withContextState(ctx, (c) => {
       this.applyCameraTransform(c, true);
 
       // (a) Unit Trail Particles
-      this.renderTrailParticles(c);
+      if (hasParticles) {
+        this.renderTrailParticles(c);
+      }
 
       // (b) Animated Beacon Rings
-      this.renderBeaconRings(c);
+      if (hasBeacons) {
+        this.renderBeaconRings(c);
+      }
 
       // (c) Supply Crates (Prerendered via AssetCache)
-      this.renderSupplyCrates(c);
+      if (hasCrates) {
+        this.renderSupplyCrates(c);
+      }
 
       // (d) Troop Units & Avatars
-      this.renderUnitsAndAvatars(c);
+      if (this.avatars.size > 0 || hasUnits) {
+        this.renderUnitsAndAvatars(c);
+      }
 
-      // (e) Interactive Capital Avatars
-      this.avatarSystem.render(c, this.frameCount);
+      // (e) Interactive Capital Avatars (with world-space viewport culling)
+      if (this.avatarSystem.count > 0) {
+        const invScale = this.cameraScale > 0 ? 1 / this.cameraScale : 1;
+        const halfW = this.cssWidth * 0.5 * invScale + 60;
+        const halfH = this.cssHeight * 0.5 * invScale + 60;
+        this.avatarSystem.render(c, this.frameCount, {
+          minX: this.cameraX - halfW,
+          maxX: this.cameraX + halfW,
+          minY: this.cameraY - halfH,
+          maxY: this.cameraY + halfH,
+        });
+      }
     });
 
     // 4. BATCHING: Group all text operations together to eliminate font context switching
-    this.flushBatchedText(ctx);
+    if (hasBatchedText || this.textBatch.length > 0) {
+      this.flushBatchedText(ctx);
+    }
 
     // 5. Render top-screen banner for late-phase orbital drops
-    this.renderTopBanner(ctx);
+    if (hasBanner) {
+      this.renderTopBanner(ctx);
+    }
 
     this.dynamicFrameCount++;
   }
@@ -801,8 +860,10 @@ export class DualLayerEngine {
 
     if (this.textBatch.length === 0) return;
 
-    // Group texts by font string
-    this.textGroups.clear();
+    // Group texts by font string (reuse bucket arrays across frames to avoid GC churn)
+    for (const group of this.textGroups.values()) {
+      group.length = 0;
+    }
     for (let i = 0; i < this.textBatch.length; i++) {
       const entry = this.textBatch[i];
       let group = this.textGroups.get(entry.font);
@@ -819,6 +880,7 @@ export class DualLayerEngine {
 
       // Iterate groups: set font ONCE per group
       for (const [font, entries] of this.textGroups.entries()) {
+        if (entries.length === 0) continue;
         c.font = font;
 
         for (let i = 0; i < entries.length; i++) {

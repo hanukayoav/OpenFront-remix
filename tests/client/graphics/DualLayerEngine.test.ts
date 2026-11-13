@@ -334,6 +334,7 @@ describe("OpenFront Dual-Layer Graphics Engine", () => {
       const saveSpy = vi.spyOn(engine.dynamicCtx, "save");
       const restoreSpy = vi.spyOn(engine.dynamicCtx, "restore");
 
+      engine.spawnBeaconRing(50, 50, "#38bdf8", 4, 20, 500, 2);
       engine.renderDynamicLayer(16.6);
 
       // Verify exact parity between save and restore calls
@@ -809,6 +810,133 @@ describe("OpenFront Dual-Layer Graphics Engine", () => {
       expect(particleSpy).not.toHaveBeenCalled();
 
       handle.dispose();
+    });
+
+    it("skips redundant clearRect on consecutive idle frames and clears once on active->empty transition", () => {
+      const engine = new DualLayerEngine({ container });
+      const clearSpy = vi.spyOn(engine.dynamicCtx, "clearRect");
+
+      // Idle frame when already clean: no clearRect work
+      engine.renderDynamicLayer(16.6);
+      engine.renderDynamicLayer(16.6);
+      expect(clearSpy).not.toHaveBeenCalled();
+
+      // Activate a beacon ring -> draws and dirties canvas
+      engine.spawnBeaconRing(100, 100, "#38bdf8", 4, 20, 100, 2);
+      engine.renderDynamicLayer(16.6);
+      expect(clearSpy).toHaveBeenCalledTimes(1);
+
+      // Advance past beacon expiry -> clears once on active->empty transition
+      engine.renderDynamicLayer(200);
+      expect(clearSpy).toHaveBeenCalledTimes(2);
+
+      // Subsequent empty frames perform zero clearRect operations
+      engine.renderDynamicLayer(16.6);
+      engine.renderDynamicLayer(16.6);
+      expect(clearSpy).toHaveBeenCalledTimes(2);
+
+      engine.destroy();
+    });
+
+    it("culls off-screen avatars in AvatarSystem viewport rendering while drawing visible avatars", () => {
+      const engine = new DualLayerEngine({
+        container,
+        width: 800,
+        height: 600,
+      });
+      engine.setCamera(400, 300, 1);
+
+      engine.avatarSystem.registerAvatar(
+        "visible_avatar",
+        1,
+        420,
+        310,
+        undefined,
+        true,
+      );
+      engine.avatarSystem.registerAvatar(
+        "offscreen_avatar",
+        2,
+        2500,
+        2500,
+        undefined,
+        false,
+      );
+
+      const drawSpy = vi.spyOn(engine.avatarSystem, "drawAvatar");
+      engine.renderDynamicLayer(16.6);
+
+      expect(drawSpy).toHaveBeenCalledTimes(1);
+      expect(drawSpy.mock.calls[0][1].id).toBe("visible_avatar");
+
+      engine.destroy();
+    });
+
+    it("unbinds EventBus handlers, clears global handle on dispose(), and avoids scanning units past particle cap", () => {
+      const listeners = new Map<unknown, unknown[]>();
+      const mockEventBus = {
+        on: (t: unknown, cb: unknown) => {
+          const list = listeners.get(t) ?? [];
+          list.push(cb);
+          listeners.set(t, list);
+        },
+        off: (t: unknown, cb: unknown) => {
+          const list = listeners.get(t) ?? [];
+          const idx = list.indexOf(cb);
+          if (idx >= 0) list.splice(idx, 1);
+        },
+      } as any;
+
+      let toHexCalls = 0;
+      const units = Array.from({ length: 200 }, (_, i) => ({
+        isActive: () => true,
+        type: () => "Transport",
+        tile: () => i + 1,
+        id: () => i + 1,
+        owner: () => ({
+          territoryColor: () => ({
+            toHex: () => {
+              toHexCalls++;
+              return "#38bdf8";
+            },
+          }),
+        }),
+      }));
+
+      const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.05);
+      try {
+        const handle = setupDualLayerEngine(container, {
+          autoStart: false,
+          eventBus: mockEventBus,
+          gameView: {
+            width: () => 500,
+            height: () => 500,
+            myPlayer: () => null,
+            players: () => [],
+            updatesSinceLastTick: () => null,
+            units: () => units,
+            x: (tile: number) => tile,
+            y: (tile: number) => tile,
+          } as any,
+        });
+
+        expect((window as any).__dualLayerEngine).toBe(handle.engine);
+        for (const list of listeners.values()) {
+          expect(list.length).toBeGreaterThan(0);
+        }
+
+        handle.syncWithSimulation();
+        // Early break at MAX_TRAIL_PARTICLES_PER_TICK (6) prevents 200 toHex() allocations
+        expect(toHexCalls).toBe(6);
+
+        handle.dispose();
+        expect((window as any).__dualLayerEngine).toBeUndefined();
+        for (const list of listeners.values()) {
+          expect(list.length).toBe(0);
+        }
+      } finally {
+        randomSpy.mockRestore();
+      }
     });
   });
 });

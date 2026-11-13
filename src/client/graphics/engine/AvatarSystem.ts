@@ -222,6 +222,10 @@ export class AvatarSystem {
     return avatar;
   }
 
+  public get count(): number {
+    return this.avatars.size;
+  }
+
   public getAvatar(id: string | number): CapitalAvatar | undefined {
     return this.avatars.get(id);
   }
@@ -309,9 +313,23 @@ export class AvatarSystem {
 
   /**
    * Render all capital avatars onto the dynamic layer canvas context.
+   * When viewport bounds are supplied, off-screen avatars are skipped safely.
    */
-  public render(ctx: CanvasRenderingContext2D, tick: number): void {
+  public render(
+    ctx: CanvasRenderingContext2D,
+    tick: number,
+    viewport?: { minX: number; maxX: number; minY: number; maxY: number },
+  ): void {
     for (const avatar of this.avatars.values()) {
+      if (
+        viewport &&
+        (avatar.capitalX < viewport.minX ||
+          avatar.capitalX > viewport.maxX ||
+          avatar.capitalY < viewport.minY ||
+          avatar.capitalY > viewport.maxY)
+      ) {
+        continue;
+      }
       this.drawAvatar(ctx, avatar, tick);
     }
   }

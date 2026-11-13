@@ -26,7 +26,6 @@ import { loadAvatarConfig } from "./AvatarSystem";
 import {
   DualLayerEngine,
   DualLayerEngineConfig,
-  DynamicUnitItem,
   StaticTerrainData,
 } from "./DualLayerEngine";
 import { InputManager } from "./InputManager";
@@ -69,6 +68,7 @@ export function setupDualLayerEngine(
   }
 
   // 1. Observe container resize to update backing resolution and trigger static redraw
+  const eventDisposers: Array<() => void> = [];
   let resizeObserver: ResizeObserver | null = null;
   if (typeof ResizeObserver !== "undefined") {
     resizeObserver = new ResizeObserver((entries) => {
@@ -85,14 +85,15 @@ export function setupDualLayerEngine(
       engine.resize(window.innerWidth, window.innerHeight);
     };
     window.addEventListener("resize", onWindowResize);
+    eventDisposers.push(() =>
+      window.removeEventListener("resize", onWindowResize),
+    );
   }
 
   // 2. Optional integration with OpenFront GameView, TransformHandler, and EventBus
   const eventBus = options.eventBus;
   const gameView = options.gameView;
   const transformHandler = options.transformHandler;
-
-  const eventDisposers: Array<() => void> = [];
 
   if (eventBus) {
     // Spawn beacon rings on movement orders without allocating objects
@@ -104,6 +105,9 @@ export function setupDualLayerEngine(
     };
 
     eventBus.on(MoveWarshipIntentEvent, onMoveWarship);
+    eventDisposers.push(() =>
+      eventBus.off(MoveWarshipIntentEvent, onMoveWarship),
+    );
 
     // Attacking State: When launching troops, calculate angle to enemy node and point arm
     const onSendAttack = (e: SendAttackIntentEvent) => {
@@ -136,6 +140,9 @@ export function setupDualLayerEngine(
     };
 
     eventBus.on(SendAttackIntentEvent, onSendAttack);
+    eventDisposers.push(() =>
+      eventBus.off(SendAttackIntentEvent, onSendAttack),
+    );
   }
 
   // Late-phase orbital alert audio synthesizer trigger
@@ -188,8 +195,7 @@ export function setupDualLayerEngine(
   let suddenDeathTriggered = false;
   const assignedBotPersonalities = new Set<string | number>();
 
-  // Preallocated units pool and throttled trail particle counter to prevent GC spikes
-  const activeUnitsPool: DynamicUnitItem[] = [];
+  // Throttled trail particle counter to prevent CPU/GC spikes
   const MAX_TRAIL_PARTICLES_PER_TICK = 6;
   let trailParticlesSpawnedThisTick = 0;
 
@@ -461,64 +467,32 @@ export function setupDualLayerEngine(
       },
     );
 
-    // Dynamic units sync and particle trails (throttled and pooled to eliminate GC churn)
+    // Particle trails for active moving units (throttled and early-exit to avoid per-unit toHex/GC churn)
     trailParticlesSpawnedThisTick = 0;
-    let activeUnitCount = 0;
     const unitsMap = gameView.units();
     if (unitsMap && Array.isArray(unitsMap)) {
       for (let i = 0; i < unitsMap.length; i++) {
+        if (trailParticlesSpawnedThisTick >= MAX_TRAIL_PARTICLES_PER_TICK) {
+          break;
+        }
         const u = unitsMap[i];
-        if (!u.isActive()) continue;
+        if (!u.isActive() || Structures.has(u.type())) continue;
+        if (Math.random() >= 0.2) continue;
 
+        trailParticlesSpawnedThisTick++;
         const ux = gameView.x(u.tile());
         const uy = gameView.y(u.tile());
-
-        let item = activeUnitsPool[activeUnitCount];
-        if (!item) {
-          item = {
-            id: u.id(),
-            x: ux,
-            y: uy,
-            troops: 0,
-            color: u.owner()?.territoryColor()?.toHex() ?? "#ffffff",
-            type: `${u.type()}`,
-            isActive: true,
-          };
-          activeUnitsPool[activeUnitCount] = item;
-        } else {
-          item.id = u.id();
-          item.x = ux;
-          item.y = uy;
-          item.troops = 0;
-          item.color = u.owner()?.territoryColor()?.toHex() ?? "#ffffff";
-          item.type = `${u.type()}`;
-          item.isActive = true;
-        }
-        activeUnitCount++;
-
-        const isStructure = Structures.has(u.type());
-
-        // Spawn trail particle behind moving units, throttled to prevent CPU/GC spikes
-        if (
-          !isStructure &&
-          trailParticlesSpawnedThisTick < MAX_TRAIL_PARTICLES_PER_TICK &&
-          Math.random() < 0.2
-        ) {
-          trailParticlesSpawnedThisTick++;
-          engine.spawnTrailParticle(
-            ux,
-            uy,
-            (Math.random() - 0.5) * 3,
-            (Math.random() - 0.5) * 3,
-            u.owner()?.territoryColor()?.toHex() ?? "#94a3b8",
-            2,
-            500,
-          );
-        }
+        engine.spawnTrailParticle(
+          ux,
+          uy,
+          (Math.random() - 0.5) * 3,
+          (Math.random() - 0.5) * 3,
+          u.owner()?.territoryColor()?.toHex() ?? "#94a3b8",
+          2,
+          500,
+        );
       }
     }
-    activeUnitsPool.length = activeUnitCount;
-    engine.setUnits(activeUnitsPool);
 
     // Sample territory percentages and troop totals every 5 seconds into ring buffer
     engine.analytics.update(deltaMs, () => {
@@ -588,6 +562,14 @@ export function setupDualLayerEngine(
       eventDisposers[i]();
     }
     engine.destroy();
+    if (
+      typeof window !== "undefined" &&
+      (window as { __dualLayerEngine?: DualLayerEngine }).__dualLayerEngine ===
+        engine
+    ) {
+      delete (window as { __dualLayerEngine?: DualLayerEngine })
+        .__dualLayerEngine;
+    }
   };
 
   return {
