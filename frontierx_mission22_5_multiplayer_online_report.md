@@ -217,4 +217,4 @@ Executed locally on the **home desktop** (the Dell laptop was never accessed or 
 
 ## 11. Pull Request URL
 
-Pending GitHub PR creation (updated immediately after `gh pr create`).
+`https://github.com/hanukayoav/OpenFront-remix/pull/19` (stacked on open PR #18 `fix/frontierx-mission22-4-prod-mp-metadata`)
