@@ -19,7 +19,12 @@ import {
 } from "../game/Game";
 import { TileRef } from "../game/GameMap";
 import { UserSettings } from "../game/UserSettings";
-import { GameConfig, TeamCountConfig } from "../Schemas";
+import {
+  GameConfig,
+  resolveSupplyDropConfig,
+  SupplyDropFrequency,
+  TeamCountConfig,
+} from "../Schemas";
 import { NukeType } from "../StatsSchemas";
 import { assertNever, sigmoid, toInt, within } from "../Util";
 
@@ -178,6 +183,25 @@ export class Config {
       warshipDrainCurveExponent: d.warshipDrainCurveExponent,
     };
   }
+
+  /** Authoritative supply-drop spawn cadence and crate limit resolved from GameConfig. */
+  supplyDropFrequency(): SupplyDropFrequency {
+    return this._gameConfig.supplyDropFrequency ?? "normal";
+  }
+
+  supplyDropConfig(): {
+    frequency: SupplyDropFrequency;
+    intervalSec: number;
+    intervalTicks: number;
+    maxActiveCrates: number;
+  } {
+    const frequency = this.supplyDropFrequency();
+    return {
+      frequency,
+      ...resolveSupplyDropConfig(frequency),
+    };
+  }
+
   spawnImmunityDuration(): Tick {
     return (
       this._gameConfig.spawnImmunityDuration ?? DEFAULT_SPAWN_IMMUNITY_TICKS

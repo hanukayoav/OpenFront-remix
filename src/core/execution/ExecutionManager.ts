@@ -24,6 +24,7 @@ import { QuickChatExecution } from "./QuickChatExecution";
 import { RetreatExecution } from "./RetreatExecution";
 import { SetTankRallyPointExecution } from "./SetTankRallyPointExecution";
 import { SpawnExecution } from "./SpawnExecution";
+import { ClaimSupplyDropExecution } from "./SupplyDropExecution";
 import { TankStrikeExecution } from "./TankStrikeExecution";
 import { TargetPlayerExecution } from "./TargetPlayerExecution";
 import { TransportShipExecution } from "./TransportShipExecution";
@@ -151,9 +152,15 @@ export class Executor {
           intent.rallyTile ?? null,
           intent.factoryUnitId,
         );
+      case "claim_supply_drop":
+        return new ClaimSupplyDropExecution(player, intent.dropId, intent.tile);
       default:
         throw new Error(`intent type ${intent} not found`);
     }
+  }
+
+  gameId(): GameID {
+    return this.gameID;
   }
 
   spawnTribes(numTribes: number): SpawnExecution[] {

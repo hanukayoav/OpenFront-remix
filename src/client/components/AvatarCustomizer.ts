@@ -52,8 +52,13 @@ export class AvatarCustomizer extends LitElement {
 
   private startPreviewLoop() {
     const loop = () => {
-      this.previewTick++;
-      this.drawPreview();
+      const hidden =
+        (typeof this.checkVisibility === "function" && !this.checkVisibility()) ||
+        this.closest(".hidden, [hidden]") !== null;
+      if (!hidden) {
+        this.previewTick++;
+        this.drawPreview();
+      }
       this.animFrameId = requestAnimationFrame(loop);
     };
     this.animFrameId = requestAnimationFrame(loop);

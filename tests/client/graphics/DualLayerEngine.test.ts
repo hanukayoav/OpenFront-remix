@@ -477,9 +477,9 @@ describe("OpenFront Dual-Layer Graphics Engine", () => {
         },
       };
 
-      // Owner shifts to player 7
+      // Complete descent (3400ms) after owner shifts to player 7
       manager.update(
-        16,
+        3400,
         (tile) => (tile === 42 ? mockPlayer : null),
         () => null,
       );
@@ -936,6 +936,45 @@ describe("OpenFront Dual-Layer Graphics Engine", () => {
         }
       } finally {
         randomSpy.mockRestore();
+      }
+    });
+
+    it("configures SupplyDropManager from authoritative gameView.config() rather than localStorage", () => {
+      localStorage.setItem(
+        "openfront_match_mutators",
+        JSON.stringify({
+          matchPace: 2.0,
+          dropFrequency: "normal",
+          suddenDeathTimer: 0,
+        }),
+      );
+      try {
+        const handle = setupDualLayerEngine(container, {
+          autoStart: false,
+          gameView: {
+            width: () => 500,
+            height: () => 500,
+            myPlayer: () => null,
+            players: () => [],
+            updatesSinceLastTick: () => null,
+            units: () => [],
+            x: (tile: number) => tile,
+            y: (tile: number) => tile,
+            config: () => ({
+              supplyDropFrequency: () => "extreme" as const,
+            }),
+          } as any,
+        });
+
+        expect(handle.engine.supplyDropManager.authoritativeMode).toBe(true);
+        expect(handle.engine.supplyDropManager.getEvaluationIntervalSec()).toBe(
+          20,
+        );
+        expect(handle.engine.supplyDropManager.getMaxActiveCrates()).toBe(3);
+
+        handle.dispose();
+      } finally {
+        localStorage.removeItem("openfront_match_mutators");
       }
     });
   });

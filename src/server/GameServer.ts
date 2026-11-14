@@ -466,6 +466,9 @@ export class GameServer {
     if (gameConfig.doomsdayClock !== undefined) {
       this.gameConfig.doomsdayClock = gameConfig.doomsdayClock;
     }
+    if (gameConfig.supplyDropFrequency !== undefined) {
+      this.gameConfig.supplyDropFrequency = gameConfig.supplyDropFrequency;
+    }
     if (gameConfig.anonymizeNames !== undefined) {
       this.gameConfig.anonymizeNames = gameConfig.anonymizeNames;
     }

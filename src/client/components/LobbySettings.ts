@@ -11,9 +11,13 @@
 
 import { LitElement, html } from "lit";
 import { customElement, state } from "lit/decorators.js";
+import {
+  resolveSupplyDropConfig,
+  SupplyDropFrequency,
+} from "../../core/Schemas";
 
 export type MatchPace = 1.0 | 1.5 | 2.0;
-export type DropFrequency = "normal" | "rapid" | "extreme";
+export type DropFrequency = SupplyDropFrequency;
 export type SuddenDeathTimer = 180 | 300 | 0; // seconds, 0 = unlimited
 
 export interface MatchMutators {
@@ -73,29 +77,14 @@ export function saveMutators(mutators: MatchMutators): void {
  * Helper to obtain the drop evaluation interval in seconds.
  */
 export function getDropIntervalSec(freq: DropFrequency): number {
-  switch (freq) {
-    case "rapid":
-      return 20;
-    case "extreme":
-      return 20;
-    case "normal":
-    default:
-      return 45;
-  }
+  return resolveSupplyDropConfig(freq).intervalSec;
 }
 
 /**
  * Helper to obtain the max active crates simultaneously.
  */
 export function getMaxActiveDrops(freq: DropFrequency): number {
-  switch (freq) {
-    case "extreme":
-      return 3;
-    case "rapid":
-    case "normal":
-    default:
-      return 2;
-  }
+  return resolveSupplyDropConfig(freq).maxActiveCrates;
 }
 
 /**

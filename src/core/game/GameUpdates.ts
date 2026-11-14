@@ -105,6 +105,7 @@ export enum GameUpdateType {
   SpawnPhaseEnd,
   GamePaused,
   DonateEvent,
+  SupplyDropEvent,
 }
 
 export type GameUpdate =
@@ -130,7 +131,20 @@ export type GameUpdate =
   | EmbargoUpdate
   | SpawnPhaseEndUpdate
   | GamePausedUpdate
-  | DonateEventUpdate;
+  | DonateEventUpdate
+  | SupplyDropEventUpdate;
+
+export interface SupplyDropEventUpdate {
+  type: GameUpdateType.SupplyDropEvent;
+  action: "spawn" | "claim";
+  dropId: number;
+  tile: TileRef;
+  troops: number;
+  gold: number;
+  tier: "early" | "mid" | "late";
+  playerId?: PlayerID;
+  playerSmallId?: number;
+}
 
 export interface BonusEventUpdate {
   type: GameUpdateType.BonusEvent;

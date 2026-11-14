@@ -55,7 +55,8 @@ export type Intent =
   | UpdateGameConfigIntent
   | ToggleGameStartTimer
   | TankStrikeIntent
-  | SetTankRallyPointIntent;
+  | SetTankRallyPointIntent
+  | ClaimSupplyDropIntent;
 
 export type AttackIntent = z.infer<typeof AttackIntentSchema>;
 export type CancelAttackIntent = z.infer<typeof CancelAttackIntentSchema>;
@@ -96,6 +97,7 @@ export type TankStrikeIntent = z.infer<typeof TankStrikeIntentSchema>;
 export type SetTankRallyPointIntent = z.infer<
   typeof SetTankRallyPointIntentSchema
 >;
+export type ClaimSupplyDropIntent = z.infer<typeof ClaimSupplyDropIntentSchema>;
 
 export type Turn = z.infer<typeof TurnSchema>;
 export type GameConfig = z.infer<typeof GameConfigSchema>;
@@ -319,6 +321,29 @@ export const DoomsdayClockConfigSchema = z.object({
   speed: z.enum(["slow", "normal", "fast", "veryfast"]).optional(),
 });
 
+export const SupplyDropFrequencySchema = z.enum(["normal", "rapid", "extreme"]);
+export type SupplyDropFrequency = z.infer<typeof SupplyDropFrequencySchema>;
+
+export const SUPPLY_DROP_FREQUENCY_PRESETS: Record<
+  SupplyDropFrequency,
+  { intervalSec: number; intervalTicks: number; maxActiveCrates: number }
+> = {
+  normal: { intervalSec: 45, intervalTicks: 450, maxActiveCrates: 2 },
+  rapid: { intervalSec: 20, intervalTicks: 200, maxActiveCrates: 2 },
+  extreme: { intervalSec: 20, intervalTicks: 200, maxActiveCrates: 3 },
+};
+
+export function resolveSupplyDropConfig(frequency?: SupplyDropFrequency): {
+  intervalSec: number;
+  intervalTicks: number;
+  maxActiveCrates: number;
+} {
+  return (
+    SUPPLY_DROP_FREQUENCY_PRESETS[frequency ?? "normal"] ??
+    SUPPLY_DROP_FREQUENCY_PRESETS.normal
+  );
+}
+
 export const GameConfigSchema = z.object({
   gameMap: z.enum(GameMapType),
   difficulty: z.enum(Difficulty),
@@ -329,6 +354,7 @@ export const GameConfigSchema = z.object({
   rankedType: z.enum(RankedType).optional(), // Only set for ranked games.
   gameMapSize: z.enum(GameMapSize),
   doomsdayClock: DoomsdayClockConfigSchema.optional(),
+  supplyDropFrequency: SupplyDropFrequencySchema.optional(),
   publicGameModifiers: z
     .object({
       isCompact: z.boolean().optional(),
@@ -605,6 +631,12 @@ export const SetTankRallyPointIntentSchema = z.object({
   factoryUnitId: z.number().optional(),
 });
 
+export const ClaimSupplyDropIntentSchema = z.object({
+  type: z.literal("claim_supply_drop"),
+  dropId: z.number(),
+  tile: z.number().optional(),
+});
+
 export const IntentSchema = z.discriminatedUnion("type", [
   AttackIntentSchema,
   CancelAttackIntentSchema,
@@ -633,6 +665,7 @@ export const IntentSchema = z.discriminatedUnion("type", [
   ToggleGameStartTimerIntentSchema,
   TankStrikeIntentSchema,
   SetTankRallyPointIntentSchema,
+  ClaimSupplyDropIntentSchema,
 ]);
 
 // StampedIntent = Intent with server-stamped clientID (used in turns and execution)

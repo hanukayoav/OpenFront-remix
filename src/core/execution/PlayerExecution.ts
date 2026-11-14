@@ -171,7 +171,7 @@ export class PlayerExecution implements Execution {
     cluster: readonly TileRef[],
     clusterBox: { min: Cell; max: Cell },
   ): false | Player {
-    const enemies = new Set<number>();
+    let singleEnemyId = 0;
 
     let minX = Infinity,
       minY = Infinity,
@@ -193,7 +193,11 @@ export class PlayerExecution implements Execution {
           return false;
         }
         if (ownerId !== mySmallID) {
-          enemies.add(ownerId);
+          if (singleEnemyId === 0) {
+            singleEnemyId = ownerId;
+          } else if (singleEnemyId !== ownerId) {
+            return false;
+          }
           const px = map.x(n);
           const py = map.y(n);
           minX = Math.min(minX, px);
@@ -202,15 +206,12 @@ export class PlayerExecution implements Execution {
           maxY = Math.max(maxY, py);
         }
       }
-      if (enemies.size !== 1) {
-        return false;
-      }
     }
-    if (enemies.size !== 1) {
+    if (singleEnemyId === 0) {
       return false;
     }
 
-    const enemy = this.mg.playerBySmallID(Array.from(enemies)[0]) as Player;
+    const enemy = this.mg.playerBySmallID(singleEnemyId) as Player;
     const localEnemyBox = {
       min: new Cell(minX, minY),
       max: new Cell(maxX, maxY),
@@ -349,9 +350,12 @@ export class PlayerExecution implements Execution {
 
     // Set.forEach instead of for..of: iterating a large Set allocates an
     // iterator-result object per element, and border sets can be huge.
+    const mySmallID = this.player.smallID();
+    const map = this.map;
     const neighborFn = (tile: TileRef, cb: (neighbor: TileRef) => void) =>
       this.mg.forEachNeighborWithDiag(tile, cb);
-    const includeFn = (tile: TileRef) => borderTiles.has(tile);
+    const includeFn = (tile: TileRef) =>
+      map.ownerID(tile) === mySmallID && map.isBorder(tile);
     borderTiles.forEach((startTile) => {
       if (visited[startTile] === currentGen) return;
 

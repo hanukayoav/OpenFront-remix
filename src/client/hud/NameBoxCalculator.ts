@@ -44,6 +44,103 @@ export function placeSpawnName(game: Game, player: Player): NameViewData {
   };
 }
 
+// Reusable scratch buffers for zero-allocation placeName() passes
+let flatGridBuf = new Uint8Array(0);
+let heightsBuf = new Int32Array(0);
+let stackBuf = new Int32Array(0);
+
+function findLargestInscribedRectFlat(
+  game: Game,
+  player: Player,
+  boundingBox: { min: Point; max: Point },
+  scalingFactor: number,
+): Rectangle {
+  const minGx = Math.floor(boundingBox.min.x / scalingFactor);
+  const minGy = Math.floor(boundingBox.min.y / scalingFactor);
+  const maxGx = Math.floor(boundingBox.max.x / scalingFactor);
+  const maxGy = Math.floor(boundingBox.max.y / scalingFactor);
+
+  const cols = maxGx - minGx + 1;
+  const rows = maxGy - minGy + 1;
+  if (cols <= 0 || rows <= 0) {
+    return { x: 0, y: 0, width: 0, height: 0 };
+  }
+
+  const total = cols * rows;
+  if (flatGridBuf.length < total) {
+    flatGridBuf = new Uint8Array(total);
+  }
+  if (heightsBuf.length < cols) {
+    heightsBuf = new Int32Array(cols);
+  } else {
+    heightsBuf.fill(0, 0, cols);
+  }
+  if (stackBuf.length < cols + 1) {
+    stackBuf = new Int32Array(cols + 1);
+  }
+
+  const mapW = game.width();
+  const mapH = game.height();
+
+  // Fill row-major so each row scan reads contiguous bytes
+  for (let r = 0; r < rows; r++) {
+    const cy = (minGy + r) * scalingFactor;
+    const rowOffset = r * cols;
+    if (cy < 0 || cy >= mapH) {
+      flatGridBuf.fill(0, rowOffset, rowOffset + cols);
+      continue;
+    }
+    for (let c = 0; c < cols; c++) {
+      const cx = (minGx + c) * scalingFactor;
+      if (cx >= 0 && cx < mapW) {
+        const tile = game.ref(cx, cy);
+        flatGridBuf[rowOffset + c] =
+          game.isShore(tile) ||
+          (game.isOcean(tile) && game.magnitude(tile) < 10) ||
+          game.owner(tile) === player ||
+          game.hasFallout(tile)
+            ? 1
+            : 0;
+      } else {
+        flatGridBuf[rowOffset + c] = 0;
+      }
+    }
+  }
+
+  let bestArea = 0;
+  let bestX = 0;
+  let bestY = 0;
+  let bestW = 0;
+  let bestH = 0;
+
+  for (let row = 0; row < rows; row++) {
+    const rowOffset = row * cols;
+    for (let col = 0; col < cols; col++) {
+      heightsBuf[col] = flatGridBuf[rowOffset + col] ? heightsBuf[col] + 1 : 0;
+    }
+
+    let sp = 0;
+    for (let i = 0; i <= cols; i++) {
+      const h = i === cols ? 0 : heightsBuf[i];
+      while (sp > 0 && h < heightsBuf[stackBuf[sp - 1]]) {
+        const height = heightsBuf[stackBuf[--sp]];
+        const width = sp === 0 ? i : i - stackBuf[sp - 1] - 1;
+        const area = height * width;
+        if (area > bestArea) {
+          bestArea = area;
+          bestX = sp === 0 ? 0 : stackBuf[sp - 1] + 1;
+          bestY = row - height + 1;
+          bestW = width;
+          bestH = height;
+        }
+      }
+      stackBuf[sp++] = i;
+    }
+  }
+
+  return { x: bestX, y: bestY, width: bestW, height: bestH };
+}
+
 export function placeName(game: Game, player: Player): NameViewData {
   const boundingBox =
     player.largestClusterBoundingBox ??
@@ -67,8 +164,12 @@ export function placeName(game: Game, player: Player): NameViewData {
     scalingFactor = 32;
   }
 
-  const grid = createGrid(game, player, boundingBox, scalingFactor);
-  const largestRectangle = findLargestInscribedRectangle(grid);
+  const largestRectangle = findLargestInscribedRectFlat(
+    game,
+    player,
+    boundingBox,
+    scalingFactor,
+  );
   largestRectangle.x = largestRectangle.x * scalingFactor;
   largestRectangle.y = largestRectangle.y * scalingFactor;
   largestRectangle.width = largestRectangle.width * scalingFactor;

@@ -24,6 +24,7 @@ import {
   GameConfig,
   GameInfo,
   LobbyInfoEvent,
+  SupplyDropFrequency,
   TeamCountConfig,
   isValidGameID,
 } from "../core/Schemas";
@@ -36,6 +37,7 @@ import { CopyButton } from "./components/CopyButton";
 import "./components/GameConfigSettings";
 import "./components/InputCard";
 import "./components/LobbyPlayerView";
+import { loadMutators } from "./components/LobbySettings";
 import "./components/ToggleInputCard";
 import { modalHeader } from "./components/ui/ModalHeader";
 import { crazyGamesSDK } from "./CrazyGamesSDK";
@@ -87,6 +89,8 @@ export class HostLobbyModal extends BaseModal {
   @state() private customAllianceMinutes: number | undefined = undefined;
   @state() private doomsdayClock: boolean = false;
   @state() private doomsdayClockSpeed: DoomsdayClockSpeed = "normal";
+  @state() private supplyDropFrequency: SupplyDropFrequency =
+    loadMutators().dropFrequency;
   @state() private anonymizeNames: boolean = false;
   @state() private nameReveals: string[] = [];
   @state() private whitelistEnabled: boolean = false;
@@ -651,6 +655,7 @@ export class HostLobbyModal extends BaseModal {
     // modal's close() navigating via showPage, which force-closes this one —
     // can re-arm it and disconnect the host mid game-start.
     this.leaveLobbyOnClose = true;
+    this.supplyDropFrequency = loadMutators().dropFrequency;
     this.startLobbyUpdates();
     void getUserMe().then((userMe) => {
       // Dev skips the entitlement gate (matching the server) so the
@@ -826,6 +831,7 @@ export class HostLobbyModal extends BaseModal {
     this.customAllianceMinutes = undefined;
     this.doomsdayClock = false;
     this.doomsdayClockSpeed = "normal";
+    this.supplyDropFrequency = "normal";
     this.anonymizeNames = false;
     this.nameReveals = [];
     this.whitelistEnabled = false;
@@ -1378,6 +1384,7 @@ export class HostLobbyModal extends BaseModal {
             doomsdayClock: this.doomsdayClock
               ? { enabled: true, speed: this.doomsdayClockSpeed }
               : { enabled: false },
+            supplyDropFrequency: this.supplyDropFrequency,
             anonymizeNames: this.anonymizeNames,
             nameReveals: this.nameReveals,
             allowedPublicIds: this.whitelistEnabled

@@ -11,6 +11,32 @@
  * - Visual Polish: 4-frame camera jitter screen shake between +2px and -2px.
  */
 
+export const AVATAR_MIN_SCALE = 0.9;
+export const AVATAR_MAX_SCALE = 3.8;
+
+/**
+ * Adapts world-space avatar scale for current camera zoom so zoomed-out small countries
+ * stay legible without zoomed-in avatars dominating the screen.
+ */
+export function applyCameraZoomToAvatarScale(
+  territoryScale: number,
+  cameraScale = 1,
+): number {
+  const safeBase = Math.max(AVATAR_MIN_SCALE, Math.min(AVATAR_MAX_SCALE, territoryScale));
+  if (!Number.isFinite(cameraScale) || cameraScale <= 0) {
+    return safeBase;
+  }
+  if (cameraScale < 1) {
+    const boost = Math.min(1.5, Math.pow(1 / Math.max(cameraScale, 0.12), 0.35));
+    return Math.min(4.6, safeBase * boost);
+  }
+  if (cameraScale > 2) {
+    const dampen = 1 / Math.pow(cameraScale / 2, 0.45);
+    return Math.max(AVATAR_MIN_SCALE * 0.75, safeBase * dampen);
+  }
+  return safeBase;
+}
+
 export interface AvatarColorConfig {
   skinTone: string;
   shirtColor: string;
@@ -89,6 +115,13 @@ export interface CapitalAvatar {
   playerId: number;
   capitalX: number;
   capitalY: number;
+  renderX?: number;
+  renderY?: number;
+  targetAnchorX?: number;
+  targetAnchorY?: number;
+  territoryScale?: number;
+  currentScale?: number;
+  targetScale?: number;
   state: AvatarActionState;
   stateTimerMs: number;
   targetX: number;
@@ -179,6 +212,10 @@ export class AvatarSystem {
     } else {
       local.capitalX = x;
       local.capitalY = y;
+      local.renderX = x;
+      local.renderY = y;
+      local.targetAnchorX = x;
+      local.targetAnchorY = y;
       local.targetX = x;
       local.targetY = y;
     }
@@ -209,6 +246,13 @@ export class AvatarSystem {
       playerId,
       capitalX,
       capitalY,
+      renderX: capitalX,
+      renderY: capitalY,
+      targetAnchorX: capitalX,
+      targetAnchorY: capitalY,
+      territoryScale: 1,
+      currentScale: 1,
+      targetScale: 1,
       state: "idle",
       stateTimerMs: 0,
       targetX: capitalX,
@@ -220,6 +264,36 @@ export class AvatarSystem {
     };
     this.avatars.set(id, avatar);
     return avatar;
+  }
+
+  /**
+   * Updates target world anchor & scale for dynamic territory-aware placement.
+   * When snap is true (e.g. initial placement or current anchor captured), moves immediately.
+   */
+  public setTerritoryState(
+    id: string | number,
+    anchorX: number,
+    anchorY: number,
+    territoryScale: number,
+    snap = false,
+  ): void {
+    const avatar = this.avatars.get(id);
+    if (!avatar) return;
+    avatar.targetAnchorX = anchorX;
+    avatar.targetAnchorY = anchorY;
+    avatar.territoryScale = territoryScale;
+    avatar.targetScale = territoryScale;
+    if (snap || avatar.renderX === undefined || avatar.renderY === undefined) {
+      avatar.capitalX = anchorX;
+      avatar.capitalY = anchorY;
+      avatar.renderX = anchorX;
+      avatar.renderY = anchorY;
+      avatar.currentScale = territoryScale;
+    }
+  }
+
+  public removeAvatar(id: string | number): void {
+    this.avatars.delete(id);
   }
 
   public get count(): number {
@@ -299,6 +373,10 @@ export class AvatarSystem {
 
   public update(deltaMs: number): void {
     this.screenShake.update();
+    const posBlend =
+      deltaMs > 0 ? Math.min(1, 1 - Math.exp(-deltaMs / 160)) : 0;
+    const scaleBlend =
+      deltaMs > 0 ? Math.min(1, 1 - Math.exp(-deltaMs / 200)) : 0;
 
     for (const avatar of this.avatars.values()) {
       if (avatar.state !== "idle") {
@@ -307,6 +385,34 @@ export class AvatarSystem {
           avatar.state = "idle";
           avatar.stateTimerMs = 0;
         }
+      }
+
+      if (
+        posBlend > 0 &&
+        avatar.targetAnchorX !== undefined &&
+        avatar.targetAnchorY !== undefined
+      ) {
+        const curX = avatar.renderX ?? avatar.capitalX;
+        const curY = avatar.renderY ?? avatar.capitalY;
+        const dx = avatar.targetAnchorX - curX;
+        const dy = avatar.targetAnchorY - curY;
+        if (Math.abs(dx) < 0.05 && Math.abs(dy) < 0.05) {
+          avatar.renderX = avatar.targetAnchorX;
+          avatar.renderY = avatar.targetAnchorY;
+        } else {
+          avatar.renderX = curX + dx * posBlend;
+          avatar.renderY = curY + dy * posBlend;
+        }
+        avatar.capitalX = avatar.renderX;
+        avatar.capitalY = avatar.renderY;
+      }
+
+      if (scaleBlend > 0 && avatar.targetScale !== undefined) {
+        const curS = avatar.currentScale ?? avatar.territoryScale ?? 1;
+        const ds = avatar.targetScale - curS;
+        avatar.currentScale =
+          Math.abs(ds) < 0.002 ? avatar.targetScale : curS + ds * scaleBlend;
+        avatar.territoryScale = avatar.currentScale;
       }
     }
   }
@@ -319,28 +425,43 @@ export class AvatarSystem {
     ctx: CanvasRenderingContext2D,
     tick: number,
     viewport?: { minX: number; maxX: number; minY: number; maxY: number },
+    cameraScale = 1,
   ): void {
     for (const avatar of this.avatars.values()) {
+      const rx = avatar.renderX ?? avatar.capitalX;
+      const ry = avatar.renderY ?? avatar.capitalY;
       if (
         viewport &&
-        (avatar.capitalX < viewport.minX ||
-          avatar.capitalX > viewport.maxX ||
-          avatar.capitalY < viewport.minY ||
-          avatar.capitalY > viewport.maxY)
+        (rx < viewport.minX ||
+          rx > viewport.maxX ||
+          ry < viewport.minY ||
+          ry > viewport.maxY)
       ) {
         continue;
       }
-      this.drawAvatar(ctx, avatar, tick);
+      this.drawAvatar(ctx, avatar, tick, cameraScale);
     }
   }
 
   /**
    * Draw an interactive avatar with real-time states (idle, attacking, victory).
    */
-  public drawAvatar(ctx: CanvasRenderingContext2D, avatar: CapitalAvatar, tick: number): void {
-    const { capitalX, capitalY, config, state } = avatar;
+  public drawAvatar(
+    ctx: CanvasRenderingContext2D,
+    avatar: CapitalAvatar,
+    tick: number,
+    cameraScale = 1,
+  ): void {
+    const capitalX = avatar.renderX ?? avatar.capitalX;
+    const capitalY = avatar.renderY ?? avatar.capitalY;
+    const { config, state } = avatar;
+    const rawScale = avatar.currentScale ?? avatar.territoryScale;
+    const effectiveScale =
+      rawScale !== undefined
+        ? applyCameraZoomToAvatarScale(rawScale, cameraScale)
+        : 1;
 
-    // Positioned directly above the capital node so territory numbers remain visible below
+    // Positioned directly above the anchor node so territory numbers remain visible below
     const baseY = capitalY - 22;
 
     // 1. Idle state: Subtle vertical bobbing calculation using Math.sin on tick
@@ -357,6 +478,11 @@ export class AvatarSystem {
 
     ctx.save();
     try {
+      if (Math.abs(effectiveScale - 1) > 0.01) {
+        ctx.translate(capitalX, capitalY);
+        ctx.scale(effectiveScale, effectiveScale);
+        ctx.translate(-capitalX, -capitalY);
+      }
       // Contact shadow below feet
       ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
       ctx.beginPath();

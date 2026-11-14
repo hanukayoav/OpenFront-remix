@@ -61,6 +61,7 @@ import {
   SendAttackIntentEvent,
   SendBoatAttackIntentEvent,
   SendBreakAllianceIntentEvent,
+  SendClaimSupplyDropIntentEvent,
   SendHashEvent,
   SendSpawnIntentEvent,
   SendUpgradeStructureIntentEvent,
@@ -1165,7 +1166,14 @@ export class ClientGameRunner {
           (t) => this.gameView.ownerID(t),
         );
       if (claimResult.handled) {
-        if (!claimResult.success && claimResult.message) {
+        if (claimResult.success && claimResult.dropId !== undefined) {
+          this.eventBus.emit(
+            new SendClaimSupplyDropIntentEvent(
+              claimResult.dropId,
+              claimResult.tile,
+            ),
+          );
+        } else if (!claimResult.success && claimResult.message) {
           this.dualLayerHandle.engine.pools.spawnFloatingText(
             claimResult.message,
             cell.x,

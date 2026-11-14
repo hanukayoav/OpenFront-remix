@@ -20,6 +20,7 @@ import "./components/baseComponents/Button";
 import "./components/baseComponents/Modal";
 import { BaseModal } from "./components/BaseModal";
 import "./components/GameConfigSettings";
+import { loadMutators } from "./components/LobbySettings";
 import { MEDAL_ORDER, medalIcon } from "./components/map/Medals";
 import "./components/ToggleInputCard";
 import { modalHeader } from "./components/ui/ModalHeader";
@@ -897,6 +898,7 @@ export class SinglePlayerModal extends BaseModal {
                     },
                   }
                 : {}),
+              supplyDropFrequency: loadMutators().dropFrequency,
             },
             lobbyCreatedAt: Date.now(), // ms; server should be authoritative in MP
           },

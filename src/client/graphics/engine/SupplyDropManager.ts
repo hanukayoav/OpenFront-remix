@@ -54,6 +54,8 @@ export class SupplyDropManager {
   public static readonly CLAIM_RADIUS_TILES = 3.5;
 
   private readonly activeDrops = new Map<string | number, ActiveSupplyDrop>();
+  private readonly claimedAuthoritativeIds = new Set<number>();
+  public authoritativeMode = false;
   private matchTimeMs = 0;
   private nextEvaluationMs = 45000;
   private evaluationIntervalSec = SupplyDropManager.EVALUATION_INTERVAL_SEC;
@@ -97,6 +99,7 @@ export class SupplyDropManager {
    */
   public clear(): void {
     this.activeDrops.clear();
+    this.claimedAuthoritativeIds.clear();
     this.hoveredDropId = null;
     this.syncCratesWithEngine();
   }
@@ -116,14 +119,20 @@ export class SupplyDropManager {
    */
   public update(
     deltaMs: number,
-    getOwnerAtTile?: (tile: number) => { id: number; addGold?: (g: number) => void; addTroops?: (t: number) => void } | null,
+    getOwnerAtTile?: (tile: number) => {
+      id: number;
+      isHuman?: boolean;
+      isAlive?: boolean;
+      addGold?: (g: number) => void;
+      addTroops?: (t: number) => void;
+    } | null,
     pickEligibleTile?: () => { tile: number; x: number; y: number; ownerID: number | null } | null,
     onDropClaimed?: (drop: ActiveSupplyDrop, claimingPlayerId: number) => void,
   ): void {
     this.matchTimeMs += deltaMs;
 
-    // 1. Check if evaluation trigger is reached
-    if (this.matchTimeMs >= this.nextEvaluationMs) {
+    // 1. Standalone evaluation schedule (disabled in authoritative live matches)
+    if (!this.authoritativeMode && this.matchTimeMs >= this.nextEvaluationMs) {
       this.nextEvaluationMs += this.evaluationIntervalSec * 1000;
 
       if (this.activeDrops.size < this.maxActiveCrates && pickEligibleTile) {
@@ -181,10 +190,19 @@ export class SupplyDropManager {
         }
       }
 
-      // Auto-claim on territorial conquest (evaluated in any active state)
-      if (getOwnerAtTile && drop.state !== "collected") {
+      // Auto-claim for eligible living AI owners only AFTER landing completes
+      if (
+        !this.authoritativeMode &&
+        getOwnerAtTile &&
+        !drop.collected &&
+        drop.state !== "descending"
+      ) {
         const currentOwner = getOwnerAtTile(drop.tile);
-        if (currentOwner !== null && currentOwner.id !== drop.initialOwnerID) {
+        if (
+          currentOwner !== null &&
+          currentOwner.isAlive !== false &&
+          !currentOwner.isHuman
+        ) {
           this.claimDrop(drop, currentOwner, onDropClaimed);
         }
       }
@@ -315,6 +333,102 @@ export class SupplyDropManager {
     return false;
   }
 
+  public applyAuthoritativeSpawn(
+    dropId: number,
+    tile: number,
+    x: number,
+    y: number,
+    troops: number,
+    gold: number,
+    tier: "early" | "mid" | "late",
+    initialOwnerID: number | null = null,
+  ): ActiveSupplyDrop {
+    const existing = this.activeDrops.get(dropId);
+    if (existing) return existing;
+
+    const ringColor =
+      tier === "late" ? "#f59e0b" : tier === "mid" ? "#a855f7" : "#3b82f6";
+    if (tier === "late") {
+      this.triggerOrbitalAlert();
+      this.engine.onOrbitalSupplyDropAlert?.();
+    }
+
+    const drop: ActiveSupplyDrop = {
+      id: dropId,
+      tile,
+      x,
+      y,
+      troops,
+      gold,
+      tier,
+      phase: tier,
+      type: tier,
+      initialOwnerID,
+      spawnTimeMs: this.matchTimeMs,
+      beaconTimerMs: 0,
+      collected: false,
+      state: "descending",
+      stateTimerMs: 0,
+      descentDurationMs: SupplyDropManager.DESCENT_DURATION_MS,
+      altitude: 1.0,
+      swayAngle: 0,
+      visualX: x,
+      visualY: y - 60,
+      planeProgress: 0,
+      isHovered: false,
+    };
+
+    this.activeDrops.set(dropId, drop);
+    this.syncCratesWithEngine();
+    this.pools.spawnBeaconRing(x, y, ringColor, 4, 24, 1000, 1.5);
+    return drop;
+  }
+
+  public applyAuthoritativeClaim(
+    dropId: number,
+    tile: number,
+    x: number,
+    y: number,
+    troops: number,
+    gold: number,
+    tier: "early" | "mid" | "late",
+    claimingPlayerId: number,
+    onDropClaimed?: (drop: ActiveSupplyDrop, claimingPlayerId: number) => void,
+  ): boolean {
+    if (this.claimedAuthoritativeIds.has(dropId)) {
+      return false;
+    }
+    this.claimedAuthoritativeIds.add(dropId);
+
+    const drop: ActiveSupplyDrop = this.activeDrops.get(dropId) ?? {
+      id: dropId,
+      tile,
+      x,
+      y,
+      troops,
+      gold,
+      tier,
+      phase: tier,
+      type: tier,
+      initialOwnerID: null,
+      spawnTimeMs: this.matchTimeMs,
+      beaconTimerMs: 0,
+      collected: false,
+      state: "idle",
+      stateTimerMs: 0,
+      descentDurationMs: SupplyDropManager.DESCENT_DURATION_MS,
+      altitude: 0,
+      swayAngle: 0,
+      visualX: x,
+      visualY: y,
+      planeProgress: 1,
+      isHovered: false,
+    };
+
+    this.claimDrop(drop, { id: claimingPlayerId }, onDropClaimed);
+    return true;
+  }
+
   /**
    * Attempts to claim an active supply drop under cursor/tap.
    */
@@ -324,7 +438,7 @@ export class SupplyDropManager {
     claimingPlayer: { id: () => number | string; smallID: () => number; addGold?: (g: number) => void; addTroops?: (t: number) => void; isPlayer?: () => boolean } | null,
     getOwnerAtTile?: (tile: number) => number | null,
     onDropClaimed?: (drop: ActiveSupplyDrop, claimingPlayerId: number) => void,
-  ): { handled: boolean; success: boolean; message?: string } {
+  ): { handled: boolean; success: boolean; message?: string; dropId?: number; tile?: number } {
     let targetDrop: ActiveSupplyDrop | null = null;
     let minDist = SupplyDropManager.CLAIM_RADIUS_TILES;
 
@@ -357,7 +471,7 @@ export class SupplyDropManager {
     const mySmallId = claimingPlayer.smallID();
     const tileOwnerId = getOwnerAtTile ? getOwnerAtTile(targetDrop.tile) : null;
 
-    // Check ownership eligibility: if tile is controlled by an enemy, cannot claim remotely
+    // Check ownership eligibility: if tile is controlled by neutral or enemy, cannot claim remotely
     if (tileOwnerId !== null && tileOwnerId !== mySmallId) {
       return {
         handled: true,
@@ -366,7 +480,18 @@ export class SupplyDropManager {
       };
     }
 
-    // Eligible! Execute claim:
+    const numericId =
+      typeof targetDrop.id === "number" ? targetDrop.id : Number(targetDrop.id);
+    if (this.authoritativeMode) {
+      return {
+        handled: true,
+        success: true,
+        dropId: Number.isFinite(numericId) ? numericId : undefined,
+        tile: targetDrop.tile,
+      };
+    }
+
+    // Standalone mode: claim immediately in visual state
     this.claimDrop(
       targetDrop,
       {
@@ -390,6 +515,8 @@ export class SupplyDropManager {
       handled: true,
       success: true,
       message: `+${fTroops} Troops  +${fGold} Gold`,
+      dropId: Number.isFinite(numericId) ? numericId : undefined,
+      tile: targetDrop.tile,
     };
   }
 
@@ -414,7 +541,10 @@ export class SupplyDropManager {
     claimingOwner: { id: number; addGold?: (g: number) => void; addTroops?: (t: number) => void },
     onDropClaimed?: (drop: ActiveSupplyDrop, claimingPlayerId: number) => void,
   ): void {
-    // 1. Award resources
+    if (drop.collected) return;
+    drop.collected = true;
+    drop.state = "collected";
+    // 1. Award resources (only in standalone non-authoritative callers)
     if (claimingOwner.addGold) {
       claimingOwner.addGold(drop.gold);
     }

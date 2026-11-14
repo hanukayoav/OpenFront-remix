@@ -159,6 +159,13 @@ export class SendSetTankRallyPointIntentEvent implements GameEvent {
   ) {}
 }
 
+export class SendClaimSupplyDropIntentEvent implements GameEvent {
+  constructor(
+    public readonly dropId: number,
+    public readonly tile?: TileRef,
+  ) {}
+}
+
 export class CancelAttackIntentEvent implements GameEvent {
   constructor(public readonly attackID: string) {}
 }
@@ -319,6 +326,10 @@ export class Transport {
 
     this.eventBus.on(SendSetTankRallyPointIntentEvent, (e) =>
       this.onSendSetTankRallyPointIntent(e),
+    );
+
+    this.eventBus.on(SendClaimSupplyDropIntentEvent, (e) =>
+      this.onSendClaimSupplyDropIntent(e),
     );
 
     this.eventBus.on(SendKickPlayerIntentEvent, (e) =>
@@ -804,6 +815,14 @@ export class Transport {
       type: "set_tank_rally_point",
       rallyTile: event.rallyTile,
       factoryUnitId: event.factoryUnitId,
+    });
+  }
+
+  private onSendClaimSupplyDropIntent(event: SendClaimSupplyDropIntentEvent) {
+    this.sendIntent({
+      type: "claim_supply_drop",
+      dropId: event.dropId,
+      tile: event.tile,
     });
   }
 

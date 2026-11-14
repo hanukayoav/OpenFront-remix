@@ -545,17 +545,23 @@ export class DualLayerEngine {
         this.renderUnitsAndAvatars(c);
       }
 
-      // (e) Interactive Capital Avatars (with world-space viewport culling)
+      // (e) Interactive Capital Avatars (with world-space viewport culling & zoom-aware scale)
       if (this.avatarSystem.count > 0) {
         const invScale = this.cameraScale > 0 ? 1 / this.cameraScale : 1;
-        const halfW = this.cssWidth * 0.5 * invScale + 60;
-        const halfH = this.cssHeight * 0.5 * invScale + 60;
-        this.avatarSystem.render(c, this.frameCount, {
-          minX: this.cameraX - halfW,
-          maxX: this.cameraX + halfW,
-          minY: this.cameraY - halfH,
-          maxY: this.cameraY + halfH,
-        });
+        const pad = 160 * Math.max(1, Math.min(2.5, invScale * 0.6));
+        const halfW = this.cssWidth * 0.5 * invScale + pad;
+        const halfH = this.cssHeight * 0.5 * invScale + pad;
+        this.avatarSystem.render(
+          c,
+          this.frameCount,
+          {
+            minX: this.cameraX - halfW,
+            maxX: this.cameraX + halfW,
+            minY: this.cameraY - halfH,
+            maxY: this.cameraY + halfH,
+          },
+          this.cameraScale,
+        );
       }
     });
 
