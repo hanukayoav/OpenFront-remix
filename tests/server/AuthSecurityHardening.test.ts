@@ -310,6 +310,11 @@ describe("FrontierX Auth Security Hardening Regressions (Mission 22.7)", () => {
       process.env.AUTH_ALLOW_TURNSTILE_DEV_BYPASS = "true";
       ServerEnv.reset();
       await expect(startAuthServer()).rejects.toThrow(/forbidden/);
+
+      delete process.env.AUTH_ALLOW_TURNSTILE_DEV_BYPASS;
+      process.env.AUTH_HOST = "0.0.0.0";
+      ServerEnv.reset();
+      await expect(startAuthServer()).rejects.toThrow(/loopback/);
     } finally {
       process.env = origEnv;
       ServerEnv.reset();

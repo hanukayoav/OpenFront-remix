@@ -55,6 +55,20 @@ export async function startAuthServer(): Promise<{
   const issuer = nonEmptyEnv("AUTH_ISSUER", ServerEnv.jwtIssuer());
   const port = parsePositiveIntEnv("AUTH_PORT", 8787);
   const host = nonEmptyEnv("AUTH_HOST", "127.0.0.1");
+  const env = ServerEnv.env();
+  const isDev = env === GameEnv.Dev;
+  const isProd = env === GameEnv.Prod;
+  const isLoopbackHost =
+    host === "127.0.0.1" || host === "::1" || host === "localhost";
+  if (
+    isProd &&
+    !isLoopbackHost &&
+    process.env.AUTH_ALLOW_NON_LOOPBACK !== "true"
+  ) {
+    throw new Error(
+      `AUTH_HOST must bind to a loopback interface in GAME_ENV=prod, received "${host}"`,
+    );
+  }
   const dataDir = nonEmptyEnv(
     "AUTH_DATA_DIR",
     path.join(process.cwd(), "data", "frontierx-auth"),
@@ -80,9 +94,6 @@ export async function startAuthServer(): Promise<{
 
   const apiKey = process.env.API_KEY?.trim();
   const turnstileSecretKey = process.env.TURNSTILE_SECRET_KEY?.trim();
-  const env = ServerEnv.env();
-  const isDev = env === GameEnv.Dev;
-  const isProd = env === GameEnv.Prod;
   const requestedDevBypass =
     process.env.AUTH_ALLOW_TURNSTILE_DEV_BYPASS === "true";
 
