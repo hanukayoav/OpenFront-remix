@@ -11,6 +11,7 @@ import {
   buildAssetUrl,
   rewriteAssetsForCdn,
 } from "./src/core/AssetUrls";
+import { writeBuildMetadata } from "./src/server/BuildMetadata";
 import {
   buildPublicAssetManifest,
   copyRootPublicFiles,
@@ -232,6 +233,7 @@ export default defineConfig(({ mode }) => {
         assetManifest[fileName] = `/${fileName}`;
       }
       writePublicAssetManifest(outDir, assetManifest);
+      writeBuildMetadata(outDir, __dirname, process.env);
     },
   });
 

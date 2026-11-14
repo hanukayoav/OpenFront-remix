@@ -1,5 +1,5 @@
 import { ReactiveController, ReactiveControllerHost } from "lit";
-import version from "resources/version.txt?raw";
+import { DISPLAY_APP_VERSION } from "../AppVersion";
 import { getCosmeticsHash } from "../Cosmetics";
 import { getGamesPlayed } from "../Utils";
 
@@ -13,11 +13,6 @@ export class NavNotificationsController implements ReactiveController {
   private _helpSeen = localStorage.getItem(HELP_SEEN_KEY) === "true";
   private _hasNewCosmetics = false;
   private _hasNewVersion = false;
-
-  private get normalizedVersion(): string {
-    const trimmed = version.trim();
-    return trimmed.startsWith("v") ? trimmed : `v${trimmed}`;
-  }
 
   constructor(host: ReactiveControllerHost) {
     this.host = host;
@@ -35,7 +30,7 @@ export class NavNotificationsController implements ReactiveController {
       .catch(() => {});
 
     // Check if version has changed
-    const currentVersion = this.normalizedVersion;
+    const currentVersion = DISPLAY_APP_VERSION;
     const seenVersion = localStorage.getItem(NEWS_SEEN_VERSION_KEY);
     this._hasNewVersion =
       seenVersion !== null && seenVersion !== currentVersion;
@@ -67,7 +62,7 @@ export class NavNotificationsController implements ReactiveController {
 
   onNewsClick = (): void => {
     this._hasNewVersion = false;
-    localStorage.setItem(NEWS_SEEN_VERSION_KEY, this.normalizedVersion);
+    localStorage.setItem(NEWS_SEEN_VERSION_KEY, DISPLAY_APP_VERSION);
     this.host.requestUpdate();
   };
 

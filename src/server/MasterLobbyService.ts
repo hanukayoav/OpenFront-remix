@@ -88,6 +88,29 @@ export class MasterLobbyService {
     this.readyWorkers.delete(workerId);
   }
 
+  getReadyWorkerIds(): number[] {
+    const ids: number[] = [];
+    for (const workerId of this.readyWorkers) {
+      if (this.workers.has(workerId)) {
+        ids.push(workerId);
+      }
+    }
+    ids.sort((a, b) => a - b);
+    return ids;
+  }
+
+  pickReadyWorkerId(rand: () => number = Math.random): number | null {
+    const readyIds = this.getReadyWorkerIds();
+    if (readyIds.length === 0) {
+      return null;
+    }
+    const index = Math.min(
+      Math.floor(rand() * readyIds.length),
+      readyIds.length - 1,
+    );
+    return readyIds[Math.max(0, index)];
+  }
+
   isHealthy(): boolean {
     // We consider the lobby service healthy if at least half of the workers are ready.
     // This allows for some leeway if a worker crashes.

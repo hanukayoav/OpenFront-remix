@@ -3,6 +3,7 @@ import { z } from "zod";
 import { GameEnv, parseGameEnv } from "../core/configuration/Config";
 import { GameID } from "../core/Schemas";
 import { generateID, simpleHash } from "../core/Util";
+import { resolveRuntimeGitCommit } from "./BuildMetadata";
 
 const JwksSchema = z.object({
   keys: z
@@ -167,11 +168,10 @@ export class ServerEnv {
     return process.env.OTEL_AUTH_HEADER ?? "";
   }
   static gitCommit(): string {
-    const v = process.env.GIT_COMMIT;
-    if (!v) {
-      throw new Error("GIT_COMMIT not set");
-    }
-    return v;
+    return resolveRuntimeGitCommit({
+      isDev: ServerEnv.gameEnv === GameEnv.Dev,
+      envCommit: process.env.GIT_COMMIT,
+    });
   }
   static apiKey(): string {
     return process.env.API_KEY ?? "";

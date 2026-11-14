@@ -1,4 +1,3 @@
-import version from "resources/version.txt?raw";
 import { ClientEnv } from "src/client/ClientEnv";
 import { isTemporaryUsername, UserMeResponse } from "../core/ApiSchemas";
 import { assetUrl } from "../core/AssetUrls";
@@ -16,6 +15,7 @@ import { GameType } from "../core/game/Game";
 import { UserSettings } from "../core/game/UserSettings";
 import "./AccountModal";
 import { getUserMe, invalidateUserMe } from "./Api";
+import { DISPLAY_APP_VERSION } from "./AppVersion";
 import { reauthAfterCrazyGamesChange, userAuth } from "./Auth";
 import "./ClanModal";
 import { joinLobby, type JoinLobbyResult } from "./ClientGameRunner";
@@ -271,10 +271,8 @@ class Client {
     if (versionElements.length === 0) {
       console.warn("Game version element not found");
     } else {
-      const trimmed = version.trim();
-      const displayVersion = trimmed.startsWith("v") ? trimmed : `v${trimmed}`;
       const label = composeVersionDisplay(
-        displayVersion,
+        DISPLAY_APP_VERSION,
         await desktopVersion(),
       );
       versionElements.forEach((el) => {

@@ -115,4 +115,26 @@ describe("MasterLobbyService.isHealthy", () => {
     service.removeWorker(2);
     expect(service.isHealthy()).toBe(false);
   });
+
+  it("tracks ready worker IDs and selects deterministically with injected random", () => {
+    const service = createService(3);
+    expect(service.getReadyWorkerIds()).toEqual([]);
+    expect(service.pickReadyWorkerId()).toBeNull();
+
+    const w0 = createMockWorker();
+    const w2 = createMockWorker();
+    service.registerWorker(0, w0 as any);
+    service.registerWorker(2, w2 as any);
+    sendWorkerReady(w2, 2);
+    expect(service.getReadyWorkerIds()).toEqual([2]);
+    expect(service.pickReadyWorkerId(() => 0.1)).toBe(2);
+
+    sendWorkerReady(w0, 0);
+    expect(service.getReadyWorkerIds()).toEqual([0, 2]);
+    expect(service.pickReadyWorkerId(() => 0.0)).toBe(0);
+    expect(service.pickReadyWorkerId(() => 0.99)).toBe(2);
+
+    service.removeWorker(0);
+    expect(service.getReadyWorkerIds()).toEqual([2]);
+  });
 });

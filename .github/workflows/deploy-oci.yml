@@ -142,7 +142,8 @@ jobs:
 
             echo "=== Step 4: Staged Production Build & Asset Validation ==="
             rm -rf "${STAGING_DIR}"
-            BUILD_OUT_DIR=static_staging npm run build-prod
+            DEPLOY_GIT_COMMIT="$(git rev-parse HEAD)"
+            GIT_COMMIT="${DEPLOY_GIT_COMMIT}" BUILD_OUT_DIR=static_staging npm run build-prod
 
             # Validate critical build outputs in staging
             if [ ! -s "${STAGING_DIR}/index.html" ]; then
@@ -182,7 +183,7 @@ jobs:
             echo "=== Step 6: Reloading Application Service (Expected ~1-2s backend downtime) ==="
             # Mark restart attempted BEFORE executing restart command so failures during restart trigger PM2 recovery
             SERVICE_RESTART_ATTEMPTED=true
-            pm2 restart openfront-server --update-env
+            GIT_COMMIT="${DEPLOY_GIT_COMMIT}" pm2 restart openfront-server --update-env
 
             echo "=== Step 7: Verifying Service & Network Health ==="
             sleep 3
@@ -231,6 +232,14 @@ jobs:
             probe_endpoint "http://localhost:9001/" "Local HTTP service" 5 2
             probe_endpoint "https://openfront-2.duckdns.org/" "External HTTPS web service" 5 2
             probe_endpoint "https://openfront-2.duckdns.org/asset-manifest.json" "External static asset manifest" 5 2
+            probe_endpoint "https://openfront-2.duckdns.org/commit.txt" "External commit metadata" 5 2
+
+            LIVE_COMMIT="$(curl -fsS https://openfront-2.duckdns.org/commit.txt | tr -d '[:space:]')"
+            if [ "${LIVE_COMMIT}" != "${DEPLOY_GIT_COMMIT}" ]; then
+              echo "[FATAL] Deployed commit mismatch: live /commit.txt=${LIVE_COMMIT}, expected=${DEPLOY_GIT_COMMIT}"
+              exit 1
+            fi
+            echo "[OK] Deployed commit verified: ${LIVE_COMMIT}"
 
             # Clean temporary snapshot directory upon verified successful deployment
             rm -rf "${SNAPSHOT_DIR}"
