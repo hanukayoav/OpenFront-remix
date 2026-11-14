@@ -711,9 +711,12 @@ export class HostLobbyModal extends BaseModal {
           }),
         );
       })
-      .catch(() => {
+      .catch((error) => {
         // Clear clipboard so the host doesn't accidentally share a dead link
         void navigator.clipboard.writeText("").catch(() => {});
+        const msg =
+          error instanceof Error ? error.message : "Failed to create lobby";
+        showToast(msg, "red");
       });
     // BaseModal.firstUpdated() owns modalEl.onClose so the o-modal close path
     // (backdrop / close button) runs confirmBeforeClose(). Don't override it
