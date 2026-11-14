@@ -107,7 +107,7 @@ describe("FrontierX v1.0.5 Branding Implementation", () => {
     );
     expect(modal).toContain("images/FrontierXEmblem.svg");
     expect(modal).toContain("Frontier");
-    expect(modal).toContain("v1.0.5");
+    expect(modal).toContain("DISPLAY_APP_VERSION");
     expect(modal).toContain("game_starting_modal.code_license");
     expect(modal).toContain("OpenFront and Contributors");
     expect(modal).toContain("game_starting_modal.credits");

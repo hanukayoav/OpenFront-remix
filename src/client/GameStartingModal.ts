@@ -1,6 +1,7 @@
 import { LitElement, html } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { assetUrl } from "../core/AssetUrls";
+import { DISPLAY_APP_VERSION } from "./AppVersion";
 import { translateText } from "./Utils";
 
 @customElement("game-starting-modal")
@@ -49,7 +50,7 @@ export class GameStartingModal extends LitElement {
           <span
             class="text-[10px] font-extrabold px-2 py-0.5 rounded bg-malibu-blue/20 border border-hex-cyan/40 text-hex-cyan tracking-widest"
           >
-            v1.0.5
+            ${DISPLAY_APP_VERSION}
           </span>
         </div>
         <div
