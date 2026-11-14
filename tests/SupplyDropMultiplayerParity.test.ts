@@ -1,14 +1,27 @@
+import path from "path";
 import { describe, expect, test } from "vitest";
 import { SupplyDropManager } from "../src/client/graphics/engine/SupplyDropManager";
 import { Executor } from "../src/core/execution/ExecutionManager";
 import { SupplyDropExecution } from "../src/core/execution/SupplyDropExecution";
-import { Game, PlayerInfo, PlayerType } from "../src/core/game/Game";
+import {
+  Difficulty,
+  Game,
+  GameMapSize,
+  GameMapType,
+  GameMode,
+  GameType,
+  PlayerInfo,
+  PlayerType,
+} from "../src/core/game/Game";
 import {
   GameUpdateType,
   HashUpdate,
   SupplyDropEventUpdate,
 } from "../src/core/game/GameUpdates";
-import { Turn } from "../src/core/Schemas";
+import { createGameRunner } from "../src/core/GameRunner";
+import { GameStartInfo, SupplyDropFrequency, Turn } from "../src/core/Schemas";
+import { GameServer } from "../src/server/GameServer";
+import { NodeGameMapLoader } from "./perf/fullgame/NodeGameMapLoader";
 import { setup } from "./util/Setup";
 
 interface ClientPeer {
@@ -288,5 +301,265 @@ describe("Mission 22.1: Two-Client Multiplayer Supply Drop Parity & Human Once-O
     expect(peerA.claims.length).toBe(1);
     expect(peerA.lastHash).not.toBeNull();
     expect(peerA.lastHash).toBe(peerB.lastHash);
+  });
+
+  test.each<{
+    frequency: SupplyDropFrequency;
+    expectedActiveSpawnTicks: number[];
+    expectedMaxActive: number;
+    runActiveTicks: number;
+  }>([
+    {
+      frequency: "normal",
+      expectedActiveSpawnTicks: [450, 900],
+      expectedMaxActive: 2,
+      runActiveTicks: 920,
+    },
+    {
+      frequency: "rapid",
+      expectedActiveSpawnTicks: [200, 400],
+      expectedMaxActive: 2,
+      runActiveTicks: 620,
+    },
+    {
+      frequency: "extreme",
+      expectedActiveSpawnTicks: [200, 400, 600],
+      expectedMaxActive: 3,
+      runActiveTicks: 820,
+    },
+  ])(
+    "GameRunner two-peer parity respects $frequency supply-drop settings independently of localStorage",
+    async ({
+      frequency,
+      expectedActiveSpawnTicks,
+      expectedMaxActive,
+      runActiveTicks,
+    }) => {
+      const mapLoader = new NodeGameMapLoader(
+        path.resolve(__dirname, "../resources/maps"),
+      );
+      const gameStart: GameStartInfo = {
+        gameID: `runner_parity_${frequency}`,
+        lobbyCreatedAt: 1000,
+        players: [
+          {
+            clientID: "client_host",
+            username: "HostPlayer",
+            clanTag: null,
+            cosmetics: {},
+            isLobbyCreator: true,
+          },
+          {
+            clientID: "client_joiner",
+            username: "JoinerPlayer",
+            clanTag: null,
+            cosmetics: {},
+            isLobbyCreator: false,
+          },
+        ],
+        config: {
+          gameMap: GameMapType.Asia,
+          gameMapSize: GameMapSize.Normal,
+          gameType: GameType.Private,
+          gameMode: GameMode.FFA,
+          difficulty: Difficulty.Easy,
+          donateGold: false,
+          donateTroops: false,
+          nations: "disabled",
+          bots: 0,
+          infiniteGold: false,
+          infiniteTroops: false,
+          instantBuild: false,
+          randomSpawn: true,
+          supplyDropFrequency: frequency,
+        },
+      };
+
+      const peerEvents: Array<{
+        spawns: Array<{
+          tick: number;
+          dropId: number;
+          tile: number;
+          troops: number;
+          gold: number;
+          tier: string;
+        }>;
+        lastHash: number | null;
+      }> = [
+        { spawns: [], lastHash: null },
+        { spawns: [], lastHash: null },
+      ];
+
+      // Simulate mismatched localStorage on Joiner browser before creating runners
+      const origStorage = (globalThis as { localStorage?: Storage })
+        .localStorage;
+      (globalThis as { localStorage?: unknown }).localStorage = {
+        getItem: () =>
+          JSON.stringify({
+            matchPace: 2.0,
+            dropFrequency: frequency === "normal" ? "extreme" : "normal",
+            suddenDeathTimer: 180,
+          }),
+        setItem: () => {},
+        removeItem: () => {},
+        clear: () => {},
+      };
+
+      try {
+        const runners = await Promise.all([
+          createGameRunner(gameStart, "client_host", mapLoader, (gu) => {
+            if ("errMsg" in gu) {
+              throw new Error(gu.errMsg);
+            }
+            const hashes = gu.updates[GameUpdateType.Hash] as
+              | HashUpdate[]
+              | undefined;
+            if (hashes && hashes.length > 0) {
+              peerEvents[0].lastHash = hashes[hashes.length - 1].hash;
+            }
+            const events = gu.updates[GameUpdateType.SupplyDropEvent] as
+              | SupplyDropEventUpdate[]
+              | undefined;
+            if (events) {
+              for (const ev of events) {
+                if (ev.action === "spawn") {
+                  peerEvents[0].spawns.push({
+                    tick: gu.tick,
+                    dropId: ev.dropId,
+                    tile: ev.tile,
+                    troops: ev.troops,
+                    gold: ev.gold,
+                    tier: ev.tier,
+                  });
+                }
+              }
+            }
+          }),
+          createGameRunner(gameStart, "client_joiner", mapLoader, (gu) => {
+            if ("errMsg" in gu) {
+              throw new Error(gu.errMsg);
+            }
+            const hashes = gu.updates[GameUpdateType.Hash] as
+              | HashUpdate[]
+              | undefined;
+            if (hashes && hashes.length > 0) {
+              peerEvents[1].lastHash = hashes[hashes.length - 1].hash;
+            }
+            const events = gu.updates[GameUpdateType.SupplyDropEvent] as
+              | SupplyDropEventUpdate[]
+              | undefined;
+            if (events) {
+              for (const ev of events) {
+                if (ev.action === "spawn") {
+                  peerEvents[1].spawns.push({
+                    tick: gu.tick,
+                    dropId: ev.dropId,
+                    tile: ev.tile,
+                    troops: ev.troops,
+                    gold: ev.gold,
+                    tier: ev.tier,
+                  });
+                }
+              }
+            }
+          }),
+        ]);
+
+        // Advance through random-spawn phase (151 ticks) plus target active ticks
+        const totalTurns = 152 + runActiveTicks;
+        let firstActiveTick = -1;
+        for (let t = 0; t < totalTurns; t++) {
+          const turn: Turn = { turnNumber: t, intents: [] };
+          runners[0].addTurn(turn);
+          runners[1].addTurn(turn);
+          await runners[0].executeNextTick();
+          await runners[1].executeNextTick();
+          if (firstActiveTick === -1 && !runners[0].game.inSpawnPhase()) {
+            firstActiveTick = runners[0].game.ticks();
+          }
+        }
+
+        expect(firstActiveTick).toBeGreaterThan(0);
+        // SupplyDropExecution is inactive while SpawnTimerExecution runs the turn that ends spawn phase,
+        // so active ticks begin on the tick immediately following firstActiveTick.
+        const relativeTicks0 = peerEvents[0].spawns.map(
+          (s) => s.tick - firstActiveTick,
+        );
+        expect(relativeTicks0).toEqual(expectedActiveSpawnTicks);
+        expect(peerEvents[0].spawns).toEqual(peerEvents[1].spawns);
+        expect(peerEvents[0].spawns.length).toBe(expectedMaxActive);
+        expect(peerEvents[0].lastHash).not.toBeNull();
+        expect(peerEvents[0].lastHash).toBe(peerEvents[1].lastHash);
+      } finally {
+        (globalThis as { localStorage?: Storage }).localStorage = origStorage;
+      }
+    },
+    30000,
+  );
+
+  test("GameServer.updateGameConfig propagates supplyDropFrequency and SupplyDropManager stays deterministic across matchPace multipliers", () => {
+    const logger = {
+      child: function () {
+        return this;
+      },
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+    };
+    const server = new GameServer(
+      "lobby_supply_drop",
+      logger as never,
+      Date.now(),
+      {
+        gameMap: GameMapType.Asia,
+        gameMapSize: GameMapSize.Normal,
+        gameType: GameType.Private,
+        gameMode: GameMode.FFA,
+        difficulty: Difficulty.Easy,
+        donateGold: false,
+        donateTroops: false,
+        nations: "disabled",
+        bots: 0,
+        infiniteGold: false,
+        infiniteTroops: false,
+        instantBuild: false,
+        randomSpawn: false,
+      },
+    );
+
+    server.updateGameConfig({ supplyDropFrequency: "extreme" });
+    expect(server.gameConfig.supplyDropFrequency).toBe("extreme");
+    server.updateGameConfig({ supplyDropFrequency: "normal" });
+    expect(server.gameConfig.supplyDropFrequency).toBe("normal");
+
+    // Verify matchPace visual delta multipliers (1.0x, 1.5x, 2.0x) never trigger duplicate local spawns
+    // when authoritativeMode=true
+    for (const pace of [1.0, 1.5, 2.0]) {
+      let localSpawns = 0;
+      const fakePools = {
+        spawnBeaconRing: () => {},
+        spawnFloatingText: () => {},
+      };
+      const fakeEngine = {
+        pools: fakePools,
+        setSupplyCrates: () => {},
+      };
+      const mgr = new SupplyDropManager(
+        fakeEngine as never,
+        fakePools as never,
+      );
+      mgr.configure({ intervalSec: 20, maxActiveCrates: 3 });
+      mgr.authoritativeMode = true;
+
+      for (let step = 0; step < 30; step++) {
+        mgr.update(1000 * pace, undefined, () => {
+          localSpawns++;
+          return { tile: 1, x: 1, y: 1, ownerID: null };
+        });
+      }
+      expect(localSpawns).toBe(0);
+      expect(mgr.getEvaluationIntervalSec()).toBe(20);
+      expect(mgr.getMaxActiveCrates()).toBe(3);
+    }
   });
 });

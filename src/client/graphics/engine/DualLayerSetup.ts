@@ -164,9 +164,16 @@ export function setupDualLayerEngine(
   // Mutator configurations from LobbySettings or options
   const mutators = options.mutators ?? loadMutators();
   const paceMultiplier = getPaceMultiplier(mutators.matchPace);
+  const simDropFreq =
+    !options.mutators &&
+    typeof (gameView as { config?: () => unknown } | undefined)?.config ===
+      "function"
+      ? gameView!.config()?.supplyDropFrequency?.()
+      : undefined;
+  const effectiveDropFreq = simDropFreq ?? mutators.dropFrequency;
   engine.supplyDropManager.configure({
-    intervalSec: getDropIntervalSec(mutators.dropFrequency),
-    maxActiveCrates: getMaxActiveDrops(mutators.dropFrequency),
+    intervalSec: getDropIntervalSec(effectiveDropFreq),
+    maxActiveCrates: getMaxActiveDrops(effectiveDropFreq),
   });
   engine.supplyDropManager.authoritativeMode = Boolean(gameView);
 

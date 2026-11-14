@@ -154,8 +154,11 @@ Inspected live screenshots captured across early zoomed-in gameplay (`m22_avatar
 ### Modified
 
 - `src/client/ClientGameRunner.ts`
+- `src/client/HostLobbyModal.ts`
+- `src/client/SinglePlayerModal.ts`
 - `src/client/Transport.ts`
 - `src/client/components/AvatarCustomizer.ts`
+- `src/client/components/LobbySettings.ts`
 - `src/client/graphics/engine/AvatarSystem.ts`
 - `src/client/graphics/engine/DualLayerEngine.ts`
 - `src/client/graphics/engine/DualLayerSetup.ts`
@@ -165,6 +168,7 @@ Inspected live screenshots captured across early zoomed-in gameplay (`m22_avatar
 - `src/client/view/GameView.ts`
 - `src/core/GameRunner.ts`
 - `src/core/Schemas.ts`
+- `src/core/configuration/Config.ts`
 - `src/core/execution/ExecutionManager.ts`
 - `src/core/execution/PlayerExecution.ts`
 - `src/core/execution/TankExecution.ts`
@@ -172,6 +176,7 @@ Inspected live screenshots captured across early zoomed-in gameplay (`m22_avatar
 - `src/core/game/Game.ts`
 - `src/core/game/GameImpl.ts`
 - `src/core/game/GameUpdates.ts`
+- `src/server/GameServer.ts`
 - `tests/client/graphics/DualLayerEngine.test.ts`
 
 ### Added
@@ -183,6 +188,33 @@ Inspected live screenshots captured across early zoomed-in gameplay (`m22_avatar
 - `tests/TankBorderAndStranded.test.ts`
 - `tests/client/graphics/TerritoryAnchorAndAvatar.test.ts`
 - `frontierx_mission22_smooth_frontiers_report.md`
+
+---
+
+## Mission 22.2: Supply-Drop Settings Regression Check & Resolution
+
+### Regression Diagnosis (Confirmed)
+
+- **Root Cause:** `LobbySettings.ts` stored `MatchMutators` (`matchPace`, `dropFrequency`: `"normal" | "rapid" | "extreme"`, `suddenDeathTimer`) exclusively in `localStorage` (`openfront_match_mutators`). `DualLayerSetup.ts` configured `engine.supplyDropManager` from those settings, while enabling `authoritativeMode = Boolean(gameView)` disabled `SupplyDropManager`'s local spawn schedule. Meanwhile `GameConfigSchema` did not include `supplyDropFrequency`, `SinglePlayerModal` / `HostLobbyModal` did not propagate it into `GameConfig`, and `GameRunner.ts` constructed `new SupplyDropExecution(this.execManager.gameId())` using its hardcoded `450`-tick (`45s`) interval and `2`-crate limit — causing **Rapid** (`20s` / `2 crates`) and **Extreme** (`20s` / `3 crates`) to be ignored in live singleplayer and multiplayer matches.
+
+### Resolution (Authoritative & Deterministic)
+
+- Added `SupplyDropFrequencySchema` (`"normal" | "rapid" | "extreme"`), `SUPPLY_DROP_FREQUENCY_PRESETS`, `resolveSupplyDropConfig()`, and optional `supplyDropFrequency` field to `GameConfigSchema` (`src/core/Schemas.ts`).
+- Exposed `Config.supplyDropFrequency()` and `Config.supplyDropConfig()` (`src/core/configuration/Config.ts`), reused cleanly by both `GameRunner` (`src/core/GameRunner.ts`) and `SupplyDropExecution` (`src/core/execution/SupplyDropExecution.ts`) as well as client `LobbySettings.ts` helpers (`getDropIntervalSec`, `getMaxActiveDrops`).
+- Propagated `dropFrequency` from host/singleplayer lobby UI into authoritative `GameConfig`:
+  - `SinglePlayerModal.ts` attaches `supplyDropFrequency: loadMutators().dropFrequency` to `gameStartInfo.config`.
+  - `HostLobbyModal.ts` refreshes `supplyDropFrequency` on modal open (`onOpen`) and sends it in `putGameConfig()`.
+  - `GameServer.updateGameConfig()` persists and broadcasts `supplyDropFrequency` across all lobby peers inside `GameStartInfo.config`.
+- Updated `DualLayerSetup.ts` so live authoritative matches (`gameView.config()`) configure `engine.supplyDropManager` from the authoritative `GameConfig` rather than peer-local `localStorage`, while preserving `matchPace` (`paceMultiplier`) visual delta behavior and `SupplyDropExecution`'s fixed 10-ticks/sec simulation rules.
+- Added automated tests in `tests/SupplyDropExecution.test.ts`, `tests/SupplyDropMultiplayerParity.test.ts`, and `tests/client/graphics/DualLayerEngine.test.ts` covering `"normal"` (`450` ticks / `2` crates), `"rapid"` (`200` ticks / `2` crates), `"extreme"` (`200` ticks / `3` crates), full `createGameRunner` two-peer lockstep parity under mismatched client `localStorage`, `GameServer.updateGameConfig()`, and `matchPace` consistency.
+
+### Mission 22.2 Verification Results
+
+- `npm run lint` (`oxlint` across 866 files + `eslint`): **0 warnings, 0 errors**
+- `npm run build-prod` (`tsc --noEmit` + `vite build`): **pass** (`tsc` exit `0`, Vite built `1206` modules)
+- `npm test`:
+  - `vitest run`: **285 test files passed, 3,180 tests passed**
+  - `vitest run tests/server`: **35 test files passed, 319 tests passed**
 
 ---
 

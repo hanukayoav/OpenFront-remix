@@ -122,7 +122,14 @@ export class GameRunner {
       );
     }
     this.game.addExecution(new WinCheckExecution());
-    this.game.addExecution(new SupplyDropExecution(this.execManager.gameId()));
+    const supplyDropCfg = this.game.config().supplyDropConfig();
+    this.game.addExecution(
+      new SupplyDropExecution(
+        this.execManager.gameId(),
+        supplyDropCfg.intervalTicks,
+        supplyDropCfg.maxActiveCrates,
+      ),
+    );
     if (this.game.config().doomsdayClockConfig().enabled) {
       this.game.addExecution(new DoomsdayClockExecution());
     }

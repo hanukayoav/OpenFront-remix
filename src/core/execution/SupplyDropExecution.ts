@@ -37,23 +37,54 @@ export class SupplyDropExecution implements Execution {
   private mg!: Game;
   private rng: PseudoRandom;
   private activeMatchTicks = 0;
+  private evaluationIntervalTicks: number;
+  private maxActiveCrates: number;
+  private readonly hasExplicitInterval: boolean;
+  private readonly hasExplicitMaxCrates: boolean;
+  private readonly descentTicks: number;
   private nextEvaluationTick: number;
   private nextDropId = 1;
   private readonly drops = new Map<number, SimSupplyDrop>();
 
   constructor(
     gameID: GameID,
-    private readonly evaluationIntervalTicks = SupplyDropExecution.DEFAULT_EVALUATION_INTERVAL_TICKS,
-    private readonly maxActiveCrates = SupplyDropExecution.DEFAULT_MAX_ACTIVE_CRATES,
-    private readonly descentTicks = SupplyDropExecution.DEFAULT_DESCENT_TICKS,
+    evaluationIntervalTicks?: number,
+    maxActiveCrates?: number,
+    descentTicks = SupplyDropExecution.DEFAULT_DESCENT_TICKS,
   ) {
     this.rng = new PseudoRandom((simpleHash(gameID) + 0x9e3779b9) >>> 0);
+    this.hasExplicitInterval = evaluationIntervalTicks !== undefined;
+    this.hasExplicitMaxCrates = maxActiveCrates !== undefined;
+    this.evaluationIntervalTicks =
+      evaluationIntervalTicks ??
+      SupplyDropExecution.DEFAULT_EVALUATION_INTERVAL_TICKS;
+    this.maxActiveCrates =
+      maxActiveCrates ?? SupplyDropExecution.DEFAULT_MAX_ACTIVE_CRATES;
+    this.descentTicks = descentTicks;
     this.nextEvaluationTick = this.evaluationIntervalTicks;
   }
 
   init(mg: Game, ticks: number): void {
     this.mg = mg;
+    const cfg = mg.config?.()?.supplyDropConfig?.();
+    if (cfg) {
+      if (!this.hasExplicitInterval) {
+        this.evaluationIntervalTicks = cfg.intervalTicks;
+        this.nextEvaluationTick = this.evaluationIntervalTicks;
+      }
+      if (!this.hasExplicitMaxCrates) {
+        this.maxActiveCrates = cfg.maxActiveCrates;
+      }
+    }
     this.mg.setSupplyDropSystem?.(this);
+  }
+
+  public getEvaluationIntervalTicks(): number {
+    return this.evaluationIntervalTicks;
+  }
+
+  public getMaxActiveCrates(): number {
+    return this.maxActiveCrates;
   }
 
   tick(ticks: number): void {

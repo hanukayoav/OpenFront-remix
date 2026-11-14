@@ -4,6 +4,11 @@ import {
   SupplyDropExecution,
 } from "../src/core/execution/SupplyDropExecution";
 import { Game, Player, PlayerInfo, PlayerType } from "../src/core/game/Game";
+import {
+  GameUpdateType,
+  SupplyDropEventUpdate,
+} from "../src/core/game/GameUpdates";
+import { SupplyDropFrequency } from "../src/core/Schemas";
 import { setup } from "./util/Setup";
 
 describe("Fix 4: Authoritative Deterministic SupplyDropExecution", () => {
@@ -189,4 +194,93 @@ describe("Fix 4: Authoritative Deterministic SupplyDropExecution", () => {
     );
     expect(sde1.getActiveDrops()).toEqual(sde2.getActiveDrops());
   });
+
+  test.each<{
+    label: string;
+    frequency?: SupplyDropFrequency;
+    expectedInterval: number;
+    expectedMaxCrates: number;
+    expectedSpawnTicks: number[];
+    totalTicks: number;
+  }>([
+    {
+      label: "default (normal)",
+      frequency: undefined,
+      expectedInterval: 450,
+      expectedMaxCrates: 2,
+      expectedSpawnTicks: [450, 900],
+      totalTicks: 1400,
+    },
+    {
+      label: "normal",
+      frequency: "normal",
+      expectedInterval: 450,
+      expectedMaxCrates: 2,
+      expectedSpawnTicks: [450, 900],
+      totalTicks: 1400,
+    },
+    {
+      label: "rapid",
+      frequency: "rapid",
+      expectedInterval: 200,
+      expectedMaxCrates: 2,
+      expectedSpawnTicks: [200, 400],
+      totalTicks: 700,
+    },
+    {
+      label: "extreme",
+      frequency: "extreme",
+      expectedInterval: 200,
+      expectedMaxCrates: 3,
+      expectedSpawnTicks: [200, 400, 600],
+      totalTicks: 900,
+    },
+  ])(
+    "respects configured frequency and max crates for $label mode",
+    async ({
+      frequency,
+      expectedInterval,
+      expectedMaxCrates,
+      expectedSpawnTicks,
+      totalTicks,
+    }) => {
+      const cfgGame = await setup(
+        "plains",
+        {
+          instantBuild: true,
+          ...(frequency ? { supplyDropFrequency: frequency } : {}),
+        },
+        [new PlayerInfo("human", PlayerType.Human, "client_h", "human_id")],
+      );
+
+      // Human owns land only indirectly; unclaimed drops stay active to test crate cap
+      const exec = new SupplyDropExecution(
+        `freq_test_${frequency ?? "default"}`,
+      );
+      cfgGame.addExecution(exec);
+      // Wait for init on tick 0
+      cfgGame.executeNextTick();
+
+      expect(exec.getEvaluationIntervalTicks()).toBe(expectedInterval);
+      expect(exec.getMaxActiveCrates()).toBe(expectedMaxCrates);
+
+      const spawnTicks: number[] = [];
+      for (let t = 1; t <= totalTicks; t++) {
+        const updates = cfgGame.executeNextTick();
+        const events = updates[GameUpdateType.SupplyDropEvent] as
+          | SupplyDropEventUpdate[]
+          | undefined;
+        if (events) {
+          for (const ev of events) {
+            if (ev.action === "spawn") {
+              spawnTicks.push(t);
+            }
+          }
+        }
+      }
+
+      expect(spawnTicks).toEqual(expectedSpawnTicks);
+      expect(exec.getActiveDrops().length).toBe(expectedMaxCrates);
+    },
+  );
 });
