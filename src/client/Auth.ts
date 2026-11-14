@@ -1,8 +1,14 @@
 import { decodeJwt } from "jose";
+import { ClientEnv } from "src/client/ClientEnv";
 import { UserSettings } from "src/core/game/UserSettings";
 import { z } from "zod";
-import { TokenPayload, TokenPayloadSchema } from "../core/ApiSchemas";
+import {
+  TokenPayload,
+  TokenPayloadSchema,
+  UserMeResponse,
+} from "../core/ApiSchemas";
 import { base64urlToUuid } from "../core/Base64";
+import { GameEnv } from "../core/configuration/Config";
 import { getApiBase, getAudience } from "./Api";
 import { crazyGamesSDK } from "./CrazyGamesSDK";
 import { steamSDK } from "./SteamSDK";
@@ -10,10 +16,36 @@ import { generateCryptoRandomUUID } from "./Utils";
 
 export type UserAuth = { jwt: string; claims: TokenPayload } | false;
 
+export interface AuthActionResult {
+  ok: boolean;
+  error?: string;
+  user?: UserMeResponse;
+  upgradedFromGuest?: boolean;
+}
+
+export interface RecoveryCodeResult {
+  ok: boolean;
+  recoveryCode?: string;
+  expiresAt?: string;
+  error?: string;
+}
+
+export interface AuthProvidersInfo {
+  providers: {
+    guest: boolean;
+    frontierx: boolean;
+    recovery: boolean;
+    discord: boolean;
+    google: boolean;
+  };
+  turnstileRequired: boolean;
+}
+
 const PERSISTENT_ID_KEY = "player_persistent_id";
 
 let __jwt: string | null = null;
 let __refreshPromise: Promise<void> | null = null;
+let __guestPromise: Promise<UserAuth> | null = null;
 let __expiresAt: number = 0;
 
 export function discordLogin() {
@@ -108,6 +140,7 @@ export async function logOut(allSessions: boolean = false): Promise<boolean> {
 // session and cleared the refresh cookie, so /auth/logout must not be called.
 export function clearLocalSession(): void {
   __jwt = null;
+  __expiresAt = 0;
   localStorage.removeItem(PERSISTENT_ID_KEY);
   // Switch cosmetics back to the logged-out scope. The player's own
   // selections stay stored under their publicId and are restored on the
@@ -236,12 +269,16 @@ async function doRefreshJwt(): Promise<void> {
       credentials: "include",
     });
     if (response.status !== 200) {
-      console.error("Refresh failed", response);
-      logOut();
+      console.warn("Refresh failed", response.status);
+      clearLocalSession();
       return;
     }
     const json = await response.json();
     const { jwt, expiresIn } = json;
+    if (typeof jwt !== "string" || typeof expiresIn !== "number") {
+      clearLocalSession();
+      return;
+    }
     __expiresAt = Date.now() + expiresIn * 1000;
     console.log("Refresh succeeded");
     __jwt = jwt;
@@ -249,6 +286,7 @@ async function doRefreshJwt(): Promise<void> {
     console.error("Refresh failed", e);
     // if server unreachable, just clear jwt
     __jwt = null;
+    __expiresAt = 0;
     return;
   }
 }
@@ -361,11 +399,260 @@ export async function sendMagicLink(email: string): Promise<boolean> {
   }
 }
 
+async function setSessionFromAuthResponse(json: {
+  jwt?: unknown;
+  expiresIn?: unknown;
+}): Promise<UserAuth> {
+  if (typeof json.jwt !== "string" || typeof json.expiresIn !== "number") {
+    return false;
+  }
+  __jwt = json.jwt;
+  __expiresAt = Date.now() + json.expiresIn * 1000;
+  return userAuth(false);
+}
+
+export async function applyAccessToken(
+  jwt: string,
+  expiresIn: number,
+): Promise<UserAuth> {
+  return setSessionFromAuthResponse({ jwt, expiresIn });
+}
+
+export async function forceRefreshSession(): Promise<UserAuth> {
+  __jwt = null;
+  __expiresAt = 0;
+  await refreshJwt();
+  const refreshed = await userAuth(false);
+  if (refreshed !== false) {
+    return refreshed;
+  }
+  return ensureGuestSession();
+}
+
+export async function ensureGuestSession(): Promise<UserAuth> {
+  const existing = await userAuth();
+  if (existing !== false) {
+    return existing;
+  }
+  if (__guestPromise) {
+    return __guestPromise;
+  }
+  __guestPromise = (async (): Promise<UserAuth> => {
+    try {
+      const response = await fetch(getApiBase() + "/auth/guest", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: "{}",
+      });
+      if (!response.ok) {
+        console.warn("Guest session provisioning failed", response.status);
+        return false;
+      }
+      const json = (await response.json()) as {
+        jwt?: unknown;
+        expiresIn?: unknown;
+      };
+      return setSessionFromAuthResponse(json);
+    } catch (e) {
+      console.warn("Guest session request failed", e);
+      return false;
+    } finally {
+      __guestPromise = null;
+    }
+  })();
+  return __guestPromise;
+}
+
+export async function registerAccount(args: {
+  email: string;
+  password: string;
+  username?: string;
+}): Promise<AuthActionResult> {
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (__jwt) {
+      headers.Authorization = `Bearer ${__jwt}`;
+    }
+    const response = await fetch(getApiBase() + "/auth/register", {
+      method: "POST",
+      credentials: "include",
+      headers,
+      body: JSON.stringify(args),
+    });
+    const json = (await response.json().catch(() => null)) as {
+      jwt?: unknown;
+      expiresIn?: unknown;
+      user?: UserMeResponse;
+      upgradedFromGuest?: boolean;
+      message?: string;
+      error?: string;
+    } | null;
+    if (!response.ok || !json) {
+      return {
+        ok: false,
+        error: json?.message ?? json?.error ?? `HTTP ${response.status}`,
+      };
+    }
+    await setSessionFromAuthResponse(json);
+    return {
+      ok: true,
+      user: json.user,
+      upgradedFromGuest: json.upgradedFromGuest,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
+export async function loginAccount(args: {
+  email: string;
+  password: string;
+}): Promise<AuthActionResult> {
+  try {
+    const response = await fetch(getApiBase() + "/auth/login", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(args),
+    });
+    const json = (await response.json().catch(() => null)) as {
+      jwt?: unknown;
+      expiresIn?: unknown;
+      user?: UserMeResponse;
+      message?: string;
+      error?: string;
+    } | null;
+    if (!response.ok || !json) {
+      return {
+        ok: false,
+        error: json?.message ?? json?.error ?? `HTTP ${response.status}`,
+      };
+    }
+    await setSessionFromAuthResponse(json);
+    return {
+      ok: true,
+      user: json.user,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
+export async function createRecoveryCode(): Promise<RecoveryCodeResult> {
+  try {
+    const authHeader = await getAuthHeader();
+    if (!authHeader) {
+      return { ok: false, error: "Sign in or start a session first." };
+    }
+    const response = await fetch(getApiBase() + "/auth/recovery-code", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Authorization: authHeader,
+        "Content-Type": "application/json",
+      },
+      body: "{}",
+    });
+    const json = (await response.json().catch(() => null)) as {
+      recoveryCode?: string;
+      expiresAt?: string;
+      message?: string;
+      error?: string;
+    } | null;
+    if (!response.ok || !json?.recoveryCode) {
+      return {
+        ok: false,
+        error: json?.message ?? json?.error ?? `HTTP ${response.status}`,
+      };
+    }
+    return {
+      ok: true,
+      recoveryCode: json.recoveryCode,
+      expiresAt: json.expiresAt,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
+export async function recoverSession(
+  recoveryCode: string,
+): Promise<AuthActionResult> {
+  try {
+    const response = await fetch(getApiBase() + "/auth/recover", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ recoveryCode }),
+    });
+    const json = (await response.json().catch(() => null)) as {
+      jwt?: unknown;
+      expiresIn?: unknown;
+      user?: UserMeResponse;
+      message?: string;
+      error?: string;
+    } | null;
+    if (!response.ok || !json) {
+      return {
+        ok: false,
+        error: json?.message ?? json?.error ?? `HTTP ${response.status}`,
+      };
+    }
+    await setSessionFromAuthResponse(json);
+    return {
+      ok: true,
+      user: json.user,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
+export async function fetchAuthProviders(): Promise<AuthProvidersInfo | null> {
+  try {
+    const response = await fetch(getApiBase() + "/auth/providers", {
+      credentials: "include",
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as AuthProvidersInfo;
+  } catch {
+    return null;
+  }
+}
+
 // WARNING: DO NOT EXPOSE THIS ID
 export async function getPlayToken(): Promise<string> {
   const result = await userAuth();
   if (result !== false) return result.jwt;
-  return getPersistentIDFromLocalStorage();
+  if (ClientEnv.env() === GameEnv.Dev) {
+    return getPersistentIDFromLocalStorage();
+  }
+  const guestResult = await ensureGuestSession();
+  if (guestResult !== false) return guestResult.jwt;
+  throw new Error(
+    "Authentication required: unable to provision FrontierX session token.",
+  );
 }
 
 // WARNING: DO NOT EXPOSE THIS ID

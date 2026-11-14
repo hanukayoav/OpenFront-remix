@@ -21,6 +21,7 @@ export interface MasterAppOptions {
   isDev?: boolean;
   staticPath?: string;
   indexPath?: string;
+  authServiceUrl?: string;
   numWorkers?: () => number;
   getReadyWorkerIds?: () => number[];
   isClusterHealthy?: () => boolean;
@@ -69,6 +70,10 @@ export function createMasterApp(options: MasterAppOptions = {}) {
       `http://localhost:${ServerEnv.workerPortByIndex(workerId)}`);
   const getGitCommit = options.getGitCommit ?? (() => ServerEnv.gitCommit());
   const random = options.random ?? Math.random;
+  const rawEnvAuthServiceUrl = process.env.AUTH_SERVICE_URL?.trim() ?? "";
+  const authServiceUrl =
+    options.authServiceUrl ??
+    (rawEnvAuthServiceUrl.length > 0 ? rawEnvAuthServiceUrl : undefined);
 
   const app = express();
   const proxy = httpProxy.createProxyServer({});
@@ -189,6 +194,27 @@ export function createMasterApp(options: MasterAppOptions = {}) {
       res.status(503).json({ status: "unavailable" });
     }
   });
+
+  if (authServiceUrl) {
+    app.all(
+      [
+        "/api/.well-known/jwks.json",
+        "/api/auth/{*splat}",
+        "/api/users/{*splat}",
+        "/api/join_verify",
+        "/api/cosmetics.json",
+        "/api/reserved_clan_tags",
+        "/api/custom_tribes",
+        "/api/game/{*splat}",
+        "/api/archive_singleplayer_game",
+        "/api/news.json",
+        "/api/streams.json",
+      ],
+      (req, res) => {
+        proxy.web(req, res, { target: authServiceUrl });
+      },
+    );
+  }
 
   // SPA fallback route
   app.get("/{*splat}", async function (req, res) {

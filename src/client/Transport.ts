@@ -28,7 +28,7 @@ import {
   Winner,
 } from "../core/Schemas";
 import { replacer } from "../core/Util";
-import { getPlayToken } from "./Auth";
+import { forceRefreshSession, getPlayToken } from "./Auth";
 import { LobbyConfig } from "./ClientGameRunner";
 import { showInGameAlert } from "./InGameModal";
 import { LocalServer } from "./LocalServer";
@@ -242,6 +242,7 @@ export class Transport {
   private reconnectAttempts = 0;
   private isStopped = false;
   private isSessionSynced = false;
+  private hasRetriedAuthRefresh = false;
   private connectionGeneration = 0;
   private static readonly MAX_RECONNECT_ATTEMPTS = 10;
   private static readonly BASE_RECONNECT_DELAY_MS = 500;
@@ -376,6 +377,7 @@ export class Transport {
   ) {
     this.isStopped = false;
     this.reconnectAttempts = 0;
+    this.hasRetriedAuthRefresh = false;
     this.clearReconnectTimeout();
     if (this.isLocal) {
       this.connectLocal(onconnect, onmessage);
@@ -486,6 +488,35 @@ export class Transport {
         `WebSocket closed. Code: ${event.code}, Reason: ${event.reason}`,
       );
       if (event.code === 1002) {
+        if (
+          event.reason?.startsWith("Unauthorized") &&
+          !this.hasRetriedAuthRefresh &&
+          !this.isStopped
+        ) {
+          this.hasRetriedAuthRefresh = true;
+          console.warn(
+            "WebSocket closed due to token auth error; forcing session refresh and retrying",
+          );
+          void forceRefreshSession().then((refreshed) => {
+            if (this.isStopped || generation !== this.connectionGeneration) {
+              return;
+            }
+            if (refreshed !== false) {
+              this.scheduleReconnect();
+            } else {
+              this.isStopped = true;
+              this.buffer = [];
+              this.stopPing();
+              this.clearReconnectTimeout();
+              showInGameAlert(
+                translateText("error_modal.connection_refused", {
+                  reason: event.reason,
+                }),
+              );
+            }
+          });
+          return;
+        }
         this.isStopped = true;
         this.buffer = [];
         this.stopPing();

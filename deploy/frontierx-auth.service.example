@@ -1,0 +1,21 @@
+[Unit]
+Description=FrontierX Self-Hosted Auth & API Daemon (Mission 22.5)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/OpenFront-remix
+EnvironmentFile=/etc/frontierx/auth.env
+ExecStart=/usr/bin/npm run start:auth
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/frontierx-auth
+
+[Install]
+WantedBy=multi-user.target

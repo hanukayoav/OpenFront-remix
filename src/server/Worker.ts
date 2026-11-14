@@ -88,9 +88,9 @@ export async function startWorker() {
   }
 
   const privilegeRefresher = new PrivilegeRefresher(
-    ServerEnv.jwtIssuer() + "/cosmetics.json",
+    ServerEnv.internalApiBase() + "/cosmetics.json",
     ServerEnv.apiKey(),
-    ServerEnv.jwtIssuer() + "/reserved_clan_tags",
+    ServerEnv.internalApiBase() + "/reserved_clan_tags",
     log,
   );
   privilegeRefresher.start();
@@ -176,6 +176,12 @@ export async function startWorker() {
     if (auth.type !== "success") {
       log.warn(`Invalid creator token: ${auth.message}`);
       return res.status(401).json({ error: "Invalid creator token" });
+    }
+    if (auth.claims?.role === "banned") {
+      log.warn("Banned user attempted to create game", {
+        persistentID: auth.persistentId,
+      });
+      return res.status(403).json({ error: "Account Banned" });
     }
     const creatorPersistentID = auth.persistentId;
 
@@ -596,6 +602,15 @@ export async function startWorker() {
             ws.close(1002, "Unauthorized: user me fetch failed");
             return;
           }
+          if (result.response.ban) {
+            log.warn("Banned user attempted to join game", {
+              persistentID: persistentId,
+              gameID: clientMsg.gameID,
+              banCategory: result.response.ban.category,
+            });
+            ws.close(1002, "Account Banned");
+            return;
+          }
           flares = result.response.player.flares;
           publicId = result.response.player.publicId;
           friends = result.response.player.friends;
@@ -769,7 +784,7 @@ function startMatchmakingLoop(gm: GameManager, mode: "1v1" | "2v2") {
   startPolling(
     async () => {
       try {
-        const url = `${ServerEnv.jwtIssuer() + "/matchmaking/checkin"}`;
+        const url = `${ServerEnv.internalApiBase() + "/matchmaking/checkin"}`;
         const gameId = ServerEnv.generateGameIdForWorker(workerId);
         if (gameId === null) {
           log.warn(`Failed to generate game ID for worker ${workerId}`);

@@ -20,6 +20,7 @@ const JwksSchema = z.object({
 export class ServerEnv {
   private static readonly gameEnv: GameEnv = parseGameEnv(process.env.GAME_ENV);
   private static publicKey: JWK | null = null;
+  private static jwksLastFetchMs = 0;
 
   // Values that also flow to the client via index.html, but on the server
   // are read from process.env directly. Server code never reaches into
@@ -97,11 +98,26 @@ export class ServerEnv {
     }
     return `https://api.${audience}`;
   }
-  static async jwkPublicKey(): Promise<JWK> {
-    if (ServerEnv.publicKey) return ServerEnv.publicKey;
-    const jwksUrl = ServerEnv.jwtIssuer() + "/.well-known/jwks.json";
+  static internalApiBase(): string {
+    const override = process.env.AUTH_INTERNAL_URL?.trim();
+    if (override) {
+      return override.replace(/\/+$/, "");
+    }
+    return ServerEnv.jwtIssuer();
+  }
+  static async jwkPublicKey(forceRefresh = false): Promise<JWK> {
+    const now = Date.now();
+    if (
+      ServerEnv.publicKey &&
+      (!forceRefresh || now - ServerEnv.jwksLastFetchMs < 5000)
+    ) {
+      return ServerEnv.publicKey;
+    }
+    const jwksUrl = ServerEnv.internalApiBase() + "/.well-known/jwks.json";
     console.log(`Fetching JWKS from ${jwksUrl}`);
-    const response = await fetch(jwksUrl);
+    const response = await fetch(jwksUrl, {
+      signal: AbortSignal.timeout(5000),
+    });
     if (!response.ok) {
       const body = await response.text();
       throw new Error(`JWKS fetch failed: ${response.status} ${body}`);
@@ -112,6 +128,7 @@ export class ServerEnv {
       console.error("Error parsing JWKS", error);
       throw new Error("Invalid JWKS");
     }
+    ServerEnv.jwksLastFetchMs = now;
     ServerEnv.publicKey = result.data.keys[0];
     return ServerEnv.publicKey;
   }

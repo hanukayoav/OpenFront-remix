@@ -34,12 +34,35 @@ export async function verifyClientToken(
   try {
     const issuer = ServerEnv.jwtIssuer();
     const audience = ServerEnv.jwtAudience();
-    const key = await ServerEnv.jwkPublicKey();
-    const { payload } = await jwtVerify(token, key, {
-      algorithms: ["EdDSA"],
-      issuer,
-      audience,
-    });
+    let payload: Record<string, unknown>;
+    try {
+      const key = await ServerEnv.jwkPublicKey();
+      ({ payload } = await jwtVerify(token, key, {
+        algorithms: ["EdDSA"],
+        issuer,
+        audience,
+      }));
+    } catch (verifyError) {
+      const code =
+        typeof verifyError === "object" &&
+        verifyError !== null &&
+        "code" in verifyError
+          ? String((verifyError as { code?: unknown }).code)
+          : "";
+      if (
+        code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED" ||
+        code === "ERR_JWK_NOT_FOUND"
+      ) {
+        const refreshedKey = await ServerEnv.jwkPublicKey(true);
+        ({ payload } = await jwtVerify(token, refreshedKey, {
+          algorithms: ["EdDSA"],
+          issuer,
+          audience,
+        }));
+      } else {
+        throw verifyError;
+      }
+    }
     const result = TokenPayloadSchema.safeParse(payload);
     if (!result.success) {
       return {
@@ -70,11 +93,12 @@ export async function getUserMe(
 > {
   try {
     // Get the user object
-    const response = await fetch(ServerEnv.jwtIssuer() + "/users/@me", {
+    const response = await fetch(ServerEnv.internalApiBase() + "/users/@me", {
       headers: {
         authorization: `Bearer ${token}`,
         "x-api-key": ServerEnv.apiKey(),
       },
+      signal: AbortSignal.timeout(5000),
     });
     if (response.status !== 200) {
       return {
