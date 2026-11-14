@@ -12,6 +12,7 @@ import { GameEnv } from "../core/configuration/Config";
 import { getApiBase, getAudience } from "./Api";
 import { crazyGamesSDK } from "./CrazyGamesSDK";
 import { steamSDK } from "./SteamSDK";
+import { isTurnstileClientRequired, requestTurnstileToken } from "./Turnstile";
 import { generateCryptoRandomUUID } from "./Utils";
 
 export type UserAuth = { jwt: string; claims: TokenPayload } | false;
@@ -42,11 +43,76 @@ export interface AuthProvidersInfo {
 }
 
 const PERSISTENT_ID_KEY = "player_persistent_id";
+const AUTH_REFRESH_LOCK_NAME = "frontierx_auth_refresh_lock";
+const AUTH_BROADCAST_CHANNEL = "frontierx_auth_sync";
+
+let __tabId: string | null = null;
+function getTabId(): string {
+  __tabId ??=
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return __tabId;
+}
 
 let __jwt: string | null = null;
 let __refreshPromise: Promise<void> | null = null;
 let __guestPromise: Promise<UserAuth> | null = null;
 let __expiresAt: number = 0;
+let __broadcastChannel: BroadcastChannel | null = null;
+
+type AuthBroadcastMessage =
+  | { type: "session_updated"; sender: string; jwt: string; expiresAt: number }
+  | { type: "session_cleared"; sender: string };
+
+function getBroadcastChannel(): BroadcastChannel | null {
+  if (typeof BroadcastChannel === "undefined") {
+    return null;
+  }
+  if (!__broadcastChannel) {
+    try {
+      __broadcastChannel = new BroadcastChannel(AUTH_BROADCAST_CHANNEL);
+      __broadcastChannel.onmessage = (
+        event: MessageEvent<AuthBroadcastMessage>,
+      ) => {
+        const msg = event.data;
+        if (!msg || msg.sender === getTabId()) {
+          return;
+        }
+        if (
+          msg.type === "session_updated" &&
+          typeof msg.jwt === "string" &&
+          typeof msg.expiresAt === "number"
+        ) {
+          __jwt = msg.jwt;
+          __expiresAt = msg.expiresAt;
+        } else if (msg.type === "session_cleared") {
+          __jwt = null;
+          __expiresAt = 0;
+        }
+      };
+    } catch {
+      return null;
+    }
+  }
+  return __broadcastChannel;
+}
+
+function broadcastSessionUpdate(jwt: string, expiresAt: number): void {
+  getBroadcastChannel()?.postMessage({
+    type: "session_updated",
+    sender: getTabId(),
+    jwt,
+    expiresAt,
+  } satisfies AuthBroadcastMessage);
+}
+
+function broadcastSessionCleared(): void {
+  getBroadcastChannel()?.postMessage({
+    type: "session_cleared",
+    sender: getTabId(),
+  } satisfies AuthBroadcastMessage);
+}
 
 export function discordLogin() {
   const redirectUri = encodeURIComponent(window.location.href);
@@ -141,6 +207,7 @@ export async function logOut(allSessions: boolean = false): Promise<boolean> {
 export function clearLocalSession(): void {
   __jwt = null;
   __expiresAt = 0;
+  broadcastSessionCleared();
   localStorage.removeItem(PERSISTENT_ID_KEY);
   // Switch cosmetics back to the logged-out scope. The player's own
   // selections stay stored under their publicId and are restored on the
@@ -236,9 +303,22 @@ async function refreshJwt(): Promise<void> {
   if (__refreshPromise) {
     return __refreshPromise;
   }
-  __refreshPromise = doRefreshJwt();
+  getBroadcastChannel();
+  const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+  const run =
+    locks && typeof locks.request === "function"
+      ? locks.request(AUTH_REFRESH_LOCK_NAME, async () => {
+          // Another tab may have rotated the refresh cookie and broadcasted a
+          // fresh access token while we waited on the cross-tab lock.
+          if (__jwt !== null && Date.now() < __expiresAt - 3 * 60 * 1000) {
+            return;
+          }
+          await doRefreshJwt();
+        })
+      : doRefreshJwt();
+  __refreshPromise = run;
   try {
-    await __refreshPromise;
+    await run;
   } finally {
     __refreshPromise = null;
   }
@@ -282,6 +362,7 @@ async function doRefreshJwt(): Promise<void> {
     __expiresAt = Date.now() + expiresIn * 1000;
     console.log("Refresh succeeded");
     __jwt = jwt;
+    broadcastSessionUpdate(jwt, __expiresAt);
   } catch (e) {
     console.error("Refresh failed", e);
     // if server unreachable, just clear jwt
@@ -408,6 +489,7 @@ async function setSessionFromAuthResponse(json: {
   }
   __jwt = json.jwt;
   __expiresAt = Date.now() + json.expiresIn * 1000;
+  broadcastSessionUpdate(__jwt, __expiresAt);
   return userAuth(false);
 }
 
@@ -429,7 +511,9 @@ export async function forceRefreshSession(): Promise<UserAuth> {
   return ensureGuestSession();
 }
 
-export async function ensureGuestSession(): Promise<UserAuth> {
+export async function ensureGuestSession(
+  prefetchedTurnstileToken?: string,
+): Promise<UserAuth> {
   const existing = await userAuth();
   if (existing !== false) {
     return existing;
@@ -439,13 +523,18 @@ export async function ensureGuestSession(): Promise<UserAuth> {
   }
   __guestPromise = (async (): Promise<UserAuth> => {
     try {
+      let turnstileToken = prefetchedTurnstileToken;
+      if (!turnstileToken && isTurnstileClientRequired()) {
+        turnstileToken = (await requestTurnstileToken()).token;
+      }
+      const payload = turnstileToken ? { turnstileToken } : {};
       const response = await fetch(getApiBase() + "/auth/guest", {
         method: "POST",
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
-        body: "{}",
+        body: JSON.stringify(payload),
       });
       if (!response.ok) {
         console.warn("Guest session provisioning failed", response.status);
@@ -470,19 +559,27 @@ export async function registerAccount(args: {
   email: string;
   password: string;
   username?: string;
+  turnstileToken?: string;
 }): Promise<AuthActionResult> {
   try {
+    let turnstileToken = args.turnstileToken;
+    if (!turnstileToken && isTurnstileClientRequired()) {
+      turnstileToken = (await requestTurnstileToken()).token;
+    }
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
     if (__jwt) {
       headers.Authorization = `Bearer ${__jwt}`;
     }
+    const body = turnstileToken
+      ? { ...args, turnstileToken }
+      : { email: args.email, password: args.password, username: args.username };
     const response = await fetch(getApiBase() + "/auth/register", {
       method: "POST",
       credentials: "include",
       headers,
-      body: JSON.stringify(args),
+      body: JSON.stringify(body),
     });
     const json = (await response.json().catch(() => null)) as {
       jwt?: unknown;
@@ -653,6 +750,20 @@ export async function getPlayToken(): Promise<string> {
   throw new Error(
     "Authentication required: unable to provision FrontierX session token.",
   );
+}
+
+/**
+ * Resolves a local-only play token for offline single-player matches and
+ * local replays without requiring remote authentication availability.
+ */
+export async function getLocalPlayToken(): Promise<string> {
+  if (__jwt !== null && Date.now() < __expiresAt - 60_000) {
+    const cached = await userAuth(false);
+    if (cached !== false) {
+      return cached.jwt;
+    }
+  }
+  return getPersistentIDFromLocalStorage();
 }
 
 // WARNING: DO NOT EXPOSE THIS ID

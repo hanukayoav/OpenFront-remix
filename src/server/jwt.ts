@@ -36,8 +36,8 @@ export async function verifyClientToken(
     const audience = ServerEnv.jwtAudience();
     let payload: Record<string, unknown>;
     try {
-      const key = await ServerEnv.jwkPublicKey();
-      ({ payload } = await jwtVerify(token, key, {
+      const jwkSet = await ServerEnv.jwkSet();
+      ({ payload } = await jwtVerify(token, jwkSet, {
         algorithms: ["EdDSA"],
         issuer,
         audience,
@@ -51,10 +51,11 @@ export async function verifyClientToken(
           : "";
       if (
         code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED" ||
-        code === "ERR_JWK_NOT_FOUND"
+        code === "ERR_JWK_NOT_FOUND" ||
+        code === "ERR_JWKS_NO_MATCHING_KEY"
       ) {
-        const refreshedKey = await ServerEnv.jwkPublicKey(true);
-        ({ payload } = await jwtVerify(token, refreshedKey, {
+        const refreshedSet = await ServerEnv.jwkSet(true);
+        ({ payload } = await jwtVerify(token, refreshedSet, {
           algorithms: ["EdDSA"],
           issuer,
           audience,

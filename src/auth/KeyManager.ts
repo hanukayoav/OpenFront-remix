@@ -2,6 +2,7 @@ import crypto from "crypto";
 import fs from "fs";
 import {
   calculateJwkThumbprint,
+  createLocalJWKSet,
   exportJWK,
   generateKeyPair,
   importJWK,
@@ -18,6 +19,8 @@ import { uuidToBase64url } from "../core/Base64";
 export interface KeyManagerOptions {
   /** PEM-encoded PKCS8 Ed25519 private key (optional override via env/secret). */
   privateKeyPem?: string;
+  /** Optional previous public JWKs to retain during PEM-based key rotation. */
+  previousPublicJwks?: JWK[];
   /** File path to persist or load the Ed25519 JWK keypair. */
   keyFilePath?: string;
   /** If true, keeps generated keys strictly in memory (for tests). */
@@ -46,6 +49,7 @@ export interface SignedAccessToken {
 }
 
 type KeyLike = Awaited<ReturnType<typeof importJWK>>;
+type LocalJwkSet = ReturnType<typeof createLocalJWKSet>;
 
 const PersistedKeySchema = z.object({
   privateJwk: z.record(z.string(), z.unknown()),
@@ -53,16 +57,58 @@ const PersistedKeySchema = z.object({
   previousPublicJwks: z.array(z.record(z.string(), z.unknown())).optional(),
 });
 
+function enforceOwnerOnlyFileMode(filePath: string): void {
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {
+    // Windows NTFS ignores POSIX chmod; file permissions stay user-scoped.
+  }
+}
+
+function enforceOwnerOnlyDirMode(dirPath: string): void {
+  try {
+    fs.chmodSync(dirPath, 0o700);
+  } catch {
+    // Windows NTFS ignores POSIX chmod.
+  }
+}
+
+function writePersistedKeyAtomic(
+  keyFilePath: string,
+  payload: {
+    privateJwk: JWK;
+    publicJwk: JWK;
+    previousPublicJwks: JWK[];
+  },
+): void {
+  const dir = path.dirname(keyFilePath);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  enforceOwnerOnlyDirMode(dir);
+  const tmpPath = `${keyFilePath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  enforceOwnerOnlyFileMode(tmpPath);
+  fs.renameSync(tmpPath, keyFilePath);
+  enforceOwnerOnlyFileMode(keyFilePath);
+}
+
 export class KeyManager {
+  private readonly verifyKeySet: LocalJwkSet;
+
   private constructor(
     private readonly privateKey: KeyLike,
-    private readonly publicKey: KeyLike,
     private readonly publicJwk: JWK,
     private readonly previousPublicJwks: JWK[],
     private readonly issuer: string,
     private readonly audience: string,
     private readonly accessTokenTtlSeconds: number,
-  ) {}
+  ) {
+    this.verifyKeySet = createLocalJWKSet({
+      keys: [this.publicJwk, ...this.previousPublicJwks],
+    });
+  }
 
   static async create(options: KeyManagerOptions): Promise<KeyManager> {
     const ttl = options.accessTokenTtlSeconds ?? 900;
@@ -84,12 +130,10 @@ export class KeyManager {
         use: "sig",
         kid,
       };
-      const publicKey = await importJWK(publicJwk, "EdDSA");
       return new KeyManager(
         privateKey,
-        publicKey,
         publicJwk,
-        [],
+        options.previousPublicJwks ?? [],
         options.issuer,
         options.audience,
         ttl,
@@ -98,16 +142,18 @@ export class KeyManager {
 
     const keyFilePath = options.ephemeral ? undefined : options.keyFilePath;
     if (keyFilePath && fs.existsSync(keyFilePath)) {
+      enforceOwnerOnlyDirMode(path.dirname(keyFilePath));
+      enforceOwnerOnlyFileMode(keyFilePath);
       const raw = JSON.parse(fs.readFileSync(keyFilePath, "utf8"));
       const parsed = PersistedKeySchema.parse(raw);
       const privateJwk = parsed.privateJwk as JWK;
       const publicJwk = parsed.publicJwk as JWK;
       const previousPublicJwks = (parsed.previousPublicJwks ?? []) as JWK[];
       const privateKey = await importJWK(privateJwk, "EdDSA");
-      const publicKey = await importJWK(publicJwk, "EdDSA");
+      // Validate public key parses cleanly as EdDSA.
+      await importJWK(publicJwk, "EdDSA");
       return new KeyManager(
         privateKey,
-        publicKey,
         publicJwk,
         previousPublicJwks,
         options.issuer,
@@ -137,34 +183,76 @@ export class KeyManager {
     };
 
     if (keyFilePath) {
-      fs.mkdirSync(path.dirname(keyFilePath), { recursive: true });
-      const tmpPath = `${keyFilePath}.${process.pid}.${Date.now()}.tmp`;
-      fs.writeFileSync(
-        tmpPath,
-        JSON.stringify(
-          { privateJwk, publicJwk, previousPublicJwks: [] },
-          null,
-          2,
-        ),
-        { encoding: "utf8", mode: 0o600 },
-      );
-      fs.renameSync(tmpPath, keyFilePath);
-      try {
-        fs.chmodSync(keyFilePath, 0o600);
-      } catch {
-        // Windows NTFS ignores POSIX chmod; file permissions stay user-scoped.
-      }
+      writePersistedKeyAtomic(keyFilePath, {
+        privateJwk,
+        publicJwk,
+        previousPublicJwks: options.previousPublicJwks ?? [],
+      });
     }
 
     return new KeyManager(
       privateKey,
-      publicKey,
       publicJwk,
-      [],
+      options.previousPublicJwks ?? [],
       options.issuer,
       options.audience,
       ttl,
     );
+  }
+
+  /**
+   * Atomically generates a new active Ed25519 key in `keyFilePath` while retaining
+   * up to `maxPrevious` prior public JWKs so unexpired tokens remain valid during rollover.
+   */
+  static async rotateKeyFile(
+    keyFilePath: string,
+    maxPrevious = 2,
+  ): Promise<{ currentKid: string; previousKids: string[] }> {
+    let previousPublicJwks: JWK[] = [];
+    if (fs.existsSync(keyFilePath)) {
+      enforceOwnerOnlyFileMode(keyFilePath);
+      const raw = JSON.parse(fs.readFileSync(keyFilePath, "utf8"));
+      const parsed = PersistedKeySchema.parse(raw);
+      const oldCurrent = parsed.publicJwk as JWK;
+      const oldPrev = (parsed.previousPublicJwks ?? []) as JWK[];
+      previousPublicJwks = [oldCurrent, ...oldPrev].slice(
+        0,
+        Math.max(0, maxPrevious),
+      );
+    }
+
+    const { publicKey, privateKey } = await generateKeyPair("EdDSA", {
+      crv: "Ed25519",
+      extractable: true,
+    });
+    const rawPrivateJwk = await exportJWK(privateKey);
+    const rawPublicJwk = await exportJWK(publicKey);
+    const kid = await calculateJwkThumbprint(rawPublicJwk, "sha256");
+    const publicJwk: JWK = {
+      ...rawPublicJwk,
+      alg: "EdDSA",
+      use: "sig",
+      kid,
+    };
+    const privateJwk: JWK = {
+      ...rawPrivateJwk,
+      alg: "EdDSA",
+      use: "sig",
+      kid,
+    };
+
+    writePersistedKeyAtomic(keyFilePath, {
+      privateJwk,
+      publicJwk,
+      previousPublicJwks,
+    });
+
+    return {
+      currentKid: kid,
+      previousKids: previousPublicJwks
+        .map((k) => k.kid)
+        .filter((k): k is string => typeof k === "string"),
+    };
   }
 
   getPublicJwks(): { keys: JWK[] } {
@@ -227,7 +315,7 @@ export class KeyManager {
   }
 
   async verifyAccessToken(token: string): Promise<TokenPayload> {
-    const { payload } = await jwtVerify(token, this.publicKey, {
+    const { payload } = await jwtVerify(token, this.verifyKeySet, {
       algorithms: ["EdDSA"],
       issuer: this.issuer,
       audience: this.audience,

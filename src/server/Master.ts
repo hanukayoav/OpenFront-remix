@@ -199,6 +199,7 @@ export function createMasterApp(options: MasterAppOptions = {}) {
     app.all(
       [
         "/api/.well-known/jwks.json",
+        "/api/ready",
         "/api/auth/{*splat}",
         "/api/users/{*splat}",
         "/api/join_verify",

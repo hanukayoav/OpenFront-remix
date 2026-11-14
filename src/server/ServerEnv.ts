@@ -1,26 +1,28 @@
-import { JWK } from "jose";
+import { createLocalJWKSet, JWK } from "jose";
 import { z } from "zod";
-import { GameEnv, parseGameEnv } from "../core/configuration/Config";
+import {
+  GameEnv,
+  JwksSchema,
+  parseGameEnv,
+} from "../core/configuration/Config";
 import { GameID } from "../core/Schemas";
 import { generateID, simpleHash } from "../core/Util";
 import { resolveRuntimeGitCommit } from "./BuildMetadata";
 
-const JwksSchema = z.object({
-  keys: z
-    .object({
-      alg: z.literal("EdDSA"),
-      crv: z.literal("Ed25519"),
-      kty: z.literal("OKP"),
-      x: z.string(),
-    })
-    .array()
-    .min(1),
-});
+type LocalJwkSet = ReturnType<typeof createLocalJWKSet>;
 
 export class ServerEnv {
-  private static readonly gameEnv: GameEnv = parseGameEnv(process.env.GAME_ENV);
-  private static publicKey: JWK | null = null;
+  private static gameEnv: GameEnv = parseGameEnv(process.env.GAME_ENV);
+  private static jwksKeys: JWK[] | null = null;
+  private static jwksVerifier: LocalJwkSet | null = null;
   private static jwksLastFetchMs = 0;
+
+  static reset(): void {
+    ServerEnv.gameEnv = parseGameEnv(process.env.GAME_ENV);
+    ServerEnv.jwksKeys = null;
+    ServerEnv.jwksVerifier = null;
+    ServerEnv.jwksLastFetchMs = 0;
+  }
 
   // Values that also flow to the client via index.html, but on the server
   // are read from process.env directly. Server code never reaches into
@@ -105,13 +107,20 @@ export class ServerEnv {
     }
     return ServerEnv.jwtIssuer();
   }
-  static async jwkPublicKey(forceRefresh = false): Promise<JWK> {
+  private static async fetchJwks(forceRefresh = false): Promise<{
+    keys: JWK[];
+    verifier: LocalJwkSet;
+  }> {
     const now = Date.now();
     if (
-      ServerEnv.publicKey &&
+      ServerEnv.jwksKeys &&
+      ServerEnv.jwksVerifier &&
       (!forceRefresh || now - ServerEnv.jwksLastFetchMs < 5000)
     ) {
-      return ServerEnv.publicKey;
+      return {
+        keys: ServerEnv.jwksKeys,
+        verifier: ServerEnv.jwksVerifier,
+      };
     }
     const jwksUrl = ServerEnv.internalApiBase() + "/.well-known/jwks.json";
     console.log(`Fetching JWKS from ${jwksUrl}`);
@@ -129,8 +138,20 @@ export class ServerEnv {
       throw new Error("Invalid JWKS");
     }
     ServerEnv.jwksLastFetchMs = now;
-    ServerEnv.publicKey = result.data.keys[0];
-    return ServerEnv.publicKey;
+    ServerEnv.jwksKeys = result.data.keys;
+    ServerEnv.jwksVerifier = createLocalJWKSet({ keys: result.data.keys });
+    return {
+      keys: ServerEnv.jwksKeys,
+      verifier: ServerEnv.jwksVerifier,
+    };
+  }
+  static async jwkSet(forceRefresh = false): Promise<LocalJwkSet> {
+    const { verifier } = await ServerEnv.fetchJwks(forceRefresh);
+    return verifier;
+  }
+  static async jwkPublicKey(forceRefresh = false): Promise<JWK> {
+    const { keys } = await ServerEnv.fetchJwks(forceRefresh);
+    return keys[0];
   }
   static turnIntervalMs(): number {
     return 100;

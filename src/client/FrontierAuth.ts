@@ -1,6 +1,7 @@
 import type { UserMeResponse } from "../core/ApiSchemas";
 import { getApiBase } from "./Api";
 import * as Auth from "./Auth";
+import { isTurnstileClientRequired, requestTurnstileToken } from "./Turnstile";
 
 export interface FrontierAuthActionResult {
   ok: boolean;
@@ -52,8 +53,13 @@ export async function registerFrontierAccount(args: {
   email: string;
   password: string;
   username?: string;
+  turnstileToken?: string;
 }): Promise<FrontierAuthActionResult> {
   try {
+    let turnstileToken = args.turnstileToken;
+    if (!turnstileToken && isTurnstileClientRequired()) {
+      turnstileToken = (await requestTurnstileToken()).token;
+    }
     const authHeader = await Auth.getAuthHeader().catch(() => "");
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -61,11 +67,14 @@ export async function registerFrontierAccount(args: {
     if (authHeader) {
       headers.Authorization = authHeader;
     }
+    const body = turnstileToken
+      ? { ...args, turnstileToken }
+      : { email: args.email, password: args.password, username: args.username };
     const response = await fetch(`${getApiBase()}/auth/register`, {
       method: "POST",
       credentials: "include",
       headers,
-      body: JSON.stringify(args),
+      body: JSON.stringify(body),
     });
     const json = (await response.json().catch(() => null)) as {
       jwt?: unknown;

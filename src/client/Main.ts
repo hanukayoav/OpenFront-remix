@@ -64,6 +64,7 @@ import {
   SendToggleGameStartTimer,
   SendUpdateGameConfigIntentEvent,
 } from "./Transport";
+import { isTurnstileClientRequired, requestTurnstileToken } from "./Turnstile";
 import { UserSettingModal } from "./UserSettingModal";
 import "./UsernameInput";
 import { genAnonUsername, UsernameInput } from "./UsernameInput";
@@ -93,7 +94,6 @@ import "./styles/modal/chat.css";
 
 declare global {
   interface Window {
-    turnstile: any;
     adsEnabled: boolean;
     gtag?: (...args: any[]) => void;
     PageOS: {
@@ -186,7 +186,7 @@ class Client {
   private turnstileTokenPromise: Promise<{
     token: string;
     createdAt: number;
-  }> | null = null;
+  } | null> | null = null;
 
   async initialize(): Promise<void> {
     crazyGamesSDK.maybeInit();
@@ -249,10 +249,13 @@ class Client {
     // so rendering the widget there alerts and rejects — and replays never
     // send a token anyway (see getTurnstileToken below).
     this.turnstileTokenPromise =
-      ClientEnv.instanceId() === "desktop" ||
+      !isTurnstileClientRequired() ||
       isReplayShellHost(window.location.hostname)
         ? null
-        : getTurnstileToken();
+        : requestTurnstileToken().catch((err) => {
+            console.warn("Turnstile prefetch unavailable", err);
+            return null;
+          });
 
     // Wait for components to render before setting version
     await customElements.whenDefined("mobile-nav-bar");
@@ -841,7 +844,10 @@ class Client {
     if (lobby.source !== "public") {
       this.updateJoinUrlForShare(lobby.gameID);
     }
-    const auth = await userAuth();
+    const isLocalOnly =
+      lobby.gameStartInfo?.config.gameType === GameType.Singleplayer ||
+      lobby.gameRecord !== undefined;
+    const auth = isLocalOnly ? false : await userAuth();
     const playerRole = auth !== false ? (auth.claims.role ?? null) : null;
     // Ensure the one-shot Steam name-seed has settled before reading
     // getUsername(), mirroring how getClanCheck() runs in parallel with the
@@ -1111,7 +1117,14 @@ class Client {
     // Always request a new token on crazygames.
     if (this.turnstileTokenPromise === null || crazyGamesSDK.isOnCrazyGames()) {
       console.log("No prefetched turnstile token, getting new token");
-      return (await getTurnstileToken())?.token ?? null;
+      try {
+        return (await requestTurnstileToken()).token;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Turnstile error: ${message}`);
+        alert(`Turnstile error: ${message}. Please refresh and try again.`);
+        throw err;
+      }
     }
 
     const token = await this.turnstileTokenPromise;
@@ -1119,7 +1132,7 @@ class Client {
     this.turnstileTokenPromise = null;
     if (!token) {
       console.log("No turnstile token");
-      return null;
+      return (await requestTurnstileToken()).token;
     }
 
     const tokenTTL = 3 * 60 * 1000;
@@ -1129,7 +1142,7 @@ class Client {
       return token.token;
     } else {
       console.log("Turnstile token expired, getting new token");
-      return (await getTurnstileToken())?.token ?? null;
+      return (await requestTurnstileToken()).token;
     }
   }
 }
@@ -1173,43 +1186,4 @@ if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", bootstrap);
 } else {
   bootstrap();
-}
-
-async function getTurnstileToken(): Promise<{
-  token: string;
-  createdAt: number;
-}> {
-  // Wait for Turnstile script to load (handles slow connections)
-  let attempts = 0;
-  while (typeof window.turnstile === "undefined" && attempts < 100) {
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    attempts++;
-  }
-
-  if (typeof window.turnstile === "undefined") {
-    throw new Error("Failed to load Turnstile script");
-  }
-
-  const widgetId = window.turnstile.render("#turnstile-container", {
-    sitekey: ClientEnv.turnstileSiteKey(),
-    size: "normal",
-    appearance: "interaction-only",
-    theme: "light",
-  });
-
-  return new Promise((resolve, reject) => {
-    window.turnstile.execute(widgetId, {
-      callback: (token: string) => {
-        window.turnstile.remove(widgetId);
-        console.log(`Turnstile token received: ${token}`);
-        resolve({ token, createdAt: Date.now() });
-      },
-      "error-callback": (errorCode: string) => {
-        window.turnstile.remove(widgetId);
-        console.error(`Turnstile error: ${errorCode}`);
-        alert(`Turnstile error: ${errorCode}. Please refresh and try again.`);
-        reject(new Error(`Turnstile failed: ${errorCode}`));
-      },
-    });
-  });
 }

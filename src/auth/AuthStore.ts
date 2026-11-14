@@ -11,8 +11,12 @@ const SCRYPT_KEYLEN = 64;
 const SCRYPT_COST = 16384;
 const SCRYPT_BLOCK_SIZE = 8;
 const SCRYPT_PARALLELISM = 1;
+const SCRYPT_MAXMEM = 32 * 1024 * 1024;
+const DUMMY_PASSWORD_HASH = `scrypt$00000000000000000000000000000000$${"00".repeat(SCRYPT_KEYLEN)}`;
 const USERNAME_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
 const RECOVERY_CODE_TTL_MS = 365 * 24 * 60 * 60 * 1000;
+const DEFAULT_ARCHIVE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const DEFAULT_ARCHIVE_MAX_ROWS = 50_000;
 
 export type AccountType = "guest" | "account";
 
@@ -130,34 +134,139 @@ export function normalizeRecoveryCode(code: string): string {
   return code.trim().toUpperCase().replace(/\s+/g, "");
 }
 
+function scryptAsync(
+  password: string,
+  salt: string,
+  keylen: number,
+  options: crypto.ScryptOptions,
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    crypto.scrypt(password, salt, keylen, options, (err, derivedKey) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve(derivedKey);
+    });
+  });
+}
+
+function parseScryptHash(storedHash: string): {
+  salt: string;
+  expected: Buffer;
+  N: number;
+  r: number;
+  p: number;
+} | null {
+  const parts = storedHash.split("$");
+  if (parts[0] !== "scrypt") {
+    return null;
+  }
+  if (parts.length === 3) {
+    const [, salt, expectedHex] = parts;
+    if (!salt || !expectedHex) return null;
+    return {
+      salt,
+      expected: Buffer.from(expectedHex, "hex"),
+      N: SCRYPT_COST,
+      r: SCRYPT_BLOCK_SIZE,
+      p: SCRYPT_PARALLELISM,
+    };
+  }
+  if (parts.length === 6) {
+    const [, nStr, rStr, pStr, salt, expectedHex] = parts;
+    const N = Number(nStr);
+    const r = Number(rStr);
+    const p = Number(pStr);
+    if (
+      !Number.isInteger(N) ||
+      !Number.isInteger(r) ||
+      !Number.isInteger(p) ||
+      N <= 1 ||
+      r <= 0 ||
+      p <= 0 ||
+      !salt ||
+      !expectedHex
+    ) {
+      return null;
+    }
+    return {
+      salt,
+      expected: Buffer.from(expectedHex, "hex"),
+      N,
+      r,
+      p,
+    };
+  }
+  return null;
+}
+
 export function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString("hex");
   const derived = crypto.scryptSync(password, salt, SCRYPT_KEYLEN, {
     N: SCRYPT_COST,
     r: SCRYPT_BLOCK_SIZE,
     p: SCRYPT_PARALLELISM,
+    maxmem: SCRYPT_MAXMEM,
   });
-  return `scrypt$${salt}$${derived.toString("hex")}`;
+  return `scrypt$${SCRYPT_COST}$${SCRYPT_BLOCK_SIZE}$${SCRYPT_PARALLELISM}$${salt}$${derived.toString("hex")}`;
 }
 
-export function verifyPassword(password: string, storedHash: string): boolean {
-  const parts = storedHash.split("$");
-  if (parts.length !== 3 || parts[0] !== "scrypt") {
-    return false;
-  }
-  const [, salt, expectedHex] = parts;
-  if (!salt || !expectedHex) {
-    return false;
-  }
-  const expected = Buffer.from(expectedHex, "hex");
-  const actual = crypto.scryptSync(password, salt, expected.length, {
+export async function hashPasswordAsync(password: string): Promise<string> {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const derived = await scryptAsync(password, salt, SCRYPT_KEYLEN, {
     N: SCRYPT_COST,
     r: SCRYPT_BLOCK_SIZE,
     p: SCRYPT_PARALLELISM,
+    maxmem: SCRYPT_MAXMEM,
   });
+  return `scrypt$${SCRYPT_COST}$${SCRYPT_BLOCK_SIZE}$${SCRYPT_PARALLELISM}$${salt}$${derived.toString("hex")}`;
+}
+
+export function verifyPassword(password: string, storedHash: string): boolean {
+  const parsed = parseScryptHash(storedHash);
+  if (!parsed || parsed.expected.length === 0) {
+    return false;
+  }
+  const actual = crypto.scryptSync(
+    password,
+    parsed.salt,
+    parsed.expected.length,
+    {
+      N: parsed.N,
+      r: parsed.r,
+      p: parsed.p,
+      maxmem: SCRYPT_MAXMEM,
+    },
+  );
   return (
-    actual.length === expected.length &&
-    crypto.timingSafeEqual(actual, expected)
+    actual.length === parsed.expected.length &&
+    crypto.timingSafeEqual(actual, parsed.expected)
+  );
+}
+
+export async function verifyPasswordAsync(
+  password: string,
+  storedHash: string,
+): Promise<boolean> {
+  const parsed = parseScryptHash(storedHash);
+  if (!parsed || parsed.expected.length === 0) {
+    return false;
+  }
+  const actual = await scryptAsync(
+    password,
+    parsed.salt,
+    parsed.expected.length,
+    {
+      N: parsed.N,
+      r: parsed.r,
+      p: parsed.p,
+      maxmem: SCRYPT_MAXMEM,
+    },
+  );
+  return (
+    actual.length === parsed.expected.length &&
+    crypto.timingSafeEqual(actual, parsed.expected)
   );
 }
 
@@ -280,8 +389,11 @@ export class AuthStore {
   private readonly accountCanCreatePublicLobbies: boolean;
 
   constructor(options: AuthStoreOptions) {
-    if (options.dbPath !== ":memory:") {
-      fs.mkdirSync(path.dirname(options.dbPath), { recursive: true });
+    const isMemory = options.dbPath === ":memory:";
+    if (!isMemory) {
+      const dir = path.dirname(options.dbPath);
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      this.enforcePosixMode(dir, 0o700);
     }
     this.db = new DatabaseSync(options.dbPath, {
       enableForeignKeyConstraints: true,
@@ -293,6 +405,24 @@ export class AuthStore {
     this.accountCanCreatePublicLobbies =
       options.accountCanCreatePublicLobbies ?? true;
     this.initSchema();
+    if (!isMemory) {
+      this.enforcePosixMode(options.dbPath, 0o600);
+      this.enforcePosixMode(`${options.dbPath}-wal`, 0o600);
+      this.enforcePosixMode(`${options.dbPath}-shm`, 0o600);
+    }
+  }
+
+  private enforcePosixMode(targetPath: string, mode: number): void {
+    if (process.platform === "win32") {
+      return;
+    }
+    try {
+      if (fs.existsSync(targetPath)) {
+        fs.chmodSync(targetPath, mode);
+      }
+    } catch {
+      // Ignore chmod errors on virtual/restricted filesystems.
+    }
   }
 
   private initSchema(): void {
@@ -350,10 +480,32 @@ export class AuthStore {
       CREATE TABLE IF NOT EXISTS games (
         game_id TEXT PRIMARY KEY,
         client_id TEXT,
+        user_uuid TEXT,
         archive_json TEXT NOT NULL,
         created_at INTEGER NOT NULL
       );
     `);
+
+    const gameColumns = this.db
+      .prepare("PRAGMA table_info(games)")
+      .all() as unknown as Array<{ name: string }>;
+    if (!gameColumns.some((col) => col.name === "user_uuid")) {
+      this.db.exec("ALTER TABLE games ADD COLUMN user_uuid TEXT");
+    }
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_games_created_at ON games(created_at)",
+    );
+  }
+
+  ping(): boolean {
+    try {
+      const row = this.db.prepare("SELECT 1 AS ok").get() as
+        | { ok?: number }
+        | undefined;
+      return row?.ok === 1;
+    } catch {
+      return false;
+    }
   }
 
   close(): void {
@@ -391,6 +543,95 @@ export class AuthStore {
     return this.getUserByUuid(uuid)!;
   }
 
+  private registerAccountWithHash(args: {
+    normalizedEmail: string;
+    passwordHash: string;
+    upgradeGuestUuid?: string;
+    usernameBase?: string | null;
+    now: number;
+  }):
+    | { status: "ok"; user: StoredUser; upgradedFromGuest: boolean }
+    | { status: "email_taken" } {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const existingByEmail = this.getUserByEmail(args.normalizedEmail);
+      if (existingByEmail) {
+        this.db.exec("COMMIT");
+        return { status: "email_taken" };
+      }
+
+      const canPublic = this.accountCanCreatePublicLobbies ? 1 : 0;
+
+      if (args.upgradeGuestUuid) {
+        const guest = this.getUserByUuid(args.upgradeGuestUuid);
+        if (guest && guest.accountType === "guest") {
+          this.db
+            .prepare(
+              `UPDATE users SET
+                account_type = 'account',
+                provider = 'frontierx',
+                email = ?,
+                password_hash = ?,
+                can_create_public_lobbies = CASE WHEN can_create_public_lobbies = 1 THEN 1 ELSE ? END,
+                updated_at = ?
+              WHERE uuid = ?`,
+            )
+            .run(
+              args.normalizedEmail,
+              args.passwordHash,
+              canPublic,
+              args.now,
+              guest.uuid,
+            );
+          this.db.exec("COMMIT");
+          return {
+            status: "ok",
+            user: this.getUserByUuid(guest.uuid)!,
+            upgradedFromGuest: true,
+          };
+        }
+      }
+
+      const uuid = crypto.randomUUID();
+      const publicId = this.createUniquePublicId();
+      const trimmedBase = args.usernameBase?.trim() ?? "";
+      const base = trimmedBase.length > 0 ? trimmedBase : null;
+      const disc = base ? generateDiscriminator() : null;
+      const status: UsernameStatus = "unclaimed";
+
+      this.db
+        .prepare(
+          `INSERT INTO users (
+            uuid, public_id, account_type, provider, email, password_hash,
+            username_base, username_discriminator, username_status,
+            flares_json, can_create_public_lobbies, created_at, updated_at
+          ) VALUES (?, ?, 'account', 'frontierx', ?, ?, ?, ?, ?, '[]', ?, ?, ?)`,
+        )
+        .run(
+          uuid,
+          publicId,
+          args.normalizedEmail,
+          args.passwordHash,
+          base,
+          disc,
+          status,
+          canPublic,
+          args.now,
+          args.now,
+        );
+
+      this.db.exec("COMMIT");
+      return {
+        status: "ok",
+        user: this.getUserByUuid(uuid)!,
+        upgradedFromGuest: false,
+      };
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   registerAccount(args: {
     email: string;
     password: string;
@@ -402,80 +643,66 @@ export class AuthStore {
     | { status: "email_taken" } {
     const now = args.now ?? Date.now();
     const normalizedEmail = args.email.trim().toLowerCase();
-    const existingByEmail = this.getUserByEmail(normalizedEmail);
-    if (existingByEmail) {
+    if (this.getUserByEmail(normalizedEmail)) {
       return { status: "email_taken" };
     }
+    const passwordHash = hashPassword(args.password);
+    return this.registerAccountWithHash({
+      normalizedEmail,
+      passwordHash,
+      upgradeGuestUuid: args.upgradeGuestUuid,
+      usernameBase: args.usernameBase,
+      now,
+    });
+  }
 
-    const pwHash = hashPassword(args.password);
-    const canPublic = this.accountCanCreatePublicLobbies ? 1 : 0;
-
-    if (args.upgradeGuestUuid) {
-      const guest = this.getUserByUuid(args.upgradeGuestUuid);
-      if (guest && guest.accountType === "guest") {
-        this.db
-          .prepare(
-            `UPDATE users SET
-              account_type = 'account',
-              provider = 'frontierx',
-              email = ?,
-              password_hash = ?,
-              can_create_public_lobbies = CASE WHEN can_create_public_lobbies = 1 THEN 1 ELSE ? END,
-              updated_at = ?
-            WHERE uuid = ?`,
-          )
-          .run(normalizedEmail, pwHash, canPublic, now, guest.uuid);
-        return {
-          status: "ok",
-          user: this.getUserByUuid(guest.uuid)!,
-          upgradedFromGuest: true,
-        };
-      }
+  async registerAccountAsync(args: {
+    email: string;
+    password: string;
+    upgradeGuestUuid?: string;
+    usernameBase?: string | null;
+    now?: number;
+  }): Promise<
+    | { status: "ok"; user: StoredUser; upgradedFromGuest: boolean }
+    | { status: "email_taken" }
+  > {
+    const now = args.now ?? Date.now();
+    const normalizedEmail = args.email.trim().toLowerCase();
+    if (this.getUserByEmail(normalizedEmail)) {
+      return { status: "email_taken" };
     }
-
-    const uuid = crypto.randomUUID();
-    const publicId = this.createUniquePublicId();
-    const trimmedBase = args.usernameBase?.trim() ?? "";
-    const base = trimmedBase.length > 0 ? trimmedBase : null;
-    const disc = base ? generateDiscriminator() : null;
-    const status: UsernameStatus = "unclaimed";
-
-    this.db
-      .prepare(
-        `INSERT INTO users (
-          uuid, public_id, account_type, provider, email, password_hash,
-          username_base, username_discriminator, username_status,
-          flares_json, can_create_public_lobbies, created_at, updated_at
-        ) VALUES (?, ?, 'account', 'frontierx', ?, ?, ?, ?, ?, '[]', ?, ?, ?)`,
-      )
-      .run(
-        uuid,
-        publicId,
-        normalizedEmail,
-        pwHash,
-        base,
-        disc,
-        status,
-        canPublic,
-        now,
-        now,
-      );
-
-    return {
-      status: "ok",
-      user: this.getUserByUuid(uuid)!,
-      upgradedFromGuest: false,
-    };
+    const passwordHash = await hashPasswordAsync(args.password);
+    return this.registerAccountWithHash({
+      normalizedEmail,
+      passwordHash,
+      upgradeGuestUuid: args.upgradeGuestUuid,
+      usernameBase: args.usernameBase,
+      now,
+    });
   }
 
   authenticateAccount(email: string, password: string): StoredUser | null {
     const user = this.getUserByEmail(email.trim().toLowerCase());
     if (!user || !user.passwordHash) {
-      // Mitigate timing differences against unknown emails with a dummy scrypt work factor.
-      verifyPassword(password, "scrypt$00000000000000000000000000000000$00");
+      verifyPassword(password, DUMMY_PASSWORD_HASH);
       return null;
     }
     if (!verifyPassword(password, user.passwordHash)) {
+      return null;
+    }
+    return user;
+  }
+
+  async authenticateAccountAsync(
+    email: string,
+    password: string,
+  ): Promise<StoredUser | null> {
+    const user = this.getUserByEmail(email.trim().toLowerCase());
+    if (!user || !user.passwordHash) {
+      await verifyPasswordAsync(password, DUMMY_PASSWORD_HASH);
+      return null;
+    }
+    if (!(await verifyPasswordAsync(password, user.passwordHash))) {
       return null;
     }
     return user;
@@ -626,6 +853,29 @@ export class AuthStore {
     return { sessionId, familyId, refreshToken, expiresAt };
   }
 
+  /**
+   * Read-only lookup of a valid, unspent, non-revoked refresh session. Does not
+   * consume or rotate the token so failed upstream calls cannot burn sessions.
+   */
+  peekRefreshSession(
+    refreshToken: string,
+    now = Date.now(),
+  ): StoredUser | null {
+    const tokenHash = sha256Hex(refreshToken);
+    const row = this.db
+      .prepare("SELECT * FROM sessions WHERE token_hash = ? LIMIT 1")
+      .get(tokenHash) as unknown as SessionRow | undefined;
+    if (
+      !row ||
+      row.revoked_at !== null ||
+      row.used_at !== null ||
+      row.expires_at <= now
+    ) {
+      return null;
+    }
+    return this.getUserByUuid(row.user_uuid);
+  }
+
   rotateRefreshSession(args: {
     refreshToken: string;
     userAgent?: string | null;
@@ -740,6 +990,10 @@ export class AuthStore {
     return Number(result.changes);
   }
 
+  /**
+   * Issues a new recovery code for `userUuid`, revoking any previously unused
+   * codes for that user so at most one active recovery code exists at a time.
+   */
   createRecoveryCode(
     userUuid: string,
     now = Date.now(),
@@ -748,13 +1002,25 @@ export class AuthStore {
     const codeHash = sha256Hex(normalizeRecoveryCode(recoveryCode));
     const expiresAt = now + RECOVERY_CODE_TTL_MS;
     const id = crypto.randomUUID();
-    this.db
-      .prepare(
-        `INSERT INTO recovery_codes (id, user_uuid, code_hash, expires_at, used_at, created_at)
-         VALUES (?, ?, ?, ?, NULL, ?)`,
-      )
-      .run(id, userUuid, codeHash, expiresAt, now);
-    return { recoveryCode, expiresAt };
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db
+        .prepare(
+          "UPDATE recovery_codes SET used_at = ? WHERE user_uuid = ? AND used_at IS NULL",
+        )
+        .run(now, userUuid);
+      this.db
+        .prepare(
+          `INSERT INTO recovery_codes (id, user_uuid, code_hash, expires_at, used_at, created_at)
+           VALUES (?, ?, ?, ?, NULL, ?)`,
+        )
+        .run(id, userUuid, codeHash, expiresAt, now);
+      this.db.exec("COMMIT");
+      return { recoveryCode, expiresAt };
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   redeemRecoveryCode(args: {
@@ -794,9 +1060,22 @@ export class AuthStore {
         return { status: "invalid" };
       }
 
-      this.db
-        .prepare("UPDATE recovery_codes SET used_at = ? WHERE id = ?")
+      const markUsed = this.db
+        .prepare(
+          "UPDATE recovery_codes SET used_at = ? WHERE id = ? AND used_at IS NULL",
+        )
         .run(now, row.id);
+      if (Number(markUsed.changes) !== 1) {
+        this.db.exec("COMMIT");
+        return { status: "invalid" };
+      }
+
+      // Revoke all previously issued refresh sessions for this user upon recovery.
+      this.db
+        .prepare(
+          "UPDATE sessions SET revoked_at = ? WHERE user_uuid = ? AND revoked_at IS NULL",
+        )
+        .run(now, user.uuid);
 
       const session = this.issueRefreshSession({
         userUuid: user.uuid,
@@ -817,24 +1096,54 @@ export class AuthStore {
     gameId: string,
     archiveJson: string,
     clientId: string | null,
+    userUuid: string | null = null,
     now = Date.now(),
-  ): void {
-    this.db
+  ): { status: "ok" } | { status: "forbidden" } {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = this.db
+        .prepare("SELECT user_uuid FROM games WHERE game_id = ? LIMIT 1")
+        .get(gameId) as unknown as { user_uuid: string | null } | undefined;
+      if (existing && existing.user_uuid && existing.user_uuid !== userUuid) {
+        this.db.exec("COMMIT");
+        return { status: "forbidden" };
+      }
+      this.db
+        .prepare(
+          `INSERT INTO games (game_id, client_id, user_uuid, archive_json, created_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(game_id) DO UPDATE SET
+             archive_json = excluded.archive_json,
+             client_id = COALESCE(excluded.client_id, games.client_id),
+             user_uuid = COALESCE(games.user_uuid, excluded.user_uuid)`,
+        )
+        .run(gameId, clientId, userUuid, archiveJson, now);
+      this.db.exec("COMMIT");
+      return { status: "ok" };
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  getArchivedGameRecord(
+    gameId: string,
+  ): { archiveJson: string; userUuid: string | null } | null {
+    const row = this.db
       .prepare(
-        `INSERT INTO games (game_id, client_id, archive_json, created_at)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(game_id) DO UPDATE SET
-           archive_json = excluded.archive_json,
-           client_id = COALESCE(excluded.client_id, games.client_id)`,
+        "SELECT archive_json, user_uuid FROM games WHERE game_id = ? LIMIT 1",
       )
-      .run(gameId, clientId, archiveJson, now);
+      .get(gameId) as
+      | { archive_json: string; user_uuid: string | null }
+      | undefined;
+    return row
+      ? { archiveJson: row.archive_json, userUuid: row.user_uuid }
+      : null;
   }
 
   getArchivedGame(gameId: string): string | null {
-    const row = this.db
-      .prepare("SELECT archive_json FROM games WHERE game_id = ? LIMIT 1")
-      .get(gameId) as unknown as { archive_json: string } | undefined;
-    return row ? row.archive_json : null;
+    const record = this.getArchivedGameRecord(gameId);
+    return record ? record.archiveJson : null;
   }
 
   pruneExpiredSessions(now = Date.now()): number {
@@ -842,5 +1151,34 @@ export class AuthStore {
       .prepare("DELETE FROM sessions WHERE expires_at <= ?")
       .run(now);
     return Number(result.changes);
+  }
+
+  pruneOldArchives(
+    now = Date.now(),
+    maxAgeMs = DEFAULT_ARCHIVE_RETENTION_MS,
+    maxRows = DEFAULT_ARCHIVE_MAX_ROWS,
+  ): number {
+    let removed = 0;
+    const cutoff = now - maxAgeMs;
+    const byAge = this.db
+      .prepare("DELETE FROM games WHERE created_at < ?")
+      .run(cutoff);
+    removed += Number(byAge.changes);
+
+    const countRow = this.db
+      .prepare("SELECT COUNT(*) AS cnt FROM games")
+      .get() as unknown as { cnt: number };
+    const excess = countRow.cnt - maxRows;
+    if (excess > 0) {
+      const byCount = this.db
+        .prepare(
+          `DELETE FROM games WHERE game_id IN (
+             SELECT game_id FROM games ORDER BY created_at ASC LIMIT ?
+           )`,
+        )
+        .run(excess);
+      removed += Number(byCount.changes);
+    }
+    return removed;
   }
 }

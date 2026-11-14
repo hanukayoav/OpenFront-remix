@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { spawn, spawnSync, type ChildProcess } from "child_process";
 import fs from "fs";
+import http from "http";
 import { generateKeyPair, SignJWT } from "jose";
 import net from "net";
 import { DatabaseSync } from "node:sqlite";
@@ -147,6 +148,8 @@ function waitForServerMessage(
 
 describe("Production Multiplayer + Auth End-to-End Integration", () => {
   let tempDir: string;
+  let turnstileServer: http.Server | undefined;
+  let turnstilePort: number;
   let authProc: ChildProcess | undefined;
   let clusterProc: ChildProcess | undefined;
   let authPort: number;
@@ -154,12 +157,39 @@ describe("Production Multiplayer + Auth End-to-End Integration", () => {
   let baseUrl: string;
   const authLogs: string[] = [];
   const clusterLogs: string[] = [];
+  const turnstileSecret = "mp-e2e-turnstile-secret";
 
   beforeAll(async () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "frontierx-mp-e2e-"));
     authPort = await findFreePort();
     masterPort = await findFreePort();
     baseUrl = `http://127.0.0.1:${masterPort}`;
+
+    turnstileServer = http.createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c: Buffer) => chunks.push(c));
+      req.on("end", () => {
+        const form = new URLSearchParams(
+          Buffer.concat(chunks).toString("utf8"),
+        );
+        const ok =
+          form.get("secret") === turnstileSecret &&
+          (form.get("response") === "ok" ||
+            form.get("response") === "VALID_TEST_TURNSTILE_TOKEN");
+        res.setHeader("content-type", "application/json");
+        res.end(
+          JSON.stringify(
+            ok
+              ? { success: true }
+              : { success: false, "error-codes": ["invalid-input-response"] },
+          ),
+        );
+      });
+    });
+    await new Promise<void>((resolve) =>
+      turnstileServer!.listen(0, "127.0.0.1", () => resolve()),
+    );
+    turnstilePort = (turnstileServer.address() as { port: number }).port;
 
     const tsxBin =
       process.platform === "win32"
@@ -179,7 +209,9 @@ describe("Production Multiplayer + Auth End-to-End Integration", () => {
         AUTH_ISSUER: ISSUER,
         AUTH_AUDIENCE: AUDIENCE,
         AUTH_DATA_DIR: tempDir,
-        AUTH_ALLOW_TURNSTILE_DEV_BYPASS: "true",
+        AUTH_ALLOWED_ORIGINS: `https://${AUDIENCE},${baseUrl}`,
+        TURNSTILE_SECRET_KEY: turnstileSecret,
+        TURNSTILE_SITEVERIFY_URL: `http://127.0.0.1:${turnstilePort}/siteverify`,
         API_KEY,
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -218,10 +250,20 @@ describe("Production Multiplayer + Auth End-to-End Integration", () => {
     });
   }, 45000);
 
-  afterAll(() => {
+  afterAll(async () => {
     killProcessTreeSync(clusterProc?.pid);
     killProcessTreeSync(authProc?.pid);
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    if (turnstileServer) {
+      await new Promise<void>((resolve) =>
+        turnstileServer!.close(() => resolve()),
+      );
+    }
+    fs.rmSync(tempDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
   });
 
   it("rejects unauthorized lobby creation and forged/unsigned WebSocket joins in GAME_ENV=prod", async () => {
@@ -267,7 +309,11 @@ describe("Production Multiplayer + Auth End-to-End Integration", () => {
     expect(badJwtRes.status).toBe(401);
 
     // Authenticated guest provisions valid game first so WS connects to a live worker
-    const gRes = await fetch(`${baseUrl}/api/auth/guest`, { method: "POST" });
+    const gRes = await fetch(`${baseUrl}/api/auth/guest`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ turnstileToken: "VALID_TEST_TURNSTILE_TOKEN" }),
+    });
     expect(gRes.status).toBe(201);
     const guest = (await gRes.json()) as { jwt: string };
 
@@ -311,12 +357,16 @@ describe("Production Multiplayer + Auth End-to-End Integration", () => {
     // Provision two independent guest sessions through Master proxy (/api/auth/guest)
     const guestARes = await fetch(`${baseUrl}/api/auth/guest`, {
       method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ turnstileToken: "VALID_TEST_TURNSTILE_TOKEN" }),
     });
     expect(guestARes.status).toBe(201);
     const guestA = (await guestARes.json()) as { jwt: string };
 
     const guestBRes = await fetch(`${baseUrl}/api/auth/guest`, {
       method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ turnstileToken: "VALID_TEST_TURNSTILE_TOKEN" }),
     });
     expect(guestBRes.status).toBe(201);
     const guestBCookie = extractCookie(guestBRes, "fx_refresh");
@@ -361,6 +411,7 @@ describe("Production Multiplayer + Auth End-to-End Integration", () => {
       body: JSON.stringify({
         email: `host-${Date.now()}@frontierx.test`,
         password: "HostPassword!123",
+        turnstileToken: "VALID_TEST_TURNSTILE_TOKEN",
       }),
     });
     expect(regARes.status).toBe(201);
@@ -477,7 +528,10 @@ describe("Production Multiplayer + Auth End-to-End Integration", () => {
       wsB.close();
       const refreshBRes = await fetch(`${baseUrl}/api/auth/refresh`, {
         method: "POST",
-        headers: { cookie: `fx_refresh=${guestBCookie}` },
+        headers: {
+          origin: baseUrl,
+          cookie: `fx_refresh=${guestBCookie}`,
+        },
       });
       expect(refreshBRes.status).toBe(200);
       const refreshedB = (await refreshBRes.json()) as { jwt: string };
@@ -507,12 +561,18 @@ describe("Production Multiplayer + Auth End-to-End Integration", () => {
   }, 30000);
 
   it("rejects newly banned players on WebSocket join even if their cached 15m JWT has not expired yet", async () => {
-    const gRes = await fetch(`${baseUrl}/api/auth/guest`, { method: "POST" });
+    const gRes = await fetch(`${baseUrl}/api/auth/guest`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ turnstileToken: "VALID_TEST_TURNSTILE_TOKEN" }),
+    });
     expect(gRes.status).toBe(201);
     const hostGuest = (await gRes.json()) as { jwt: string };
 
     const gBanRes = await fetch(`${baseUrl}/api/auth/guest`, {
       method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ turnstileToken: "VALID_TEST_TURNSTILE_TOKEN" }),
     });
     expect(gBanRes.status).toBe(201);
     const bannedGuest = (await gBanRes.json()) as { jwt: string };

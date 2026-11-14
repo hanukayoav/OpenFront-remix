@@ -28,7 +28,7 @@ import {
   Winner,
 } from "../core/Schemas";
 import { replacer } from "../core/Util";
-import { forceRefreshSession, getPlayToken } from "./Auth";
+import { forceRefreshSession, getLocalPlayToken, getPlayToken } from "./Auth";
 import { LobbyConfig } from "./ClientGameRunner";
 import { showInGameAlert } from "./InGameModal";
 import { LocalServer } from "./LocalServer";
@@ -585,7 +585,9 @@ export class Transport {
   }
 
   async joinGame() {
-    const token = await getPlayToken();
+    const token = this.isLocal
+      ? await getLocalPlayToken()
+      : await getPlayToken();
     if (this.isStopped) return;
     this.sendMsg({
       type: "join",
@@ -603,7 +605,9 @@ export class Transport {
     if (!this.isLocal) {
       this.isSessionSynced = false;
     }
-    const token = await getPlayToken();
+    const token = this.isLocal
+      ? await getLocalPlayToken()
+      : await getPlayToken();
     if (this.isStopped) return;
     this.sendMsg({
       type: "rejoin",

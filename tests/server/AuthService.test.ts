@@ -41,6 +41,8 @@ describe("FrontierX AuthService", () => {
   const issuer = `https://${audience}/api`;
   const serverApiKey = "test-internal-api-key-123456";
 
+  const baseOrigin = "http://localhost:9000";
+
   beforeAll(async () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "frontierx-auth-test-"));
     const keyManager = await KeyManager.create({
@@ -87,7 +89,12 @@ describe("FrontierX AuthService", () => {
   afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     auth.close();
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(tempDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
   });
 
   it("exposes EdDSA JWKS and health endpoints", async () => {
@@ -117,7 +124,7 @@ describe("FrontierX AuthService", () => {
     const guestRes = await fetch(`${baseUrl}/auth/guest`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: "{}",
+      body: JSON.stringify({ turnstileToken: "VALID_TURNSTILE_TOKEN" }),
     });
     expect(guestRes.status).toBe(201);
     const guestSetCookies = guestRes.headers.getSetCookie();
@@ -153,7 +160,10 @@ describe("FrontierX AuthService", () => {
     // Rotate refresh token once cleanly.
     const refreshRes1 = await fetch(`${baseUrl}/auth/refresh`, {
       method: "POST",
-      headers: { cookie: `fx_refresh=${refreshCookie1}` },
+      headers: {
+        origin: baseOrigin,
+        cookie: `fx_refresh=${refreshCookie1}`,
+      },
     });
     expect(refreshRes1.status).toBe(200);
     const refreshCookie2 = extractCookieValue(
@@ -166,7 +176,10 @@ describe("FrontierX AuthService", () => {
     // Replay the already-spent cookie: must trigger family revocation and return 401.
     const replayRes = await fetch(`${baseUrl}/auth/refresh`, {
       method: "POST",
-      headers: { cookie: `fx_refresh=${refreshCookie1}` },
+      headers: {
+        origin: baseOrigin,
+        cookie: `fx_refresh=${refreshCookie1}`,
+      },
     });
     expect(replayRes.status).toBe(401);
     expect(await replayRes.json()).toMatchObject({
@@ -176,7 +189,10 @@ describe("FrontierX AuthService", () => {
     // Even the previously-issued valid token #2 in the compromised family is now revoked!
     const followUpRes = await fetch(`${baseUrl}/auth/refresh`, {
       method: "POST",
-      headers: { cookie: `fx_refresh=${refreshCookie2}` },
+      headers: {
+        origin: baseOrigin,
+        cookie: `fx_refresh=${refreshCookie2}`,
+      },
     });
     expect(followUpRes.status).toBe(401);
   });
@@ -185,7 +201,7 @@ describe("FrontierX AuthService", () => {
     const guestRes = await fetch(`${baseUrl}/auth/guest`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: "{}",
+      body: JSON.stringify({ turnstileToken: "VALID_TURNSTILE_TOKEN" }),
     });
     const guestBody = (await guestRes.json()) as {
       jwt: string;
@@ -202,6 +218,7 @@ describe("FrontierX AuthService", () => {
       body: JSON.stringify({
         email: "Commander@FrontierX.Test",
         password: "StrongPassword!123",
+        turnstileToken: "VALID_TURNSTILE_TOKEN",
       }),
     });
     expect(regRes.status).toBe(201);
@@ -224,6 +241,7 @@ describe("FrontierX AuthService", () => {
       body: JSON.stringify({
         email: "commander@frontierx.test",
         password: "StrongPassword!123",
+        turnstileToken: "VALID_TURNSTILE_TOKEN",
       }),
     });
     expect(dupRes.status).toBe(409);
@@ -282,12 +300,12 @@ describe("FrontierX AuthService", () => {
     // Logout revokes session
     const logoutRes = await fetch(`${baseUrl}/auth/logout`, {
       method: "POST",
-      headers: { cookie: `fx_refresh=${loginCookie}` },
+      headers: { origin: baseOrigin, cookie: `fx_refresh=${loginCookie}` },
     });
     expect(logoutRes.status).toBe(200);
     const afterLogoutRefresh = await fetch(`${baseUrl}/auth/refresh`, {
       method: "POST",
-      headers: { cookie: `fx_refresh=${loginCookie}` },
+      headers: { origin: baseOrigin, cookie: `fx_refresh=${loginCookie}` },
     });
     expect(afterLogoutRefresh.status).toBe(401);
 
@@ -307,7 +325,7 @@ describe("FrontierX AuthService", () => {
     const guestRes = await fetch(`${baseUrl}/auth/guest`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: "{}",
+      body: JSON.stringify({ turnstileToken: "VALID_TURNSTILE_TOKEN" }),
     });
     const guestBody = (await guestRes.json()) as {
       jwt: string;
@@ -389,7 +407,7 @@ describe("FrontierX AuthService", () => {
 
     const bannedRefresh = await fetch(`${baseUrl}/auth/refresh`, {
       method: "POST",
-      headers: { cookie: `fx_refresh=${recoveredCookie}` },
+      headers: { origin: baseOrigin, cookie: `fx_refresh=${recoveredCookie}` },
     });
     expect(bannedRefresh.status).toBe(403);
 
@@ -480,6 +498,7 @@ describe("FrontierX AuthService", () => {
         keyManager: km1,
         store: store1,
         dataDir: tightDir,
+        allowTurnstileDevBypass: true,
         rateLimits: {
           guestMaxPerMinute: 2,
           authWriteMaxPerMinute: 5,
@@ -527,6 +546,7 @@ describe("FrontierX AuthService", () => {
         keyManager: km2,
         store: store2,
         dataDir: tightDir,
+        allowTurnstileDevBypass: true,
       });
       const s2 = http.createServer(app2.app);
       await new Promise<void>((r) => s2.listen(0, "127.0.0.1", () => r()));
@@ -547,7 +567,7 @@ describe("FrontierX AuthService", () => {
         `http://127.0.0.1:${p2}/auth/refresh`,
         {
           method: "POST",
-          headers: { cookie: `fx_refresh=${c1}` },
+          headers: { origin: baseOrigin, cookie: `fx_refresh=${c1}` },
         },
       );
       expect(refreshAfterRestart.status).toBe(200);
@@ -555,7 +575,12 @@ describe("FrontierX AuthService", () => {
       await new Promise<void>((r) => s2.close(() => r()));
       app2.close();
     } finally {
-      fs.rmSync(tightDir, { recursive: true, force: true });
+      fs.rmSync(tightDir, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      });
     }
   });
 });

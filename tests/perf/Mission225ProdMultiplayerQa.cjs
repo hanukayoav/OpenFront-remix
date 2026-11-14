@@ -301,6 +301,31 @@ async function startRealAuthDaemon(tracker, authDataDir) {
     );
   }
 
+  const turnstileSecret = "m225-qa-turnstile-secret";
+  const siteverifyServer = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      const form = new URLSearchParams(Buffer.concat(chunks).toString("utf8"));
+      const ok =
+        form.get("secret") === turnstileSecret &&
+        form.get("response") === "test-turnstile-ok";
+      res.setHeader("content-type", "application/json");
+      res.end(
+        JSON.stringify(
+          ok
+            ? { success: true }
+            : { success: false, "error-codes": ["invalid-input-response"] },
+        ),
+      );
+    });
+  });
+  await new Promise((resolve) =>
+    siteverifyServer.listen(0, "127.0.0.1", resolve),
+  );
+  tracker.servers.add(siteverifyServer);
+  const siteverifyPort = siteverifyServer.address().port;
+
   const tsxBin =
     process.platform === "win32"
       ? path.join(ROOT, "node_modules", ".bin", "tsx.cmd")
@@ -317,7 +342,9 @@ async function startRealAuthDaemon(tracker, authDataDir) {
       AUTH_HOST: "127.0.0.1",
       AUTH_PORT: "8787",
       AUTH_DATA_DIR: authDataDir,
-      AUTH_ALLOW_TURNSTILE_DEV_BYPASS: "true",
+      AUTH_ALLOWED_ORIGINS: "http://localhost:*",
+      TURNSTILE_SECRET_KEY: turnstileSecret,
+      TURNSTILE_SITEVERIFY_URL: `http://127.0.0.1:${siteverifyPort}/siteverify`,
       API_KEY,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -508,6 +535,7 @@ async function main() {
     void tracker.cleanupAll().finally(() => process.exit(1));
   }, 150000);
   watchdog.unref();
+  let debugRef = null;
 
   try {
     assert(
@@ -520,7 +548,7 @@ async function main() {
     );
     tracker.tempDirs.add(authDataDir);
 
-    await startRealAuthDaemon(tracker, authDataDir);
+    const authDaemon = await startRealAuthDaemon(tracker, authDataDir);
     const masterPort = await findFreePort();
     const clusterLogs = await startProdCluster(masterPort, tracker);
     const gateway = await startTransparentGateway(masterPort, tracker);
@@ -545,6 +573,15 @@ async function main() {
       baseUrl,
       "CommanderB",
     );
+
+    debugRef = {
+      authDaemon,
+      clusterLogs,
+      browserA,
+      browserB,
+      errorsA,
+      errorsB,
+    };
 
     // Verify AccountModal FrontierX Account / Recovery panel & v1.0.7 branding intact
     await browserA.evalExpr(
@@ -994,6 +1031,23 @@ async function main() {
         errorsB,
       },
     );
+  } catch (err) {
+    if (debugRef) {
+      console.error("[M22.5-QA] Browser-A errors:", debugRef.errorsA);
+      console.error(
+        "[M22.5-QA] Browser-A console tail:",
+        debugRef.browserA._consoleLogs?.slice(-30),
+      );
+      console.error(
+        "[M22.5-QA] Auth logs tail:",
+        debugRef.authDaemon?.logs?.slice(-30),
+      );
+      console.error(
+        "[M22.5-QA] Cluster logs tail:",
+        debugRef.clusterLogs?.slice(-30),
+      );
+    }
+    throw err;
   } finally {
     clearTimeout(watchdog);
     await tracker.cleanupAll();

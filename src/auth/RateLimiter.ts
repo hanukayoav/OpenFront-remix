@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import type { NextFunction, Request, Response } from "express";
+import net from "net";
 
 export interface SlidingWindowLimiterOptions {
   windowMs: number;
@@ -69,26 +70,57 @@ export class SlidingWindowLimiter {
   }
 }
 
-export function getClientIp(req: Request): string {
-  const cfIp = req.header("cf-connecting-ip");
-  if (cfIp && cfIp.trim()) {
-    return cfIp.trim();
+export interface ClientIpOptions {
+  /**
+   * Set ONLY when direct connections from the upstream reverse proxy are
+   * cryptographically or network-restricted to Cloudflare IPs and Nginx strips
+   * untrusted client CF-Connecting-IP headers.
+   */
+  trustCloudflareHeader?: boolean;
+}
+
+function normalizeIp(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("::ffff:")) {
+    return trimmed.slice("::ffff:".length);
   }
-  const forwarded = req.header("x-forwarded-for");
-  if (forwarded) {
-    const first = forwarded.split(",")[0]?.trim();
-    if (first) return first;
+  return trimmed;
+}
+
+function isLoopbackIp(ip: string): boolean {
+  const normalized = normalizeIp(ip);
+  return (
+    normalized === "127.0.0.1" ||
+    normalized === "::1" ||
+    normalized.startsWith("127.")
+  );
+}
+
+/**
+ * Extracts the client IP strictly respecting Express's configured `trust proxy`
+ * boundary (`req.ip`). Spoofable `X-Forwarded-For` leftmost entries and
+ * untrusted `CF-Connecting-IP` headers are ignored by default.
+ */
+export function getClientIp(req: Request, options?: ClientIpOptions): string {
+  const peerIp = normalizeIp(req.socket?.remoteAddress ?? "");
+  if (options?.trustCloudflareHeader && peerIp && isLoopbackIp(peerIp)) {
+    const cfIp = req.header("cf-connecting-ip")?.trim();
+    if (cfIp && net.isIP(normalizeIp(cfIp)) !== 0) {
+      return normalizeIp(cfIp);
+    }
   }
-  const candidate = req.ip ?? req.socket.remoteAddress ?? "";
-  return candidate.length > 0 ? candidate : "unknown";
+
+  const resolved = normalizeIp(req.ip ?? peerIp);
+  return resolved.length > 0 ? resolved : "unknown";
 }
 
 export function createIpRateLimitMiddleware(
   limiter: SlidingWindowLimiter,
   label: string,
+  options?: ClientIpOptions,
 ) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    const key = `${label}:${getClientIp(req)}`;
+    const key = `${label}:${getClientIp(req, options)}`;
     const result = limiter.consume(key);
     if (!result.allowed) {
       res.setHeader("Retry-After", String(result.retryAfterSeconds));
@@ -111,26 +143,41 @@ export function timingSafeEqualStrings(a: string, b: string): boolean {
   return crypto.timingSafeEqual(aBuf, bBuf);
 }
 
+export interface CookieCsrfOptions {
+  /**
+   * When true (default), requests carrying cookies with neither Origin,
+   * Referer, nor an explicit `Sec-Fetch-Site: same-origin` / `none` header are
+   * rejected.
+   */
+  requireOriginWhenCookiePresent?: boolean;
+}
+
 /**
  * Checks whether a cookie-authenticated POST/DELETE/PUT request passes
- * CSRF Origin/Sec-Fetch-Site validation against the configured allowed origins.
+ * CSRF Origin/Referer/Sec-Fetch-Site validation against the configured allowed origins.
  */
 export function isAllowedCookieCsrfRequest(
   req: Request,
   allowedOrigins: Set<string>,
+  options?: CookieCsrfOptions,
 ): boolean {
-  const fetchSite = req.header("sec-fetch-site");
-  if (fetchSite && fetchSite.toLowerCase() === "cross-site") {
+  const fetchSite = req.header("sec-fetch-site")?.trim().toLowerCase();
+  if (
+    fetchSite &&
+    fetchSite !== "same-origin" &&
+    fetchSite !== "same-site" &&
+    fetchSite !== "none"
+  ) {
     return false;
   }
 
   const origin = req.header("origin");
-  if (origin) {
-    return isOriginAllowed(origin, allowedOrigins);
+  if (origin !== undefined) {
+    return isOriginAllowed(origin.trim(), allowedOrigins);
   }
 
   const referer = req.header("referer");
-  if (referer) {
+  if (referer !== undefined) {
     try {
       const refOrigin = new URL(referer).origin;
       return isOriginAllowed(refOrigin, allowedOrigins);
@@ -139,8 +186,20 @@ export function isAllowedCookieCsrfRequest(
     }
   }
 
-  // Non-browser / same-origin clients without Origin or Referer headers are allowed
-  // only when Sec-Fetch-Site isn't cross-site (checked above).
+  if (fetchSite === "same-origin" || fetchSite === "none") {
+    return true;
+  }
+
+  if (fetchSite === "same-site") {
+    return false;
+  }
+
+  const hasCookie = Boolean(req.header("cookie")?.trim());
+  const requireOrigin = options?.requireOriginWhenCookiePresent ?? true;
+  if (requireOrigin && hasCookie) {
+    return false;
+  }
+
   return true;
 }
 

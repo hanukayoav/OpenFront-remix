@@ -170,9 +170,8 @@ export async function startWorker() {
         .status(400)
         .json({ error: "Authorization header required to create a game" });
     }
-    const auth = await verifyClientToken(
-      authHeader.substring("Bearer ".length),
-    );
+    const token = authHeader.substring("Bearer ".length);
+    const auth = await verifyClientToken(token);
     if (auth.type !== "success") {
       log.warn(`Invalid creator token: ${auth.message}`);
       return res.status(401).json({ error: "Invalid creator token" });
@@ -182,6 +181,22 @@ export async function startWorker() {
         persistentID: auth.persistentId,
       });
       return res.status(403).json({ error: "Account Banned" });
+    }
+    if (ServerEnv.env() !== GameEnv.Dev && auth.claims !== null) {
+      const me = await getUserMe(token);
+      if (me.type === "error") {
+        log.warn(`Unauthorized game creator: ${me.message}`, {
+          persistentID: auth.persistentId,
+        });
+        return res.status(401).json({ error: "Invalid creator token" });
+      }
+      if (me.response.ban) {
+        log.warn("Banned user attempted to create game", {
+          persistentID: auth.persistentId,
+          banCategory: me.response.ban.category,
+        });
+        return res.status(403).json({ error: "Account Banned" });
+      }
     }
     const creatorPersistentID = auth.persistentId;
 

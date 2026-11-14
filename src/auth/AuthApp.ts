@@ -1,5 +1,9 @@
 import cors from "cors";
-import express, { type Request, type Response } from "express";
+import express, {
+  type NextFunction,
+  type Request,
+  type Response,
+} from "express";
 import path from "path";
 import type winston from "winston";
 import { z } from "zod";
@@ -14,6 +18,7 @@ import {
 } from "./AuthStore";
 import { KeyManager } from "./KeyManager";
 import {
+  type ClientIpOptions,
   createIpRateLimitMiddleware,
   getClientIp,
   isAllowedCookieCsrfRequest,
@@ -32,13 +37,20 @@ const MIN_PASSWORD_LENGTH = 8;
 const MAX_PASSWORD_LENGTH = 128;
 const USERNAME_REGEX = /^[a-zA-Z0-9_ ]{2,20}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ARCHIVE_GAME_ID_REGEX = /^[a-zA-Z0-9_-]{4,64}$/;
+const MAX_ARCHIVE_JSON_BYTES = 512 * 1024;
 
-const GuestAuthRequestSchema = z.object({}).optional();
+const GuestAuthRequestSchema = z
+  .object({
+    turnstileToken: z.string().min(1).max(4096).optional(),
+  })
+  .optional();
 
 const RegisterRequestSchema = z.object({
   email: z.string().trim().min(3).max(MAX_EMAIL_LENGTH),
   password: z.string().min(MIN_PASSWORD_LENGTH).max(MAX_PASSWORD_LENGTH),
   username: z.string().trim().min(2).max(20).optional(),
+  turnstileToken: z.string().min(1).max(4096).optional(),
 });
 
 const LoginRequestSchema = z.object({
@@ -82,6 +94,12 @@ export interface AuthAppOptions {
   turnstileSecretKey?: string;
   /** Explicitly allow missing Turnstile secret bypass (only for local Dev). */
   allowTurnstileDevBypass?: boolean;
+  /** Whether running in strict production mode (disables dev bypasses & localhost origins). */
+  isProd?: boolean;
+  /** Express `trust proxy` setting (default `"loopback"`). */
+  trustProxy?: boolean | string | number | string[];
+  /** Trust CF-Connecting-IP ONLY when direct peer is a trusted loopback/proxy stripping client headers. */
+  trustCloudflareHeader?: boolean;
   /** Refresh cookie TTL in seconds (default 30 days). */
   refreshTtlSeconds?: number;
   /** Set `Secure` attribute on refresh cookie (default `issuer.startsWith("https://")`). */
@@ -91,6 +109,7 @@ export interface AuthAppOptions {
     guestMaxPerMinute?: number;
     authWriteMaxPerMinute?: number;
     refreshMaxPerMinute?: number;
+    archiveMaxPerMinute?: number;
   };
   /** Custom logger instance. */
   log?: winston.Logger;
@@ -169,21 +188,29 @@ function isValidEmail(raw: string): boolean {
 function buildDefaultAllowedOrigins(
   issuer: string,
   audience: string,
+  isProd: boolean,
 ): Set<string> {
-  const origins = new Set<string>(["http://localhost:*"]);
+  const origins = new Set<string>(isProd ? [] : ["http://localhost:*"]);
   try {
-    origins.add(new URL(issuer).origin);
+    const parsedIssuer = new URL(issuer);
+    if (!isProd || parsedIssuer.protocol === "https:") {
+      origins.add(parsedIssuer.origin);
+    }
   } catch {
     // Ignore non-URL issuer overrides.
   }
   if (audience && audience !== "localhost") {
     origins.add(`https://${audience}`);
-    origins.add(`http://${audience}`);
+    if (!isProd) {
+      origins.add(`http://${audience}`);
+    }
   }
-  origins.add("http://localhost:9000");
-  origins.add("http://localhost:3000");
-  origins.add("http://127.0.0.1:9000");
-  origins.add("http://127.0.0.1:3000");
+  if (!isProd) {
+    origins.add("http://localhost:9000");
+    origins.add("http://localhost:3000");
+    origins.add("http://127.0.0.1:9000");
+    origins.add("http://127.0.0.1:3000");
+  }
   return origins;
 }
 
@@ -191,6 +218,10 @@ export async function createAuthApp(
   options: AuthAppOptions,
 ): Promise<AuthAppHandle> {
   const log = (options.log ?? logger).child({ component: "AuthService" });
+  const isProd = options.isProd ?? false;
+  const allowTurnstileDevBypass = isProd
+    ? false
+    : (options.allowTurnstileDevBypass ?? false);
   const dataDir =
     options.dataDir ?? path.join(process.cwd(), "data", "frontierx-auth");
   const refreshTtlSeconds = options.refreshTtlSeconds ?? 30 * 24 * 3600;
@@ -220,12 +251,17 @@ export async function createAuthApp(
     options.verifyTurnstile ??
     createTurnstileVerifier({
       secretKey: options.turnstileSecretKey,
-      allowDevBypass: options.allowTurnstileDevBypass,
+      allowDevBypass: allowTurnstileDevBypass,
     });
+  const turnstileConfigured =
+    Boolean(options.verifyTurnstile) ||
+    Boolean(options.turnstileSecretKey?.trim());
+  const turnstileVerifyRequired =
+    isProd || !allowTurnstileDevBypass || turnstileConfigured;
 
   const allowedOrigins = options.allowedOrigins
     ? new Set(options.allowedOrigins)
-    : buildDefaultAllowedOrigins(options.issuer, options.audience);
+    : buildDefaultAllowedOrigins(options.issuer, options.audience, isProd);
 
   const guestLimiter = new SlidingWindowLimiter({
     windowMs: 60_000,
@@ -239,10 +275,17 @@ export async function createAuthApp(
     windowMs: 60_000,
     maxRequests: options.rateLimits?.refreshMaxPerMinute ?? 120,
   });
+  const archiveLimiter = new SlidingWindowLimiter({
+    windowMs: 60_000,
+    maxRequests: options.rateLimits?.archiveMaxPerMinute ?? 30,
+  });
+  const clientIpOptions: ClientIpOptions = {
+    trustCloudflareHeader: options.trustCloudflareHeader ?? false,
+  };
 
   const app = express();
   app.disable("x-powered-by");
-  app.set("trust proxy", true);
+  app.set("trust proxy", options.trustProxy ?? "loopback");
 
   app.use(
     cors({
@@ -335,7 +378,7 @@ export async function createAuthApp(
 
   const resolveOptionalGuestUuid = async (
     req: Request,
-  ): Promise<string | undefined> => {
+  ): Promise<{ guestUuid?: string; refreshTokenToRevoke?: string }> => {
     const token = extractBearerToken(req);
     if (token) {
       try {
@@ -346,7 +389,10 @@ export async function createAuthApp(
           existing.accountType === "guest" &&
           !isUserBanned(existing)
         ) {
-          return existing.uuid;
+          return {
+            guestUuid: existing.uuid,
+            refreshTokenToRevoke: parseCookies(req)[REFRESH_COOKIE_NAME],
+          };
         }
       } catch {
         // Ignore expired/invalid optional bearer during registration upgrade.
@@ -354,20 +400,50 @@ export async function createAuthApp(
     }
     const refreshToken = parseCookies(req)[REFRESH_COOKIE_NAME];
     if (refreshToken) {
-      const rotated = store.rotateRefreshSession({
-        refreshToken,
-        userAgent: req.header("user-agent") ?? null,
-        ip: getClientIp(req),
-      });
+      const existing = store.peekRefreshSession(refreshToken);
       if (
-        rotated.status === "ok" &&
-        rotated.user.accountType === "guest" &&
-        !isUserBanned(rotated.user)
+        existing &&
+        existing.accountType === "guest" &&
+        !isUserBanned(existing)
       ) {
-        return rotated.user.uuid;
+        return {
+          guestUuid: existing.uuid,
+          refreshTokenToRevoke: refreshToken,
+        };
       }
     }
-    return undefined;
+    return {};
+  };
+
+  const verifyBotChallenge = async (
+    req: Request,
+    res: Response,
+    token: string | undefined,
+  ): Promise<boolean> => {
+    if (!turnstileVerifyRequired) {
+      return true;
+    }
+    const trimmed = token?.trim() ?? "";
+    if (!trimmed) {
+      res.status(403).json({
+        error: "turnstile_failed",
+        message: "Security verification token is required.",
+      });
+      return false;
+    }
+    const result = await verifyTurnstile({
+      token: trimmed,
+      ip: getClientIp(req, clientIpOptions),
+    });
+    if (!result.ok) {
+      res.status(403).json({
+        error: "turnstile_failed",
+        message: "Security verification failed.",
+        reason: result.reason ?? "turnstile_rejected",
+      });
+      return false;
+    }
+    return true;
   };
 
   const issueAuthResponse = async (args: {
@@ -383,7 +459,7 @@ export async function createAuthApp(
       userUuid: args.user.uuid,
       familyId: args.familyId,
       userAgent: args.req.header("user-agent") ?? null,
-      ip: getClientIp(args.req),
+      ip: getClientIp(args.req, clientIpOptions),
     });
 
     const signed = await keyManager.signAccessToken({
@@ -417,8 +493,54 @@ export async function createAuthApp(
 
   router.get("/health", (_req, res) => {
     res.setHeader("Cache-Control", "no-store");
+    const dbOk = store.ping();
+    const jwksCount = keyManager.getPublicJwks().keys.length;
+    if (!dbOk || jwksCount === 0) {
+      res.status(503).json({
+        status: "error",
+        service: "frontierx-auth",
+        dbOk,
+        jwksCount,
+      });
+      return;
+    }
     res.json({
       status: "ok",
+      service: "frontierx-auth",
+      issuer: keyManager.getIssuer(),
+      audience: keyManager.getAudience(),
+      kid: keyManager.getKid(),
+      jwksKeys: jwksCount,
+    });
+  });
+
+  router.get("/ready", (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const reasons: string[] = [];
+    if (!store.ping()) {
+      reasons.push("sqlite_unavailable");
+    }
+    if (keyManager.getPublicJwks().keys.length === 0) {
+      reasons.push("jwks_empty");
+    }
+    if (isProd) {
+      if (!options.apiKey?.trim()) {
+        reasons.push("api_key_missing");
+      }
+      if (!turnstileConfigured) {
+        reasons.push("turnstile_secret_missing");
+      }
+    }
+    if (reasons.length > 0) {
+      res.status(503).json({
+        status: "not_ready",
+        service: "frontierx-auth",
+        reasons,
+      });
+      return;
+    }
+    res.json({
+      status: "ready",
       service: "frontierx-auth",
       issuer: keyManager.getIssuer(),
       audience: keyManager.getAudience(),
@@ -436,9 +558,7 @@ export async function createAuthApp(
         discord: Boolean(process.env.DISCORD_CLIENT_ID),
         google: Boolean(process.env.GOOGLE_CLIENT_ID),
       },
-      turnstileRequired:
-        (options.turnstileSecretKey?.trim().length ?? 0) > 0 ||
-        Boolean(options.verifyTurnstile),
+      turnstileRequired: turnstileVerifyRequired,
     });
   });
 
@@ -446,10 +566,17 @@ export async function createAuthApp(
 
   router.post(
     "/auth/guest",
-    createIpRateLimitMiddleware(guestLimiter, "auth-guest"),
+    createIpRateLimitMiddleware(guestLimiter, "auth-guest", clientIpOptions),
     async (req, res) => {
       if (!requireCsrf(req, res)) return;
-      GuestAuthRequestSchema.parse(req.body);
+      const parsed = GuestAuthRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          error: "invalid_request",
+          message: "Invalid guest auth payload.",
+        });
+        return;
+      }
 
       const cookies = parseCookies(req);
       const existingRefresh = cookies[REFRESH_COOKIE_NAME];
@@ -457,10 +584,11 @@ export async function createAuthApp(
         const rotated = store.rotateRefreshSession({
           refreshToken: existingRefresh,
           userAgent: req.header("user-agent") ?? null,
-          ip: getClientIp(req),
+          ip: getClientIp(req, clientIpOptions),
         });
         if (rotated.status === "ok") {
           if (isUserBanned(rotated.user)) {
+            store.revokeAllUserSessions(rotated.user.uuid);
             clearRefreshCookie(res);
             res.status(403).json({
               error: "account_banned",
@@ -483,6 +611,11 @@ export async function createAuthApp(
           });
           return;
         }
+        clearRefreshCookie(res);
+      }
+
+      if (!(await verifyBotChallenge(req, res, parsed.data?.turnstileToken))) {
+        return;
       }
 
       const guest = store.createGuestUser();
@@ -497,7 +630,11 @@ export async function createAuthApp(
 
   router.post(
     "/auth/register",
-    createIpRateLimitMiddleware(authWriteLimiter, "auth-register"),
+    createIpRateLimitMiddleware(
+      authWriteLimiter,
+      "auth-register",
+      clientIpOptions,
+    ),
     async (req, res) => {
       if (!requireCsrf(req, res)) return;
       const parsed = RegisterRequestSchema.safeParse(req.body);
@@ -536,11 +673,16 @@ export async function createAuthApp(
         }
       }
 
-      const upgradeGuestUuid = await resolveOptionalGuestUuid(req);
-      const created = store.registerAccount({
+      if (!(await verifyBotChallenge(req, res, parsed.data.turnstileToken))) {
+        return;
+      }
+
+      const { guestUuid, refreshTokenToRevoke } =
+        await resolveOptionalGuestUuid(req);
+      const created = await store.registerAccountAsync({
         email: parsed.data.email,
         password: parsed.data.password,
-        upgradeGuestUuid,
+        upgradeGuestUuid: guestUuid,
         usernameBase: parsed.data.username ?? null,
       });
 
@@ -550,6 +692,10 @@ export async function createAuthApp(
           message: "An account with this email already exists.",
         });
         return;
+      }
+
+      if (created.upgradedFromGuest && refreshTokenToRevoke) {
+        store.revokeRefreshToken(refreshTokenToRevoke);
       }
 
       await issueAuthResponse({
@@ -565,7 +711,11 @@ export async function createAuthApp(
 
   router.post(
     "/auth/login",
-    createIpRateLimitMiddleware(authWriteLimiter, "auth-login"),
+    createIpRateLimitMiddleware(
+      authWriteLimiter,
+      "auth-login",
+      clientIpOptions,
+    ),
     async (req, res) => {
       if (!requireCsrf(req, res)) return;
       const parsed = LoginRequestSchema.safeParse(req.body);
@@ -589,7 +739,7 @@ export async function createAuthApp(
         return;
       }
 
-      const user = store.authenticateAccount(
+      const user = await store.authenticateAccountAsync(
         parsed.data.email,
         parsed.data.password,
       );
@@ -622,7 +772,11 @@ export async function createAuthApp(
 
   router.post(
     "/auth/refresh",
-    createIpRateLimitMiddleware(refreshLimiter, "auth-refresh"),
+    createIpRateLimitMiddleware(
+      refreshLimiter,
+      "auth-refresh",
+      clientIpOptions,
+    ),
     async (req, res) => {
       if (!requireCsrf(req, res)) return;
       res.setHeader("Cache-Control", "no-store");
@@ -636,7 +790,7 @@ export async function createAuthApp(
       const rotated = store.rotateRefreshSession({
         refreshToken,
         userAgent: req.header("user-agent") ?? null,
-        ip: getClientIp(req),
+        ip: getClientIp(req, clientIpOptions),
       });
 
       if (rotated.status === "reused") {
@@ -644,7 +798,7 @@ export async function createAuthApp(
         log.warn("Refresh token reuse detected; session family revoked", {
           userUuid: rotated.userUuid,
           familyId: rotated.familyId,
-          ip: getClientIp(req),
+          ip: getClientIp(req, clientIpOptions),
         });
         res.status(401).json({ error: "refresh_token_reused" });
         return;
@@ -711,7 +865,7 @@ export async function createAuthApp(
       const rotated = store.rotateRefreshSession({
         refreshToken,
         userAgent: req.header("user-agent") ?? null,
-        ip: getClientIp(req),
+        ip: getClientIp(req, clientIpOptions),
       });
       if (rotated.status === "ok") {
         targetUuid = rotated.user.uuid;
@@ -730,7 +884,11 @@ export async function createAuthApp(
 
   router.post(
     "/auth/recovery-code",
-    createIpRateLimitMiddleware(authWriteLimiter, "auth-recovery-code"),
+    createIpRateLimitMiddleware(
+      authWriteLimiter,
+      "auth-recovery-code",
+      clientIpOptions,
+    ),
     async (req, res) => {
       if (!requireCsrf(req, res)) return;
       res.setHeader("Cache-Control", "no-store");
@@ -753,7 +911,11 @@ export async function createAuthApp(
 
   router.post(
     "/auth/recover",
-    createIpRateLimitMiddleware(authWriteLimiter, "auth-recover"),
+    createIpRateLimitMiddleware(
+      authWriteLimiter,
+      "auth-recover",
+      clientIpOptions,
+    ),
     async (req, res) => {
       if (!requireCsrf(req, res)) return;
       res.setHeader("Cache-Control", "no-store");
@@ -768,7 +930,7 @@ export async function createAuthApp(
       const redeemed = store.redeemRecoveryCode({
         recoveryCode: parsed.data.recoveryCode,
         userAgent: req.header("user-agent") ?? null,
-        ip: getClientIp(req),
+        ip: getClientIp(req, clientIpOptions),
       });
       if (redeemed.status !== "ok") {
         res.status(401).json({
@@ -817,6 +979,13 @@ export async function createAuthApp(
     res.setHeader("Cache-Control", "no-store");
     const user = await resolveUserFromBearer(req, res);
     if (!user) return;
+    if (isUserBanned(user)) {
+      res.status(403).json({
+        error: "account_banned",
+        message: "Banned accounts cannot be deleted.",
+      });
+      return;
+    }
     store.deleteUser(user.uuid);
     clearRefreshCookie(res);
     res.status(200).json({ ok: true });
@@ -948,17 +1117,34 @@ export async function createAuthApp(
   router.post("/game/:id", (req, res) => {
     if (!requireApiKey(req, res)) return;
     const gameId = String(req.params.id ?? "").trim();
-    if (!/^[a-zA-Z0-9_-]{4,32}$/.test(gameId)) {
+    if (!ARCHIVE_GAME_ID_REGEX.test(gameId)) {
       res.status(400).json({ error: "invalid_game_id" });
       return;
     }
-    store.saveArchivedGame(gameId, JSON.stringify(req.body ?? {}), null);
+    if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+      res.status(400).json({ error: "invalid_archive_payload" });
+      return;
+    }
+    const serialized = JSON.stringify(req.body);
+    if (Buffer.byteLength(serialized, "utf8") > MAX_ARCHIVE_JSON_BYTES) {
+      res.status(413).json({ error: "archive_too_large" });
+      return;
+    }
+    const saved = store.saveArchivedGame(gameId, serialized, null, null);
+    if (saved.status === "forbidden") {
+      res.status(403).json({ error: "archive_forbidden" });
+      return;
+    }
     res.status(200).json({ ok: true });
   });
 
   router.get("/game/:id", (req, res) => {
     if (!requireApiKey(req, res)) return;
     const gameId = String(req.params.id ?? "").trim();
+    if (!ARCHIVE_GAME_ID_REGEX.test(gameId)) {
+      res.status(400).json({ error: "invalid_game_id" });
+      return;
+    }
     const raw = store.getArchivedGame(gameId);
     if (!raw) {
       res.status(404).json({ error: "game_not_found" });
@@ -968,21 +1154,61 @@ export async function createAuthApp(
     res.status(200).send(raw);
   });
 
-  router.post("/archive_singleplayer_game", async (req, res) => {
-    const user = await resolveUserFromBearer(req, res);
-    if (!user) return;
-    const body = req.body as { gameID?: unknown } | undefined;
-    const gameId =
-      typeof body?.gameID === "string"
-        ? body.gameID.trim()
-        : `sp-${Date.now()}`;
-    store.saveArchivedGame(
-      gameId,
-      JSON.stringify(req.body ?? {}),
-      user.publicId,
-    );
-    res.status(200).json({ ok: true });
-  });
+  router.post(
+    "/archive_singleplayer_game",
+    createIpRateLimitMiddleware(archiveLimiter, "archive-sp", clientIpOptions),
+    async (req, res) => {
+      if (!requireCsrf(req, res)) return;
+      const user = await resolveUserFromBearer(req, res);
+      if (!user) return;
+      if (isUserBanned(user)) {
+        res.status(403).json({ error: "account_banned" });
+        return;
+      }
+      const userRate = archiveLimiter.consume(`archive-user:${user.uuid}`);
+      if (!userRate.allowed) {
+        res.setHeader("Retry-After", String(userRate.retryAfterSeconds));
+        res.status(429).json({
+          error: "rate_limit_exceeded",
+          message: "Archive quota exceeded, please retry later.",
+        });
+        return;
+      }
+      if (
+        !req.body ||
+        typeof req.body !== "object" ||
+        Array.isArray(req.body)
+      ) {
+        res.status(400).json({ error: "invalid_archive_payload" });
+        return;
+      }
+      const body = req.body as { gameID?: unknown };
+      const gameId =
+        typeof body.gameID === "string" && body.gameID.trim().length > 0
+          ? body.gameID.trim()
+          : `sp-${Date.now()}`;
+      if (!ARCHIVE_GAME_ID_REGEX.test(gameId)) {
+        res.status(400).json({ error: "invalid_game_id" });
+        return;
+      }
+      const serialized = JSON.stringify(req.body);
+      if (Buffer.byteLength(serialized, "utf8") > MAX_ARCHIVE_JSON_BYTES) {
+        res.status(413).json({ error: "archive_too_large" });
+        return;
+      }
+      const saved = store.saveArchivedGame(
+        gameId,
+        serialized,
+        user.publicId,
+        user.uuid,
+      );
+      if (saved.status === "forbidden") {
+        res.status(403).json({ error: "archive_forbidden" });
+        return;
+      }
+      res.status(200).json({ ok: true, gameID: gameId });
+    },
+  );
 
   router.post("/matchmaking/checkin", (req, res) => {
     if (!requireApiKey(req, res)) return;
@@ -1008,6 +1234,41 @@ export async function createAuthApp(
 
   app.use((_req, res) => {
     res.status(404).json({ error: "not_found" });
+  });
+
+  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    const parseErr = err as { type?: string; status?: number; name?: string };
+    if (
+      parseErr instanceof SyntaxError ||
+      parseErr?.type === "entity.parse.failed"
+    ) {
+      res.status(400).json({
+        error: "invalid_json",
+        message: "Malformed JSON request body.",
+      });
+      return;
+    }
+    if (parseErr?.type === "entity.too.large" || parseErr?.status === 413) {
+      res.status(413).json({
+        error: "payload_too_large",
+        message: "Request payload exceeds limit.",
+      });
+      return;
+    }
+    if (err instanceof z.ZodError) {
+      res.status(400).json({
+        error: "invalid_request",
+        message: "Invalid request payload.",
+      });
+      return;
+    }
+    log.error("Unhandled auth service error", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    res.status(500).json({
+      error: "internal_error",
+      message: "Internal server error.",
+    });
   });
 
   return {
