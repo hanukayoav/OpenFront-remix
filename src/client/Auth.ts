@@ -12,7 +12,10 @@ import { GameEnv } from "../core/configuration/Config";
 import { getApiBase, getAudience } from "./Api";
 import { crazyGamesSDK } from "./CrazyGamesSDK";
 import { steamSDK } from "./SteamSDK";
-import { isTurnstileClientRequired, requestTurnstileToken } from "./Turnstile";
+import {
+  isTurnstileClientRequired,
+  requestSingleUseTurnstileToken,
+} from "./Turnstile";
 import { generateCryptoRandomUUID } from "./Utils";
 
 export type UserAuth = { jwt: string; claims: TokenPayload } | false;
@@ -525,7 +528,7 @@ export async function ensureGuestSession(
     try {
       let turnstileToken = prefetchedTurnstileToken;
       if (!turnstileToken && isTurnstileClientRequired()) {
-        turnstileToken = (await requestTurnstileToken()).token;
+        turnstileToken = await requestSingleUseTurnstileToken();
       }
       const payload = turnstileToken ? { turnstileToken } : {};
       const response = await fetch(getApiBase() + "/auth/guest", {
@@ -564,7 +567,7 @@ export async function registerAccount(args: {
   try {
     let turnstileToken = args.turnstileToken;
     if (!turnstileToken && isTurnstileClientRequired()) {
-      turnstileToken = (await requestTurnstileToken()).token;
+      turnstileToken = await requestSingleUseTurnstileToken();
     }
     const headers: Record<string, string> = {
       "Content-Type": "application/json",

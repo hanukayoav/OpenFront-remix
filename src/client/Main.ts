@@ -64,7 +64,12 @@ import {
   SendToggleGameStartTimer,
   SendUpdateGameConfigIntentEvent,
 } from "./Transport";
-import { isTurnstileClientRequired, requestTurnstileToken } from "./Turnstile";
+import {
+  consumeTurnstileToken,
+  isTurnstileClientRequired,
+  requestSingleUseTurnstileToken,
+  requestTurnstileToken,
+} from "./Turnstile";
 import { UserSettingModal } from "./UserSettingModal";
 import "./UsernameInput";
 import { genAnonUsername, UsernameInput } from "./UsernameInput";
@@ -1118,7 +1123,7 @@ class Client {
     if (this.turnstileTokenPromise === null || crazyGamesSDK.isOnCrazyGames()) {
       console.log("No prefetched turnstile token, getting new token");
       try {
-        return (await requestTurnstileToken()).token;
+        return await requestSingleUseTurnstileToken();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error(`Turnstile error: ${message}`);
@@ -1127,22 +1132,27 @@ class Client {
       }
     }
 
-    const token = await this.turnstileTokenPromise;
-    // Clear promise so a new token is fetched next time
+    // Take ownership of the single-use prefetched promise synchronously BEFORE
+    // awaiting so concurrent joins cannot consume the same Turnstile token twice.
+    const pendingPrefetch = this.turnstileTokenPromise;
     this.turnstileTokenPromise = null;
-    if (!token) {
-      console.log("No turnstile token");
-      return (await requestTurnstileToken()).token;
+    const prefetched = await pendingPrefetch;
+    const validPrefetched = consumeTurnstileToken(prefetched);
+    if (validPrefetched) {
+      console.log("Prefetched turnstile token is valid");
+      return validPrefetched;
     }
 
-    const tokenTTL = 3 * 60 * 1000;
-    if (Date.now() < token.createdAt + tokenTTL) {
-      console.log("Prefetched turnstile token is valid");
-
-      return token.token;
-    } else {
-      console.log("Turnstile token expired, getting new token");
-      return (await requestTurnstileToken()).token;
+    console.log(
+      "Turnstile token missing, expired, or already used; getting new token",
+    );
+    try {
+      return await requestSingleUseTurnstileToken();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`Turnstile error: ${message}`);
+      alert(`Turnstile error: ${message}. Please refresh and try again.`);
+      throw err;
     }
   }
 }

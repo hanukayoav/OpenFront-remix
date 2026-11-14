@@ -97,7 +97,7 @@
 
     <!-- Cloudflare Turnstile -->
     <script
-      src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+      src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
       async
       defer
     ></script>
@@ -184,17 +184,17 @@
       data-i18n-aria-label="main.menu"
     ></mobile-nav-bar>
 
+    <div
+      id="turnstile-container"
+      class="fixed inset-0 z-[2147483000] flex items-center justify-center p-4 pointer-events-none"
+    ></div>
+
     <!-- MAIN CONTENT AREA -->
     <div
       class="in-[.in-game]:hidden flex-1 relative overflow-hidden h-full transition-[margin] duration-500 ease-out will-change-[margin-left] flex flex-col"
     >
       <!-- Desktop Top Bar -->
       <desktop-nav-bar></desktop-nav-bar>
-
-      <div
-        id="turnstile-container"
-        class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-99999"
-      ></div>
 
       <homepage-promos></homepage-promos>
       <banned-modal></banned-modal>

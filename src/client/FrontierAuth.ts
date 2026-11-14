@@ -1,7 +1,10 @@
 import type { UserMeResponse } from "../core/ApiSchemas";
 import { getApiBase } from "./Api";
 import * as Auth from "./Auth";
-import { isTurnstileClientRequired, requestTurnstileToken } from "./Turnstile";
+import {
+  isTurnstileClientRequired,
+  requestSingleUseTurnstileToken,
+} from "./Turnstile";
 
 export interface FrontierAuthActionResult {
   ok: boolean;
@@ -58,7 +61,7 @@ export async function registerFrontierAccount(args: {
   try {
     let turnstileToken = args.turnstileToken;
     if (!turnstileToken && isTurnstileClientRequired()) {
-      turnstileToken = (await requestTurnstileToken()).token;
+      turnstileToken = await requestSingleUseTurnstileToken();
     }
     const authHeader = await Auth.getAuthHeader().catch(() => "");
     const headers: Record<string, string> = {
