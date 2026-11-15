@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PlayerType } from "../../../src/core/game/Game";
 import {
   AssetCache,
   AvatarSystem,
@@ -9,6 +8,7 @@ import {
   setupDualLayerEngine,
   VisualFxPools,
 } from "../../../src/client/graphics/engine";
+import { PlayerType } from "../../../src/core/game/Game";
 
 describe("OpenFront Dual-Layer Graphics Engine", () => {
   let container: HTMLDivElement;
@@ -758,8 +758,12 @@ describe("OpenFront Dual-Layer Graphics Engine", () => {
       });
       try {
         handle.syncWithSimulation();
-        expect(handle.engine.avatarSystem.getAvatar("local-human")).toBeDefined();
-        expect(handle.engine.avatarSystem.getAvatar("remote-human")).toBeDefined();
+        expect(
+          handle.engine.avatarSystem.getAvatar("local-human"),
+        ).toBeDefined();
+        expect(
+          handle.engine.avatarSystem.getAvatar("remote-human"),
+        ).toBeDefined();
         expect(handle.engine.avatarSystem.getAvatar("bot")).toBeUndefined();
         expect(handle.engine.avatarSystem.getAvatar("nation")).toBeUndefined();
 
