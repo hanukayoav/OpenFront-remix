@@ -771,6 +771,8 @@ describe("OpenFront Dual-Layer Graphics Engine", () => {
         handle.engine.avatarSystem.registerAvatar("bot", 3, 30, 30);
         handle.syncWithSimulation();
         expect(handle.engine.avatarSystem.getAvatar("bot")).toBeUndefined();
+        handle.syncWithSimulation();
+        expect(handle.engine.avatarSystem.getAvatar("bot")).toBeUndefined();
       } finally {
         handle.dispose();
       }
