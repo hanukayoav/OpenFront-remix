@@ -81,6 +81,8 @@ export const JwksSchema = z.object({
       crv: z.literal("Ed25519"),
       kty: z.literal("OKP"),
       x: z.string(),
+      kid: z.string().optional(),
+      use: z.string().optional(),
     })
     .array()
     .min(1),

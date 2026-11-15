@@ -29,6 +29,7 @@ map-generator/*.exe
 *debug*.txt
 eslint_out.txt
 tests/perf/output/
+data/frontierx-auth/
 
 # Locally built Go binary (gen-maps uses `go run .`)
 map-generator/map-generator

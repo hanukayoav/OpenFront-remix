@@ -40,6 +40,14 @@ import { modalHeader } from "./components/ui/ModalHeader";
 import "./components/UsernamePanel";
 import { fetchCosmetics } from "./Cosmetics";
 import { crazyGamesSDK, type CrazyGamesUser } from "./CrazyGamesSDK";
+import {
+  createSessionRecoveryCode,
+  type FrontierAuthProviders,
+  getAuthProvidersInfo,
+  loginFrontierAccount,
+  recoverFrontierSession,
+  registerFrontierAccount,
+} from "./FrontierAuth";
 import { showInGameAlert } from "./InGameModal";
 import { playerProfileUrl } from "./PlayerProfileModal";
 import { steamSDK } from "./SteamSDK";
@@ -70,6 +78,14 @@ export class AccountModal extends BaseModal {
   protected routerName = "account";
 
   @state() private email: string = "";
+  @state() private password: string = "";
+  @state() private frontierAuthMode: "login" | "register" = "login";
+  @state() private authStatusMessage: string | null = null;
+  @state() private authErrorMessage: string | null = null;
+  @state() private authBusy: boolean = false;
+  @state() private recoveryCodeInput: string = "";
+  @state() private generatedRecoveryCode: string | null = null;
+  @state() private authProviders: FrontierAuthProviders | null = null;
   @state() private isLoadingUser: boolean = false;
   // Set on CrazyGames when a CrazyGames user is signed in. Their identity comes
   // from the SDK, not our backend user object.
@@ -223,7 +239,47 @@ export class AccountModal extends BaseModal {
   private renderSettingsTab(): TemplateResult {
     return html`
       <div class="flex flex-col gap-6">
-        ${this.renderMarketingCard()} ${this.renderDeleteAccountCard()}
+        ${this.renderRecoveryCodeCard()} ${this.renderMarketingCard()}
+        ${this.renderDeleteAccountCard()}
+      </div>
+    `;
+  }
+
+  private renderRecoveryCodeCard(): TemplateResult | typeof nothing {
+    if (crazyGamesSDK.isOnCrazyGames() || steamSDK.isOnSteam()) return nothing;
+    return html`
+      <div class="bg-white/5 rounded-xl border border-white/10 p-6">
+        <div class="flex items-start justify-between gap-4">
+          <div class="flex-1">
+            <div class="text-white font-medium">
+              FrontierX Session Recovery Code
+            </div>
+            <div class="text-white/50 text-sm mt-1">
+              Generate a one-time code to restore this player session on another
+              browser or after clearing cookies.
+            </div>
+            ${this.generatedRecoveryCode
+              ? html`<div
+                  class="mt-3 px-3 py-2 rounded-lg bg-black/40 border border-emerald-500/40 font-mono text-sm text-emerald-300 select-all"
+                >
+                  ${this.generatedRecoveryCode}
+                </div>`
+              : nothing}
+            ${this.authErrorMessage
+              ? html`<div class="mt-2 text-xs text-red-400">
+                  ${this.authErrorMessage}
+                </div>`
+              : nothing}
+          </div>
+          <o-button
+            variant="secondary"
+            size="sm"
+            .disable=${this.authBusy}
+            @click=${this.handleGenerateRecoveryCode}
+          >
+            Generate Code
+          </o-button>
+        </div>
       </div>
     `;
   }
@@ -837,37 +893,61 @@ export class AccountModal extends BaseModal {
           </div>
 
           <div class="space-y-6">
-            <!-- Discord Login Button -->
-            <button
-              @click="${this.handleDiscordLogin}"
-              class="w-full px-6 py-4 text-white bg-[#5865F2] hover:bg-[#4752C4] border border-transparent rounded-xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#5865F2] transition-colors duration-200 flex items-center justify-center gap-3 group relative overflow-hidden shadow-lg hover:shadow-[#5865F2]/20"
-            >
-              <img
-                src=${assetUrl("images/DiscordLogo.svg")}
-                alt="Discord"
-                class="w-6 h-6 relative z-10"
-              />
-              <span class="font-bold relative z-10 tracking-wide"
-                >${translateText("main.login_discord") ||
-                translateText("account_modal.link_discord")}</span
-              >
-            </button>
-
-            <!-- Google Login Button (Google brand guidelines: white surface,
-                 dark text, the multicolor "G" mark) -->
-            <button
-              @click="${this.handleGoogleLogin}"
-              class="w-full px-6 py-4 text-[#1f1f1f] bg-white hover:bg-[#f7f8f8] border border-[#dadce0] rounded-xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#4285F4] transition-colors duration-200 flex items-center justify-center gap-3 group relative overflow-hidden shadow-lg"
-            >
-              <img
-                src=${assetUrl("images/GoogleLogo.svg")}
-                alt=${translateText("account_modal.google_alt")}
-                class="w-6 h-6 relative z-10"
-              />
-              <span class="font-bold relative z-10 tracking-wide"
-                >${translateText("main.login_google")}</span
-              >
-            </button>
+            ${this.renderFrontierAccountPanel()}
+            ${this.authProviders === null ||
+            this.authProviders.providers.discord ||
+            this.authProviders.providers.google
+              ? html`
+                  <div class="flex items-center gap-4 py-1">
+                    <div class="h-px bg-white/10 flex-1"></div>
+                    <span
+                      class="text-[10px] uppercase tracking-widest text-white/30 font-bold"
+                    >
+                      ${translateText("account_modal.or")}
+                    </span>
+                    <div class="h-px bg-white/10 flex-1"></div>
+                  </div>
+                `
+              : nothing}
+            ${this.authProviders === null ||
+            this.authProviders.providers.discord
+              ? html`
+                  <!-- Discord Login Button -->
+                  <button
+                    @click="${this.handleDiscordLogin}"
+                    class="w-full px-6 py-4 text-white bg-[#5865F2] hover:bg-[#4752C4] border border-transparent rounded-xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#5865F2] transition-colors duration-200 flex items-center justify-center gap-3 group relative overflow-hidden shadow-lg hover:shadow-[#5865F2]/20"
+                  >
+                    <img
+                      src=${assetUrl("images/DiscordLogo.svg")}
+                      alt="Discord"
+                      class="w-6 h-6 relative z-10"
+                    />
+                    <span class="font-bold relative z-10 tracking-wide"
+                      >${translateText("main.login_discord") ||
+                      translateText("account_modal.link_discord")}</span
+                    >
+                  </button>
+                `
+              : nothing}
+            ${this.authProviders === null || this.authProviders.providers.google
+              ? html`
+                  <!-- Google Login Button (Google brand guidelines: white surface,
+                       dark text, the multicolor "G" mark) -->
+                  <button
+                    @click="${this.handleGoogleLogin}"
+                    class="w-full px-6 py-4 text-[#1f1f1f] bg-white hover:bg-[#f7f8f8] border border-[#dadce0] rounded-xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#4285F4] transition-colors duration-200 flex items-center justify-center gap-3 group relative overflow-hidden shadow-lg"
+                  >
+                    <img
+                      src=${assetUrl("images/GoogleLogo.svg")}
+                      alt=${translateText("account_modal.google_alt")}
+                      class="w-6 h-6 relative z-10"
+                    />
+                    <span class="font-bold relative z-10 tracking-wide"
+                      >${translateText("main.login_google")}</span
+                    >
+                  </button>
+                `
+              : nothing}
 
             <!-- Divider -->
             <div class="flex items-center gap-4 py-2">
@@ -900,6 +980,215 @@ export class AccountModal extends BaseModal {
   private handleEmailInput(e: Event) {
     const target = e.target as HTMLInputElement;
     this.email = target.value;
+  }
+
+  private handlePasswordInput(e: Event) {
+    const target = e.target as HTMLInputElement;
+    this.password = target.value;
+  }
+
+  private handleRecoveryCodeInput(e: Event) {
+    const target = e.target as HTMLInputElement;
+    this.recoveryCodeInput = target.value;
+  }
+
+  private renderFrontierAccountPanel(): TemplateResult {
+    const isRegister = this.frontierAuthMode === "register";
+    return html`
+      <div class="rounded-xl bg-black/25 border border-white/10 p-4 space-y-3">
+        <div class="flex items-center justify-between gap-2">
+          <span
+            class="text-xs font-bold uppercase tracking-wider text-white/70"
+          >
+            FrontierX Account
+          </span>
+          <div class="flex gap-1 bg-white/5 rounded-lg p-0.5 text-xs">
+            <button
+              type="button"
+              @click=${() => {
+                this.frontierAuthMode = "login";
+                this.authErrorMessage = null;
+              }}
+              class="px-2.5 py-1 rounded-md transition-colors ${!isRegister
+                ? "bg-blue-500/30 text-white font-semibold"
+                : "text-white/50 hover:text-white"}"
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              @click=${() => {
+                this.frontierAuthMode = "register";
+                this.authErrorMessage = null;
+              }}
+              class="px-2.5 py-1 rounded-md transition-colors ${isRegister
+                ? "bg-blue-500/30 text-white font-semibold"
+                : "text-white/50 hover:text-white"}"
+            >
+              Create Account
+            </button>
+          </div>
+        </div>
+
+        <input
+          type="email"
+          .value=${this.email}
+          @input=${this.handleEmailInput}
+          placeholder="Email address"
+          class="w-full px-3.5 py-2.5 bg-white/5 border border-white/10 rounded-lg text-sm text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-malibu-blue/50"
+        />
+        <input
+          type="password"
+          .value=${this.password}
+          @input=${this.handlePasswordInput}
+          placeholder="Password (min 8 characters)"
+          class="w-full px-3.5 py-2.5 bg-white/5 border border-white/10 rounded-lg text-sm text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-malibu-blue/50"
+        />
+
+        ${this.authErrorMessage
+          ? html`<div class="text-xs text-red-400 font-medium">
+              ${this.authErrorMessage}
+            </div>`
+          : nothing}
+        ${this.authStatusMessage
+          ? html`<div class="text-xs text-emerald-300 font-medium">
+              ${this.authStatusMessage}
+            </div>`
+          : nothing}
+
+        <button
+          type="button"
+          ?disabled=${this.authBusy}
+          @click=${this.handleFrontierAuthSubmit}
+          class="w-full py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+        >
+          ${isRegister ? "Create / Upgrade FrontierX Account" : "Sign In"}
+        </button>
+
+        <div class="pt-2 border-t border-white/10 space-y-2">
+          <div
+            class="text-[11px] uppercase tracking-wider text-white/40 font-semibold"
+          >
+            Guest / Session Recovery
+          </div>
+          <div class="flex gap-2">
+            <input
+              type="text"
+              .value=${this.recoveryCodeInput}
+              @input=${this.handleRecoveryCodeInput}
+              placeholder="FXREC-XXXX-XXXX-XXXX"
+              class="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-xs font-mono text-white placeholder-white/25 focus:outline-none focus:ring-2 focus:ring-malibu-blue/50"
+            />
+            <button
+              type="button"
+              ?disabled=${this.authBusy}
+              @click=${this.handleRedeemRecoveryCode}
+              class="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-semibold text-white"
+            >
+              Restore
+            </button>
+          </div>
+          <button
+            type="button"
+            ?disabled=${this.authBusy}
+            @click=${this.handleGenerateRecoveryCode}
+            class="text-xs text-blue-300 hover:text-blue-200 underline"
+          >
+            Save recovery code for current guest session
+          </button>
+          ${this.generatedRecoveryCode
+            ? html`<div
+                class="px-3 py-2 rounded-lg bg-black/40 border border-emerald-500/40 font-mono text-xs text-emerald-300 select-all"
+              >
+                ${this.generatedRecoveryCode}
+              </div>`
+            : nothing}
+        </div>
+      </div>
+    `;
+  }
+
+  private async handleFrontierAuthSubmit() {
+    if (this.authBusy) return;
+    const email = this.email.trim();
+    const password = this.password;
+    if (!email || !password) {
+      this.authErrorMessage = "Email and password are required.";
+      return;
+    }
+    this.authBusy = true;
+    this.authErrorMessage = null;
+    this.authStatusMessage = null;
+    const result =
+      this.frontierAuthMode === "register"
+        ? await registerFrontierAccount({ email, password })
+        : await loginFrontierAccount({ email, password });
+    this.authBusy = false;
+    if (!result.ok) {
+      this.authErrorMessage = result.error ?? "Authentication failed.";
+      return;
+    }
+    this.password = "";
+    this.authStatusMessage = result.upgradedFromGuest
+      ? "Guest progress upgraded to FrontierX account."
+      : "Signed in to FrontierX.";
+    invalidateUserMe();
+    const userMe = await getUserMe();
+    if (userMe) {
+      this.userMeResponse = userMe;
+      document.dispatchEvent(
+        new CustomEvent("userMeResponse", { detail: userMe }),
+      );
+      if (userMe.player.publicId) {
+        void this.loadPlayerProfile(userMe.player.publicId);
+      }
+    }
+    this.requestUpdate();
+  }
+
+  private async handleGenerateRecoveryCode() {
+    if (this.authBusy) return;
+    this.authBusy = true;
+    this.authErrorMessage = null;
+    const result = await createSessionRecoveryCode();
+    this.authBusy = false;
+    if (!result.ok || !result.recoveryCode) {
+      this.authErrorMessage =
+        result.error ?? "Could not generate recovery code.";
+      return;
+    }
+    this.generatedRecoveryCode = result.recoveryCode;
+  }
+
+  private async handleRedeemRecoveryCode() {
+    if (this.authBusy) return;
+    const code = this.recoveryCodeInput.trim();
+    if (!code) {
+      this.authErrorMessage = "Enter a recovery code.";
+      return;
+    }
+    this.authBusy = true;
+    this.authErrorMessage = null;
+    const result = await recoverFrontierSession(code);
+    this.authBusy = false;
+    if (!result.ok) {
+      this.authErrorMessage = result.error ?? "Invalid recovery code.";
+      return;
+    }
+    this.recoveryCodeInput = "";
+    this.authStatusMessage = "Session restored successfully.";
+    invalidateUserMe();
+    const userMe = await getUserMe();
+    if (userMe) {
+      this.userMeResponse = userMe;
+      document.dispatchEvent(
+        new CustomEvent("userMeResponse", { detail: userMe }),
+      );
+      if (userMe.player.publicId) {
+        void this.loadPlayerProfile(userMe.player.publicId);
+      }
+    }
+    this.requestUpdate();
   }
 
   private async handleSubmit() {
@@ -998,6 +1287,13 @@ export class AccountModal extends BaseModal {
     void fetchCosmetics().then((cosmetics) => {
       this.cosmetics = cosmetics;
       this.requestUpdate();
+    });
+
+    void getAuthProvidersInfo().then((providers) => {
+      if (providers) {
+        this.authProviders = providers;
+        this.requestUpdate();
+      }
     });
 
     void getUserMe()

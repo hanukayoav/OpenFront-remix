@@ -1,4 +1,4 @@
-import { JWK } from "jose";
+import { createLocalJWKSet, JWK } from "jose";
 import { z } from "zod";
 import { GameID } from "../core/Schemas";
 import { simpleHash } from "../core/Util";
@@ -8,14 +8,20 @@ import {
   parseGameEnv,
 } from "../core/configuration/Config";
 
+type LocalJwkSet = ReturnType<typeof createLocalJWKSet>;
+
 export class ClientEnv {
   private static values: ClientEnvValues | null = null;
-  private static publicKey: JWK | null = null;
+  private static jwksKeys: JWK[] | null = null;
+  private static jwksVerifier: LocalJwkSet | null = null;
+  private static jwksLastFetchMs = 0;
 
   /** Test-only. */
   static reset(): void {
     ClientEnv.values = null;
-    ClientEnv.publicKey = null;
+    ClientEnv.jwksKeys = null;
+    ClientEnv.jwksVerifier = null;
+    ClientEnv.jwksLastFetchMs = 0;
   }
 
   private static get(): ClientEnvValues {
@@ -87,8 +93,21 @@ export class ClientEnv {
     }
     return `https://api.${audience}`;
   }
-  static async jwkPublicKey(): Promise<JWK> {
-    if (ClientEnv.publicKey) return ClientEnv.publicKey;
+  private static async fetchJwks(forceRefresh = false): Promise<{
+    keys: JWK[];
+    verifier: LocalJwkSet;
+  }> {
+    const now = Date.now();
+    if (
+      ClientEnv.jwksKeys &&
+      ClientEnv.jwksVerifier &&
+      (!forceRefresh || now - ClientEnv.jwksLastFetchMs < 5000)
+    ) {
+      return {
+        keys: ClientEnv.jwksKeys,
+        verifier: ClientEnv.jwksVerifier,
+      };
+    }
     const jwksUrl = ClientEnv.jwtIssuer() + "/.well-known/jwks.json";
     console.log(`Fetching JWKS from ${jwksUrl}`);
     const response = await fetch(jwksUrl);
@@ -102,8 +121,21 @@ export class ClientEnv {
       console.error("Error parsing JWKS", error);
       throw new Error("Invalid JWKS");
     }
-    ClientEnv.publicKey = result.data.keys[0];
-    return ClientEnv.publicKey;
+    ClientEnv.jwksLastFetchMs = now;
+    ClientEnv.jwksKeys = result.data.keys;
+    ClientEnv.jwksVerifier = createLocalJWKSet({ keys: result.data.keys });
+    return {
+      keys: ClientEnv.jwksKeys,
+      verifier: ClientEnv.jwksVerifier,
+    };
+  }
+  static async jwkSet(forceRefresh = false): Promise<LocalJwkSet> {
+    const { verifier } = await ClientEnv.fetchJwks(forceRefresh);
+    return verifier;
+  }
+  static async jwkPublicKey(forceRefresh = false): Promise<JWK> {
+    const { keys } = await ClientEnv.fetchJwks(forceRefresh);
+    return keys[0];
   }
   static turnIntervalMs(): number {
     return 100;

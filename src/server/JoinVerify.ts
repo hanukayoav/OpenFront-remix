@@ -106,7 +106,7 @@ export async function verifyJoin(
   clanTag: string | null,
 ): Promise<JoinVerifyResponse> {
   try {
-    const response = await fetch(`${ServerEnv.jwtIssuer()}/join_verify`, {
+    const response = await fetch(`${ServerEnv.internalApiBase()}/join_verify`, {
       method: "POST",
       // First sighting of a novel flagged name adds an LLM round-trip of
       // up to ~3s server-side, so the timeout must stay at 5s or above.

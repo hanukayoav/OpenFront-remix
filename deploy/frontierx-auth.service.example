@@ -1,0 +1,27 @@
+[Unit]
+Description=FrontierX Self-Hosted Auth & API Daemon (Mission 22.5)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/openfront
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=/etc/frontierx/auth.env
+UMask=0077
+# Fail fast if the installed Node.js binary is older than 22.13 or lacks built-in node:sqlite.
+# Verify exact paths on the host with `which node` and `which npm` (e.g. if using nvm, update PATH or use absolute paths).
+ExecStartPre=/usr/bin/env node -e "import('node:sqlite').then(()=>process.exit(0)).catch((e)=>{console.error(e);process.exit(1)})"
+ExecStart=/usr/bin/env npm run start:auth
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/frontierx-auth
+
+[Install]
+WantedBy=multi-user.target

@@ -185,6 +185,20 @@ jobs:
             SERVICE_RESTART_ATTEMPTED=true
             GIT_COMMIT="${DEPLOY_GIT_COMMIT}" pm2 restart openfront-server --update-env
 
+            # Only restart and probe frontierx-auth if the operator has already enabled it on OCI.
+            # This prevents merging auth code from breaking existing deployments before auth provisioning.
+            if systemctl list-unit-files frontierx-auth.service >/dev/null 2>&1 && systemctl is-enabled --quiet frontierx-auth.service; then
+              echo "Restarting configured frontierx-auth.service..."
+              if node -e 'import("node:sqlite").then(()=>process.exit(0)).catch(()=>process.exit(1))'; then
+                sudo systemctl restart frontierx-auth.service
+              else
+                echo "[FATAL] frontierx-auth.service is enabled but Node.js ($(node -v)) lacks unflagged node:sqlite support (requires Node >= 22.13.0)!"
+                exit 1
+              fi
+            else
+              echo "[INFO] frontierx-auth.service is not yet installed/enabled on OCI; leaving auth daemon untouched."
+            fi
+
             echo "=== Step 7: Verifying Service & Network Health ==="
             sleep 3
 
@@ -230,6 +244,9 @@ jobs:
 
             # Required health check probes with bounded retries & strict certificate validation
             probe_endpoint "http://localhost:9001/" "Local HTTP service" 5 2
+            if systemctl is-active --quiet frontierx-auth.service; then
+              probe_endpoint "http://127.0.0.1:8787/ready" "Local FrontierX Auth readiness" 5 2
+            fi
             probe_endpoint "https://openfront-2.duckdns.org/" "External HTTPS web service" 5 2
             probe_endpoint "https://openfront-2.duckdns.org/asset-manifest.json" "External static asset manifest" 5 2
             probe_endpoint "https://openfront-2.duckdns.org/commit.txt" "External commit metadata" 5 2
