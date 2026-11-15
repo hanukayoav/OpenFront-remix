@@ -8,6 +8,7 @@ import {
   setupDualLayerEngine,
   VisualFxPools,
 } from "../../../src/client/graphics/engine";
+import { PlayerType } from "../../../src/core/game/Game";
 
 describe("OpenFront Dual-Layer Graphics Engine", () => {
   let container: HTMLDivElement;
@@ -726,6 +727,57 @@ describe("OpenFront Dual-Layer Graphics Engine", () => {
   // ============================================================
 
   describe("setupDualLayerEngine script", () => {
+    it("shows capital avatars for human players but not AI bots or nations", () => {
+      const makePlayer = (id: string, smallID: number, type: PlayerType) => ({
+        id: () => id,
+        smallID: () => smallID,
+        type: () => type,
+        isAlive: () => true,
+        numTilesOwned: () => 100,
+        state: { spawnTile: smallID * 10 },
+        territoryColor: () => ({ toHex: () => "#3b82f6" }),
+      });
+      const localHuman = makePlayer("local-human", 1, PlayerType.Human);
+      const remoteHuman = makePlayer("remote-human", 2, PlayerType.Human);
+      const bot = makePlayer("bot", 3, PlayerType.Bot);
+      const nation = makePlayer("nation", 4, PlayerType.Nation);
+      const gameView = {
+        width: () => 100,
+        height: () => 100,
+        myPlayer: () => localHuman,
+        players: () => [localHuman, remoteHuman, bot, nation],
+        updatesSinceLastTick: () => null,
+        units: () => [],
+        x: (tile: number) => tile,
+        y: (tile: number) => tile,
+      } as any;
+
+      const handle = setupDualLayerEngine(container, {
+        gameView,
+        autoStart: false,
+      });
+      try {
+        handle.syncWithSimulation();
+        expect(
+          handle.engine.avatarSystem.getAvatar("local-human"),
+        ).toBeDefined();
+        expect(
+          handle.engine.avatarSystem.getAvatar("remote-human"),
+        ).toBeDefined();
+        expect(handle.engine.avatarSystem.getAvatar("bot")).toBeUndefined();
+        expect(handle.engine.avatarSystem.getAvatar("nation")).toBeUndefined();
+
+        // Existing AI avatars are removed on the next simulation sync.
+        handle.engine.avatarSystem.registerAvatar("bot", 3, 30, 30);
+        handle.syncWithSimulation();
+        expect(handle.engine.avatarSystem.getAvatar("bot")).toBeUndefined();
+        handle.syncWithSimulation();
+        expect(handle.engine.avatarSystem.getAvatar("bot")).toBeUndefined();
+      } finally {
+        handle.dispose();
+      }
+    });
+
     it("initializes engine, mounts canvases, and disposes cleanly", () => {
       const handle = setupDualLayerEngine(container, {
         autoStart: false,

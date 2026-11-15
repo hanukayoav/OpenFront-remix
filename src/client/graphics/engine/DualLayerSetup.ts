@@ -10,7 +10,7 @@
 
 import { EventBus } from "../../../core/EventBus";
 import { BotAI } from "../../../core/execution/utils/BotAI";
-import { Structures } from "../../../core/game/Game";
+import { PlayerType, Structures } from "../../../core/game/Game";
 import { GameUpdateType } from "../../../core/game/GameUpdates";
 import {
   getDropIntervalSec,
@@ -242,7 +242,7 @@ export function setupDualLayerEngine(
       typeof (gameView as any).isLand === "function" &&
       typeof (gameView as any).ownerID === "function";
 
-    // Sync territory-aware scaled avatars for both human and AI countries
+    // Sync territory-aware scaled avatars for human-controlled countries only
     if (allPlayers && allPlayers.length > 0) {
       const playerCount = allPlayers.length;
       const budgetSlots = Math.min(playerCount, 12);
@@ -258,6 +258,13 @@ export function setupDualLayerEngine(
         if (!isLocal && p.isAlive() && !assignedBotPersonalities.has(pid)) {
           assignedBotPersonalities.add(pid);
           BotAI.assignPersonality(pid);
+        }
+
+        // Keep the map characters exclusive to human players, including remote humans.
+        // Remove any stale avatar if a player is now controlled by AI.
+        if (p.type() !== PlayerType.Human) {
+          engine.avatarSystem.removeAvatar(pid);
+          continue;
         }
 
         const tilesOwned =
@@ -331,6 +338,7 @@ export function setupDualLayerEngine(
       }
     } else if (
       myPlayer &&
+      myPlayer.type() === PlayerType.Human &&
       myPlayer.state?.spawnTile !== undefined &&
       myPlayer.state?.spawnTile !== null
     ) {
