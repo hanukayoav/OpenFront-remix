@@ -73,7 +73,10 @@ export class ChatModal extends LitElement {
 
   render() {
     return html`
-      <o-modal title="${translateText("chat.title")}">
+      <o-modal
+        title="${translateText("chat.title")}"
+        .onClose=${this.handleModalClose}
+      >
         <div class="chat-columns">
           <div class="chat-column">
             <div class="column-title">${translateText("chat.category")}</div>
@@ -185,11 +188,25 @@ export class ChatModal extends LitElement {
     });
   }
 
-  private selectCategory(categoryId: string) {
-    this.selectedCategory = categoryId;
+  private resetSelection() {
+    this.selectedCategory = null;
     this.selectedPhraseText = null;
+    this.selectedPhraseTemplate = null;
+    this.selectedQuickChatKey = null;
     this.previewText = null;
     this.requiresPlayerSelection = false;
+    this.selectedPlayer = null;
+    this.playerSearchQuery = "";
+  }
+
+  private handleModalClose = () => {
+    this.resetSelection();
+    this.requestUpdate();
+  };
+
+  private selectCategory(categoryId: string) {
+    this.resetSelection();
+    this.selectedCategory = categoryId;
     this.requestUpdate();
   }
 
@@ -206,6 +223,8 @@ export class ChatModal extends LitElement {
     );
     this.previewText = `chat.${this.selectedCategory}.${phrase.key}`;
     this.requiresPlayerSelection = phrase.requiresPlayer;
+    this.selectedPlayer = null;
+    this.playerSearchQuery = "";
     this.requestUpdate();
   }
 
@@ -214,17 +233,20 @@ export class ChatModal extends LitElement {
   }
 
   private selectPlayer(player: PlayerView) {
-    if (this.previewText) {
+    if (this.previewText && this.requiresPlayerSelection) {
       this.previewText =
         this.selectedPhraseTemplate?.replace("[P1]", player.displayName()) ??
         null;
       this.selectedPlayer = player;
-      this.requiresPlayerSelection = false;
       this.requestUpdate();
     }
   }
 
   private sendChatMessage() {
+    if (this.requiresPlayerSelection && !this.selectedPlayer) {
+      return;
+    }
+
     console.log("Sent message:", this.previewText);
     console.log("Sender:", this.sender);
     console.log("Recipient:", this.recipient);
@@ -235,17 +257,12 @@ export class ChatModal extends LitElement {
         new SendQuickChatEvent(
           this.recipient,
           this.selectedQuickChatKey,
-          this.selectedPlayer?.id(),
+          this.requiresPlayerSelection ? this.selectedPlayer?.id() : undefined,
         ),
       );
     }
 
-    this.previewText = null;
-    this.selectedCategory = null;
-    this.requiresPlayerSelection = false;
     this.close();
-
-    this.requestUpdate();
   }
 
   private onPlayerSearchInput(e: Event) {
@@ -272,6 +289,7 @@ export class ChatModal extends LitElement {
   }
 
   public open(sender?: PlayerView, recipient?: PlayerView) {
+    this.resetSelection();
     if (sender && recipient) {
       console.log("Sent message:", recipient);
       console.log("Sent message:", sender);
@@ -287,11 +305,9 @@ export class ChatModal extends LitElement {
   }
 
   public close() {
-    this.selectedCategory = null;
-    this.selectedPhraseText = null;
-    this.previewText = null;
-    this.requiresPlayerSelection = false;
+    this.resetSelection();
     this.modalEl?.close();
+    this.requestUpdate();
   }
 
   public setRecipient(value: PlayerView) {
